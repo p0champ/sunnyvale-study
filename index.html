@@ -43,6 +43,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
 renderer.xr.enabled = true;
 document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer, {
@@ -115,30 +116,56 @@ function photoMaterial(name, repeatX = 1, repeatY = 1, opts = {}) {
   });
 }
 
-// Real 3D models from Poly Haven. Scales a model so its height matches, and stands it on the ground.
+// Real 3D models (Poly Haven + Sketchfab, see CREDITS.md). Each file loads once and can be copied many times.
 const gltfLoader = new GLTFLoader();
-function placeModel(name, { part, height, maxLength, x = 0, y = 0, z = 0, rotY = 0, onLoad } = {}) {
-  gltfLoader.load(`assets/models/${name}/${name}.gltf`, gltf => {
-    let model = gltf.scene;
-    if (part) {                                        // just one piece from a set (e.g. one bottle)
+const modelCache = {};
+function loadModel(name) {
+  return modelCache[name] ??= new Promise((resolve, reject) =>
+    gltfLoader.load(`assets/models/${name}/${name}.gltf`, resolve, undefined, reject));
+}
+
+// Places a copy of a model: sized by height or by length, stood on the ground (or at y), centered on x/z.
+//   part: use just one piece of a set     hide: drop pieces whose name matches (e.g. a ground patch)
+//   alongX: turn it so its long side runs along x first     maxLength: squeeze shorter without making it lower
+function placeModel(name, { part, hide, alongX, height, length, maxLength, shadows = true,
+                            x = 0, y = 0, z = 0, rotY = 0, onLoad } = {}) {
+  loadModel(name).then(gltf => {
+    let model = gltf.scene.clone();
+    if (part) {
       const piece = gltf.scene.getObjectByName(part).clone();
       piece.position.set(0, 0, 0);
       model = new THREE.Group().add(piece);
     }
-    model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
-    if (height) model.scale.setScalar(height / size.y);
-    if (maxLength) {                                   // squeeze it shorter without making it lower
+    if (hide) {
+      const drop = [];
+      model.traverse(o => { if (o.isMesh && hide.test(`${o.name} ${o.material.name}`)) drop.push(o); });
+      drop.forEach(o => o.removeFromParent());
+    }
+    model.traverse(o => { if (o.isMesh) { o.castShadow = shadows; o.receiveShadow = true; } });
+    let size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+    if (alongX && size.z > size.x) {
+      model.rotation.y = Math.PI / 2;
+      model = new THREE.Group().add(model);
+      size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+    }
+    if (length) model.scale.setScalar(length / Math.max(size.x, size.z));
+    else if (height) model.scale.setScalar(height / size.y);
+    if (maxLength) {
       const s = maxLength / (Math.max(size.x, size.z) * model.scale.x);
       if (s < 1) { model.scale.x *= s; model.scale.z *= s; }
     }
-    model.rotation.y = rotY;
+    model.rotation.y += rotY;
     const bounds = new THREE.Box3().setFromObject(model);
     const center = bounds.getCenter(new THREE.Vector3());
     model.position.set(x - center.x, y - bounds.min.y, z - center.z);
     scene.add(model);
-    onLoad?.(model);
-  });
+    onLoad?.(model, bounds.setFromObject(model));
+  }).catch(err => console.error('Could not load model', name, err));
+}
+
+// Some models mark everything as see-through; draw them solid instead
+function solid(model) {
+  model.traverse(o => { if (o.isMesh && o.material.transparent) { o.material.transparent = false; o.material.alphaTest = 0.5; } });
 }
 
 // Height of the top of something at a spot (for putting things on tables and chairs)
@@ -231,60 +258,26 @@ for (const [x, z, r] of [[1.2, 1.8, 0.6], [3.5, -2.6, 0.9], [-0.5, -5, 0.7], [6,
   scene.add(p);
 }
 
-// Dark tree line around the park
+// Pine tree line around the park ("Pine Tree" by evolveduk)
 for (let i = 0; i < 46; i++) {
   const a = (i / 46) * Math.PI * 2 + Math.random() * 0.1;
   const r = 17 + Math.random() * 6;
-  const h = 5 + Math.random() * 5;
-  const tree = new THREE.Mesh(new THREE.ConeGeometry(1.4 + Math.random(), h, 7), mat(0x0f1d14));
-  tree.position.set(Math.cos(a) * r, h / 2, Math.sin(a) * r);
-  scene.add(tree);
+  placeModel('pine_tree', { height: 7 + Math.random() * 5, x: Math.cos(a) * r, z: Math.sin(a) * r,
+                            rotY: Math.random() * Math.PI * 2, shadows: false });
 }
 
-// Red maple trees
+// Red maple trees ("Maple tree" by atrodler, leaves recolored red)
 function maple(x, z, s = 1) {
-  const g = new THREE.Group();
-  cyl(0.12 * s, 0.18 * s, 2.4 * s, 0x3a2416, 0, 1.2 * s, 0, g);
-  const reds = [0x8a1f1f, 0xa52a22, 0x7a1a1a, 0x6b1616];
-  for (let i = 0; i < 7; i++) {
-    const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry((0.7 + Math.random() * 0.4) * s, 0),
-      mat(reds[i % reds.length], { flatShading: true }));
-    leaf.position.set((Math.random() - 0.5) * 1.6 * s, (2.5 + Math.random() * 1.1) * s, (Math.random() - 0.5) * 1.6 * s);
-    g.add(leaf);
-  }
-  g.position.set(x, 0, z);
-  scene.add(g);
+  placeModel('maple_tree', { height: 5.5 * s, x, z, rotY: Math.random() * 6, hide: /grass|groundcover/i, onLoad: model => {
+    model.traverse(o => { if (o.isMesh && /leaf/i.test(o.material.name)) Object.assign(o.material, { alphaTest: 0.5, side: THREE.DoubleSide }).color.setHex(0x8a8a8a); });
+  } });
 }
 maple(6.5, 3.5, 1.2);
 maple(-2, -9, 1);
 maple(9, -7, 1.1);
 
 // ---------- Trailers ----------
-function trailer(color, x, z, rotY) {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(7, 2.4, 2.4), photoMaterial('rusty_painted_metal', 3, 1, { color }));
-  body.position.y = 1.6;
-  g.add(body);
-  box(7.02, 0.18, 2.42, 0x7a5a2a, 0, 1.5, 0, g);                  // faded stripe
-  box(7.1, 0.08, 2.5, 0x5a5850, 0, 2.84, 0, g);                    // roof edge
-  box(0.8, 1.9, 0.04, 0x5a5448, 1.2, 1.35, 1.21, g);               // door
-  box(1.1, 0.7, 0.04, 0x15130f, -1.8, 1.9, 1.21, g);               // window
-  box(1.0, 0.6, 0.05, 0xb8b8b8, 2.6, 1.9, 1.21, g, { metalness: 0.8, roughness: 0.4 }); // tinfoil window
-  for (const wx of [-1.5, 1.5]) {
-    const wheel = cyl(0.33, 0.33, 0.22, 0x141210, wx, 0.33, 1.1, g);
-    wheel.rotation.x = Math.PI / 2;
-  }
-  for (const bx of [-3, 3]) box(0.4, 0.4, 0.4, 0x6a6660, bx, 0.2, 0, g); // cinder blocks
-  g.position.set(x, 0, z);
-  g.rotation.y = rotY;
-  scene.add(g);
-  return g;
-}
-const trailerA = trailer(0x9a9483, -4, -0.5, Math.PI / 2);   // your trailer, long side facing you
-trailer(0x8a8574, 5.5, -6.5, -0.5);
-trailer(0x8f8a7a, -8, -9, 0.3);
-
-// Velvet Elvis painting on your trailer
+// Paintings for your trailer wall
 const velvetElvis = canvasTexture(256, 320, (ctx, w, h) => {
   ctx.fillStyle = '#060406'; ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#1f1a3e';
@@ -299,10 +292,6 @@ const velvetElvis = canvasTexture(256, 320, (ctx, w, h) => {
   ctx.fillStyle = '#d4a24c';
   ctx.beginPath(); ctx.moveTo(78, 210); ctx.lineTo(128, 250); ctx.lineTo(178, 210); ctx.lineTo(160, 200); ctx.lineTo(128, 225); ctx.lineTo(96, 200); ctx.fill(); // big collar
 });
-box(0.62, 0.76, 0.03, 0xa8873a, 0, 1.9, 1.225, trailerA, { metalness: 0.6, roughness: 0.4 });
-picture(velvetElvis, 0.54, 0.68, 0, 1.9, 1.245, trailerA);
-
-// Bukowski page taped to the trailer
 const bukowski = canvasTexture(256, 320, (ctx, w, h) => {
   ctx.fillStyle = '#e4ded0'; ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#3a3632';
@@ -312,11 +301,40 @@ const bukowski = canvasTexture(256, 320, (ctx, w, h) => {
   ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 6;
   ctx.beginPath(); ctx.moveTo(150, 150); ctx.lineTo(196, 140); ctx.stroke();        // cigarette
 });
-picture(bukowski, 0.42, 0.52, -0.75, 1.9, 1.225, trailerA);
-for (const [tx, ty, r] of [[-0.95, 2.14, 0.6], [-0.55, 1.66, 0.6]]) {
-  const tape = box(0.14, 0.04, 0.005, 0xb0b0b0, tx, ty, 1.232, trailerA);
-  tape.rotation.z = r;
+
+// Finds the trailer wall facing you at a spot and hangs things there
+function wallX(model, y, z) {
+  model.updateMatrixWorld(true);
+  const hit = new THREE.Raycaster(new THREE.Vector3(0, y, z), new THREE.Vector3(-1, 0, 0)).intersectObject(model, true)[0];
+  return hit ? hit.point.x : -2.8;
 }
+function hang(texture, w, h, x, y, z, frame) {
+  const g = new THREE.Group();
+  if (frame) box(w + 0.08, h + 0.08, 0.03, frame, 0, 0, 0.015, g, { metalness: 0.6, roughness: 0.4 });
+  picture(texture, w, h, 0, 0, frame ? 0.035 : 0.005, g);
+  g.position.set(x, y, z);
+  g.rotation.y = Math.PI / 2;
+  scene.add(g);
+  return g;
+}
+
+// Your beat-up trailer ("Postapocalyptic trailer" by Hineline), long side facing you
+placeModel('old_trailer', { alongX: true, length: 7.5, x: -4.2, z: -0.5, rotY: Math.PI / 2, onLoad: (model, b) => {
+  model.position.x += -2.8 - b.max.x;                       // front wall lines up with your study corner
+  const y = Math.min(1.75, b.max.y - 0.6);
+  hang(velvetElvis, 0.54, 0.68, wallX(model, y, -0.5) + 0.01, y, -0.5, 0xa8873a);
+  const bz = 0.3;
+  const buk = hang(bukowski, 0.42, 0.52, wallX(model, y, bz) + 0.01, y, bz);
+  for (const [tz, ty, r] of [[0.18, 0.24, 0.6], [-0.18, -0.24, 0.6]]) {
+    const tape = box(0.14, 0.04, 0.005, 0x9a9a9a, tz, ty, 0.012, buk);
+    tape.rotation.z = r;
+  }
+} });
+
+// The neighbours: mobile homes ("Mobile Home" by geevisual55) and an old RV ("Fleetwood Bounder" by Zack_Hawley)
+placeModel('mobile_home', { alongX: true, length: 10, x: 9, z: -9.5, rotY: -0.5 });
+placeModel('mobile_home', { alongX: true, length: 10, x: -8.5, z: -9, rotY: 0.3 });
+placeModel('rv_bounder', { alongX: true, length: 9.5, x: -8, z: 4.5, rotY: 0.9 });
 
 // ---------- Blue tarp over your study corner ----------
 const tarpGeo = new THREE.PlaneGeometry(4.6, 5.4, 8, 8);
@@ -326,7 +344,11 @@ for (let i = 0; i < tp.count; i++) {
   tp.setZ(i, -Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * 0.18);  // a little sag
 }
 tarpGeo.computeVertexNormals();
-const tarp = new THREE.Mesh(tarpGeo, mat(0x2a4a7a, { side: THREE.DoubleSide, roughness: 0.6, emissive: 0x0c1a30 }));
+const tarpWrinkles = texLoader.load('assets/models/rv_bounder/textures/Tarp_normal.jpg');   // wrinkly plastic tarp surface
+tarpWrinkles.wrapS = tarpWrinkles.wrapT = THREE.RepeatWrapping;
+tarpWrinkles.repeat.set(3, 3);
+const tarp = new THREE.Mesh(tarpGeo, new THREE.MeshStandardMaterial({ color: 0x2a4a7a, side: THREE.DoubleSide, roughness: 0.45,
+  emissive: 0x0c1a30, normalMap: tarpWrinkles, normalScale: new THREE.Vector2(1.5, 1.5) }));
 tarp.position.set(-0.6, 2.55, -0.5);
 tarp.rotation.x = -Math.PI / 2;
 tarp.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -0.13);   // high on the trailer side, low by the poles
@@ -366,26 +388,22 @@ placeModel('armchair_used', { height: 0.95, x: -1.9, z: 0.7, rotY: Math.PI / 2 -
     tape.rotation.y = r;
     scene.add(tape);
   }
-  cat(sx - fx * 0.05, seat, sz - fz * 0.05, 1.2);
+  cat(sx - fx * 0.05, seat + 0.04, sz - fz * 0.05, 1.2);
 } });
 
 // Wobbly little table with the typewriter and a bottle in a paper bag
 placeModel('small_wooden_table_01', { height: 0.72, x: -1.0, z: -2.2, onLoad: model => {
   const top = surfaceY(model, -1.0, -2.2, 0.72);
-  box(0.36, 0.12, 0.28, 0x141110, -1.05, top + 0.06, -2.2);
-  const paper = box(0.22, 0.2, 0.005, 0xe6dccb, -1.05, top + 0.21, -2.3);
-  paper.rotation.x = -0.25;
+  placeModel('typewriter', { length: 0.36, x: -1.08, y: top, z: -2.22, rotY: 0, onLoad: solid });
   const bagTop = surfaceY(model, -0.78, -2.0, top);
   box(0.1, 0.2, 0.09, 0x8a6a3a, -0.78, bagTop + 0.1, -2.0);
   placeModel('wine_bottles_01', { part: 'wine_bottles_01_bordeaux', height: 0.3, x: -0.78, y: bagTop + 0.005, z: -2.0 });
 } });
 
-// Record player on cinder blocks
+// Record player on cinder blocks ("Yamaha TT-300" by AleixoAlonso)
 box(0.38, 0.2, 0.2, 0x6a6660, 0.75, 0.1, -2.4);
 box(0.38, 0.2, 0.2, 0x6a6660, 0.75, 0.1, -2.15);
-box(0.44, 0.12, 0.38, 0x3a2a1a, 0.75, 0.26, -2.28);
-cyl(0.15, 0.15, 0.01, 0x0a0808, 0.71, 0.33, -2.28);
-box(0.02, 0.02, 0.18, 0xc0c0c0, 0.9, 0.34, -2.28, scene, { metalness: 0.8 });
+placeModel('record_player', { length: 0.45, x: 0.75, y: 0.2, z: -2.28, rotY: 0, onLoad: solid });
 
 // ---------- Burn barrel ----------
 placeModel('barrel_stove', { height: 0.9, x: 2.7, z: -1.2 });
@@ -419,7 +437,8 @@ const fireLight = new THREE.PointLight(0xff7a30, 10, 9);
 fireLight.position.set(2.7, 1.4, -1.2);
 scene.add(fireLight);
 
-// ---------- String lights from your trailer to the next one ----------
+// ---------- String lights from your trailer to a pole by the drive-in ----------
+cyl(0.04, 0.05, 2.9, 0x5a4a3a, 3.6, 1.45, -5.6);
 const bulbColors = [0xe0453a, 0xf2c94c, 0x4ab36a, 0x4a8ae0];
 const a = new THREE.Vector3(-2.8, 2.75, -3.2), b = new THREE.Vector3(3.6, 2.8, -5.6);
 for (let i = 0; i <= 22; i++) {
@@ -489,25 +508,23 @@ placeModel('wooden_picnic_table', { height: 0.76, maxLength: 2.0, x: 3.4, z: 2.2
   scene.add(decal);
 } });
 
-// ---------- Cats ----------
-function cat(x, y, z, rotY, color = 0x050404) {
-  const g = new THREE.Group();
-  const m = mat(color);
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), m);
-  body.scale.set(1.5, 0.75, 0.9); body.position.y = 0.1; g.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 10), m);
-  head.position.set(0.2, 0.16, 0); g.add(head);
-  for (const ez of [-0.04, 0.04]) {
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.06, 4), m);
-    ear.position.set(0.2, 0.25, ez); g.add(ear);
-  }
-  const tail = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.018, 6, 12, Math.PI), m);
-  tail.position.set(-0.18, 0.04, 0.05); tail.rotation.x = Math.PI / 2; g.add(tail);
-  g.position.set(x, y, z); g.rotation.y = rotY;
-  scene.add(g);
+// ---------- Cats ("Sleeping Cat On The Table" 3D scan by Alben Tan, darkened to black) ----------
+function cat(x, y, z, rotY) {
+  placeModel('sleeping_cat', { length: 0.45, x, y, z, rotY, onLoad: (model, b) => {
+    // The scan includes a bit of the table it slept on: sink it into the ground and cut that off
+    model.position.y -= (b.max.y - b.min.y) * 0.63;
+    const cut = new THREE.Plane(new THREE.Vector3(0, 1, 0), -y);
+    model.traverse(o => {
+      if (!o.isMesh) return;
+      o.material = o.material.clone();
+      o.material.color.setHex(0x3a3a3a);
+      o.material.clippingPlanes = [cut];
+      o.material.clipShadows = true;
+    });
+  } });
 }
 cat(2.0, 0, -0.5, 2.4);
-cat(2.2, 0, -1.9, -0.6, 0x2a2420);
+cat(2.2, 0, -1.9, -0.6);
 
 // ---------- Rain ----------
 const DROPS = 2500;

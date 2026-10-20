@@ -1,0 +1,11 @@
+Model Information:
+* title:	Fleetwood Bounder - Breaking Bad
+* source:	https://sketchfab.com/3d-models/fleetwood-bounder-breaking-bad-85ea7208651a47f6a3b2924dadaeb955
+* author:	Zack_Hawley (https://sketchfab.com/Zack_Hawley)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Fleetwood Bounder - Breaking Bad" (https://sketchfab.com/3d-models/fleetwood-bounder-breaking-bad-85ea7208651a47f6a3b2924dadaeb955) by Zack_Hawley (https://sketchfab.com/Zack_Hawley) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
