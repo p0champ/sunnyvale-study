@@ -10,6 +10,9 @@
   #hint { position: fixed; left: 16px; top: 16px; max-width: 360px; font-size: 14px; line-height: 1.45;
     background: rgba(20, 16, 10, .8); padding: 12px 14px; border-radius: 10px; border: 1px solid #5a4a2a; }
   #hint b { color: #f2c94c; }
+  #enter { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 22px; font: 600 14px system-ui, sans-serif;
+    letter-spacing: .06em; color: #f2e6c8; background: rgba(20, 16, 10, .85); border: 1px solid #a8873a; border-radius: 8px; cursor: pointer; }
+  #enter:disabled { opacity: .5; cursor: default; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -22,13 +25,13 @@
 <div id="hint">
   <b>Sunnyvale Study</b> (step 1: outside park)<br>
   On the computer: drag the background to look around, and drag the cardboard window to move it.<br>
-  On the Quest: press <b>Enter VR</b>, then pinch the window (thumb + index finger) to grab it,
-  or point at it from far away and pinch.
+  On the Quest: press <b>Enter Sunnyvale</b>, then pinch the window (thumb + index finger) to grab it,
+  or point at it from far away and pinch. Turn your palm up for Julian's glass and its menu.<br>
+  Testing on the computer: <b>M</b> shows the menu, <b>S</b> switches to Stark mode.
 </div>
 
 <script type="module">
 import * as THREE from 'three';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
@@ -46,19 +49,41 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.localClippingEnabled = true;
 renderer.xr.enabled = true;
 document.body.appendChild(renderer.domElement);
-document.body.appendChild(VRButton.createButton(renderer, {
-  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
-}));
+let passthrough = false;                  // true when the Quest's cameras are on behind the park
+const enterButton = document.createElement('button');
+enterButton.id = 'enter';
+enterButton.textContent = 'CHECKING...';
+document.body.appendChild(enterButton);
+(async () => {
+  const xr = navigator.xr;
+  const ar = xr ? await xr.isSessionSupported('immersive-ar').catch(() => false) : false;
+  const vr = xr ? await xr.isSessionSupported('immersive-vr').catch(() => false) : false;
+  if (!ar && !vr) { enterButton.textContent = 'VR NOT SUPPORTED'; enterButton.disabled = true; return; }
+  enterButton.textContent = 'ENTER SUNNYVALE';
+  enterButton.onclick = async () => {
+    const session = await xr.requestSession(ar ? 'immersive-ar' : 'immersive-vr', {
+      requiredFeatures: ['local-floor'], optionalFeatures: ['bounded-floor', 'hand-tracking']
+    });
+    passthrough = ar;
+    await renderer.xr.setSession(session);
+  };
+})();
 
 const scene = new THREE.Scene();
+const park = new THREE.Group();          // everything that belongs to Sunnyvale (hidden in Stark mode)
+scene.add(park);
 scene.background = new THREE.Color(0x0b0d14);
 scene.fog = new THREE.Fog(0x0b0d14, 14, 40);
+
+let skyTexture = null;
+let mode = 'sunnyvale';                  // 'sunnyvale' (the park) or 'stark' (your real room + holograms)
+const parkFog = scene.fog;
 
 // Real moonlit night sky (photo from Poly Haven). It also lights the scene.
 new RGBELoader().load('assets/sky/rogland_moonlit_night.hdr', hdr => {
   hdr.mapping = THREE.EquirectangularReflectionMapping;
-  scene.background = hdr;
-  scene.environment = hdr;
+  skyTexture = hdr;
+  if (mode === 'sunnyvale') { scene.background = hdr; scene.environment = hdr; }
   scene.backgroundIntensity = 0.06;     // the photo is brightened; dim it back to real night
   scene.environmentIntensity = 0.18;
 });
@@ -78,13 +103,13 @@ function mat(color, opts = {}) {
   const key = color + JSON.stringify(opts);
   return mats[key] ??= new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...opts });
 }
-function box(w, h, d, color, x, y, z, parent = scene, opts) {
+function box(w, h, d, color, x, y, z, parent = park, opts) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), color.isMaterial ? color : mat(color, opts));
   m.position.set(x, y, z);
   parent.add(m);
   return m;
 }
-function cyl(rt, rb, h, color, x, y, z, parent = scene, opts) {
+function cyl(rt, rb, h, color, x, y, z, parent = park, opts) {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 16), mat(color, opts));
   m.position.set(x, y, z);
   parent.add(m);
@@ -158,7 +183,7 @@ function placeModel(name, { part, hide, alongX, height, length, maxLength, shado
     const bounds = new THREE.Box3().setFromObject(model);
     const center = bounds.getCenter(new THREE.Vector3());
     model.position.set(x - center.x, y - bounds.min.y, z - center.z);
-    scene.add(model);
+    park.add(model);
     onLoad?.(model, bounds.setFromObject(model));
   }).catch(err => console.error('Could not load model', name, err));
 }
@@ -175,7 +200,7 @@ function surfaceY(object, x, z, fallback = 0) {
   return hit ? hit.point.y : fallback;
 }
 
-function picture(texture, w, h, x, y, z, parent = scene) {
+function picture(texture, w, h, x, y, z, parent = park) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9 }));
   m.position.set(x, y, z);
   parent.add(m);
@@ -183,24 +208,24 @@ function picture(texture, w, h, x, y, z, parent = scene) {
 }
 
 // ---------- Light ----------
-scene.add(new THREE.HemisphereLight(0x5a6a8a, 0x1a140c, 0.45));
+park.add(new THREE.HemisphereLight(0x5a6a8a, 0x1a140c, 0.45));
 const moon = new THREE.DirectionalLight(0xa8b8d8, 1.3);
 moon.position.set(-6, 12, -4);
 moon.castShadow = true;
 moon.shadow.mapSize.set(1024, 1024);
 Object.assign(moon.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 30 });
 moon.shadow.bias = -0.0005;
-scene.add(moon);
+park.add(moon);
 const stringGlow = new THREE.PointLight(0xffc070, 4, 10);
 stringGlow.position.set(0.5, 2.4, -3);
-scene.add(stringGlow);
+park.add(stringGlow);
 
 // ---------- Ground: scruffy patchy grass ----------
 const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48),
   photoMaterial('sparse_grass', 32, 32, { metalnessMap: null, metalness: 0, color: 0x9ccc7a }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
-scene.add(ground);
+park.add(ground);
 
 // Soft-edged fade so paths and the gravel patch blend into the grass
 const edgeFade = canvasTexture(4, 256, (ctx, w, h) => {
@@ -235,7 +260,7 @@ function wornPath(points, width = 1.1) {
   geo.computeVertexNormals();
   const path = new THREE.Mesh(geo, photoMaterial('grass_path_2', 1, 1, { ...overlay, alphaMap: edgeFade, side: THREE.DoubleSide, color: 0x8a8070, opacity: 0.8 }));
   path.receiveShadow = true;
-  scene.add(path);
+  park.add(path);
 }
 wornPath([[-1.2, 0.5], [0.6, -0.3], [2.2, -1.0], [3.4, 0.6], [3.6, 2.2]]);   // tarp → barrel → picnic table
 wornPath([[0.2, -1.2], [0.9, -3.0], [1.4, -5.6]]);                          // tarp → the drive-in
@@ -247,7 +272,7 @@ const gravelPatch = new THREE.Mesh(new THREE.CircleGeometry(3, 32),
 gravelPatch.rotation.x = -Math.PI / 2;
 gravelPatch.position.set(7, 0.012, -3);
 gravelPatch.receiveShadow = true;
-scene.add(gravelPatch);
+park.add(gravelPatch);
 
 // Puddles
 for (const [x, z, r] of [[1.2, 1.8, 0.6], [3.5, -2.6, 0.9], [-0.5, -5, 0.7], [6, 0.5, 1.1]]) {
@@ -255,7 +280,7 @@ for (const [x, z, r] of [[1.2, 1.8, 0.6], [3.5, -2.6, 0.9], [-0.5, -5, 0.7], [6,
   p.rotation.x = -Math.PI / 2;
   p.scale.y = 0.7;
   p.position.set(x, 0.005, z);
-  scene.add(p);
+  park.add(p);
 }
 
 // Pine tree line around the park ("Pine Tree" by evolveduk)
@@ -314,7 +339,7 @@ function hang(texture, w, h, x, y, z, frame) {
   picture(texture, w, h, 0, 0, frame ? 0.035 : 0.005, g);
   g.position.set(x, y, z);
   g.rotation.y = Math.PI / 2;
-  scene.add(g);
+  park.add(g);
   return g;
 }
 
@@ -352,7 +377,7 @@ const tarp = new THREE.Mesh(tarpGeo, new THREE.MeshStandardMaterial({ color: 0x2
 tarp.position.set(-0.6, 2.55, -0.5);
 tarp.rotation.x = -Math.PI / 2;
 tarp.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -0.13);   // high on the trailer side, low by the poles
-scene.add(tarp);
+park.add(tarp);
 for (const z of [-3.1, 2.1]) cyl(0.03, 0.03, 2.3, 0x6a6a6a, 1.65, 1.15, z, scene, { metalness: 0.7 });
 
 // Milk-crate bookshelf: three real plastic crates on their sides (the cream books on top are the Bukowski crate)
@@ -369,7 +394,7 @@ gltfLoader.load('assets/models/plastic_crate_01/plastic_crate_01.gltf', gltf => 
     const c = bounds.getCenter(new THREE.Vector3());
     const size = bounds.getSize(new THREE.Vector3());
     crate.position.set(-2.55 - c.x, y - bounds.min.y, -1.7 - c.z);
-    scene.add(crate);
+    park.add(crate);
     bookColors[level].forEach((col, i) =>
       box(0.2, 0.22 + (i % 2) * 0.04, 0.06, col, -2.55, y + 0.14 + (i % 2) * 0.02, -1.7 - size.z / 2 + 0.1 + i * (size.z - 0.2) / 4));
     y += size.y;
@@ -386,7 +411,7 @@ placeModel('armchair_used', { height: 0.95, x: -1.9, z: 0.7, rotY: Math.PI / 2 -
     const tape = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.004, 0.06), tapeMat);
     tape.position.set(sx + fx * d, surfaceY(model, sx + fx * d, sz + fz * d, seat) + 0.003, sz + fz * d);
     tape.rotation.y = r;
-    scene.add(tape);
+    park.add(tape);
   }
   cat(sx - fx * 0.05, seat + 0.04, sz - fz * 0.05, 1.2);
 } });
@@ -418,7 +443,7 @@ const flames = [];
 for (let i = 0; i < 45; i++) {
   const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   f.userData.life = Math.random();
-  scene.add(f);
+  park.add(f);
   flames.push(f);
 }
 function updateFire(dt) {
@@ -435,7 +460,7 @@ function updateFire(dt) {
 }
 const fireLight = new THREE.PointLight(0xff7a30, 10, 9);
 fireLight.position.set(2.7, 1.4, -1.2);
-scene.add(fireLight);
+park.add(fireLight);
 
 // ---------- String lights from your trailer to a pole by the drive-in ----------
 cyl(0.04, 0.05, 2.9, 0x5a4a3a, 3.6, 1.45, -5.6);
@@ -447,7 +472,7 @@ for (let i = 0; i <= 22; i++) {
   p.y -= Math.sin(t * Math.PI) * 0.6;
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), new THREE.MeshBasicMaterial({ color: bulbColors[i % 4] }));
   bulb.position.copy(p);
-  scene.add(bulb);
+  park.add(bulb);
 }
 
 // ---------- Drive-in: bedsheet on a clothesline + projector on a lawn chair ----------
@@ -459,7 +484,7 @@ for (let i = 0; i < sp.count; i++) sp.setZ(i, Math.sin(sp.getX(i) * 3) * 0.04);
 sheet.geometry.computeVertexNormals();
 sheet.position.set(1.4, 1.75, -7.2);
 sheet.rotation.y = -0.11;
-scene.add(sheet);
+park.add(sheet);
 
 placeModel('plastic_monobloc_chair_01', { height: 0.8, x: 1.6, z: -3.8, rotY: Math.PI, onLoad: model => {
   const seat = surfaceY(model, 1.6, -3.8, 0.42);
@@ -479,11 +504,11 @@ gltfLoader.load('assets/models/modular_chainlink_fence/modular_chainlink_fence.g
     const p = panel.clone();
     p.position.set(x - pb.min.x + panel.position.x, -pb.min.y + panel.position.y, -12.5 - (pb.min.z + pb.max.z) / 2 + panel.position.z);
     p.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    scene.add(p);
+    park.add(p);
     const q = post.clone();
     const qb = new THREE.Box3().setFromObject(post);
     q.position.set(x - (qb.min.x + qb.max.x) / 2 + post.position.x, -qb.min.y + post.position.y, -12.5 - (qb.min.z + qb.max.z) / 2 + post.position.z);
-    scene.add(q);
+    park.add(q);
   }
 });
 
@@ -505,7 +530,7 @@ placeModel('wooden_picnic_table', { height: 0.76, maxLength: 2.0, x: 3.4, z: 2.2
     new THREE.MeshStandardMaterial({ map: carving, transparent: true, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2 }));
   decal.rotation.set(-Math.PI / 2, 0, 0.4);
   decal.position.set(from.x, (hit ? hit.point.y : 0.76) + 0.002, from.z);
-  scene.add(decal);
+  park.add(decal);
 } });
 
 // ---------- Cats ("Sleeping Cat On The Table" 3D scan by Alben Tan, darkened to black) ----------
@@ -541,7 +566,7 @@ const rainGeo = new THREE.BufferGeometry();
 rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
 const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0x8aa0b0, transparent: true, opacity: 0.4 }));
 rain.frustumCulled = false;
-scene.add(rain);
+park.add(rain);
 
 function updateRain(dt) {
   const fall = 9 * dt;
@@ -567,6 +592,32 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
     }
     ctx.fillText(line, x, y); y += lineHeight;
   }
+}
+
+// The Stark look: a see-through red-and-gold hologram with glowing edges and scan lines
+function hologramTexture(title, body, W, H) {
+  return canvasTexture(W, H, (ctx) => {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(70, 6, 6, 0.55)';
+    ctx.beginPath(); ctx.roundRect(10, 10, W - 20, H - 20, 18); ctx.fill();
+    ctx.fillStyle = 'rgba(255, 200, 120, 0.05)';                      // scan lines
+    for (let y = 14; y < H - 14; y += 6) ctx.fillRect(14, y, W - 28, 2);
+    ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 18;
+    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.roundRect(10, 10, W - 20, H - 20, 18); ctx.stroke();
+    ctx.lineWidth = 10;                                                 // corner brackets
+    for (const [x, y, dx, dy] of [[24, 24, 1, 1], [W - 24, 24, -1, 1], [24, H - 24, 1, -1], [W - 24, H - 24, -1, -1]]) {
+      ctx.beginPath(); ctx.moveTo(x, y + dy * 60); ctx.lineTo(x, y); ctx.lineTo(x + dx * 60, y); ctx.stroke();
+    }
+    ctx.fillStyle = '#ffd27a';
+    ctx.font = '600 60px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText(title.toUpperCase(), 60, 118);
+    ctx.shadowBlur = 8;
+    ctx.fillRect(60, 140, 260, 4);
+    ctx.fillStyle = '#ffe9c4';
+    ctx.font = '40px "Segoe UI", system-ui, sans-serif';
+    wrapText(ctx, body, 60, 230, W - 120, 58);
+  });
 }
 
 function makeCardboardWindow(title, body, position) {
@@ -599,6 +650,8 @@ function makeCardboardWindow(title, body, position) {
     new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
   mesh.position.copy(position);
   mesh.userData.size = { w, h };
+  mesh.userData.cardboard = texture;
+  mesh.userData.hologram = hologramTexture(title, body, W, H);
   scene.add(mesh);
   panels.push(mesh);
   return mesh;
@@ -645,10 +698,13 @@ function panelNear(point) {
 const handFactory = new XRHandModelFactory();
 const controllerFactory = new XRControllerModelFactory();
 const inputs = [];
+const handModels = [];
 
 for (let i = 0; i < 2; i++) {
   const hand = renderer.xr.getHand(i);
-  hand.add(handFactory.createHandModel(hand, 'mesh'));
+  const handModel = handFactory.createHandModel(hand, 'mesh');
+  hand.add(handModel);
+  handModels.push(handModel);
   scene.add(hand);
 
   const grip = renderer.xr.getControllerGrip(i);
@@ -667,7 +723,7 @@ for (let i = 0; i < 2; i++) {
   const state = { hand, ray, held: null, mode: null, offset: new THREE.Vector3(), dist: 0, isHand: false };
   inputs.push(state);
 
-  ray.addEventListener('connected', e => { state.isHand = !!e.data.hand; });
+  ray.addEventListener('connected', e => { state.isHand = !!e.data.hand; state.handedness = e.data.handedness; });
   ray.addEventListener('selectstart', () => grab(state));
   ray.addEventListener('selectend', () => release(state));
 }
@@ -688,6 +744,13 @@ function rayFrom(state) {
 }
 
 function grab(state) {
+  // Pointing at a menu button and pinching / pulling the trigger presses it.
+  if (menu.visible) {
+    const { origin, dir } = rayFrom(state);
+    raycaster.set(origin, dir);
+    const hit = raycaster.intersectObjects(menuButtons.filter(b => b.visible), false)[0];
+    if (hit) { pressButton(hit.object); return; }
+  }
   // Close grab: pinch right on a window.
   if (state.isHand) {
     const p = pinchPoint(state, new THREE.Vector3());
@@ -730,6 +793,211 @@ function updateHeld() {
   }
 }
 
+// ---------- Julian's glass: turn your palm up and the menu appears ----------
+const menu = new THREE.Group();
+menu.visible = false;
+scene.add(menu);
+
+// The glass itself: a rum and coke on the rocks that never spills
+const realGlass = new THREE.Group();
+const glassMat = new THREE.MeshStandardMaterial({ color: 0xdde8f0, transparent: true, opacity: 0.28, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
+const glassWall = new THREE.Mesh(new THREE.CylinderGeometry(0.037, 0.033, 0.1, 24, 1, true), glassMat);
+glassWall.position.y = 0.05;
+const glassBase = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.012, 24), glassMat);
+glassBase.position.y = 0.006;
+const drink = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.031, 0.06, 24),
+  new THREE.MeshStandardMaterial({ color: 0x3a1608, transparent: true, opacity: 0.88, roughness: 0.1 }));
+drink.position.y = 0.043;
+realGlass.add(glassWall, glassBase, drink);
+for (const [x, z, r] of [[0.01, 0.005, 0.4], [-0.012, -0.006, 1.1]]) {
+  const ice = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xf0f8ff, transparent: true, opacity: 0.55, roughness: 0.05 }));
+  ice.position.set(x, 0.072, z);
+  ice.rotation.set(r, r * 0.7, 0.3);
+  realGlass.add(ice);
+}
+// The glass needs its own light, since the park's lights switch off in Stark mode
+const glassLight = new THREE.PointLight(0xfff2dd, 0.6, 1.5);
+glassLight.position.set(0.1, 0.25, 0.1);
+realGlass.add(glassLight);
+
+// The Stark version: the same glass as a gold wireframe hologram
+const holoGlass = new THREE.Group();
+const holoLine = new THREE.MeshBasicMaterial({ color: 0xf2c94c, wireframe: true, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending });
+const holoWall = new THREE.Mesh(new THREE.CylinderGeometry(0.037, 0.033, 0.1, 16, 3, true), holoLine);
+holoWall.position.y = 0.05;
+const holoDrink = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.031, 0.06, 16),
+  new THREE.MeshBasicMaterial({ color: 0xc4302a, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending }));
+holoDrink.position.y = 0.043;
+holoGlass.add(holoWall, holoDrink);
+holoGlass.visible = false;
+menu.add(realGlass, holoGlass);
+
+// Buttons float above the glass and always face you
+const buttonRow = new THREE.Group();
+buttonRow.position.y = 0.17;
+menu.add(buttonRow);
+const menuButtons = [];
+
+function makeButton(label, drawIcon, action) {
+  const tex = canvasTexture(256, 256, (ctx) => {
+    ctx.fillStyle = 'rgba(16, 14, 12, 0.85)';
+    ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 6; ctx.stroke();
+    ctx.save(); drawIcon(ctx); ctx.restore();
+    ctx.fillStyle = '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(label, 128, 206);
+  });
+  const b = new THREE.Mesh(new THREE.CircleGeometry(0.04, 32),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  b.userData.action = action;
+  b.userData.pulse = 0;
+  buttonRow.add(b);
+  menuButtons.push(b);
+  return b;
+}
+
+// Bubbles' thick round glasses: takes you to Stark mode
+const bubblesButton = makeButton('STARK MODE', (ctx) => {
+  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 12;
+  ctx.beginPath(); ctx.arc(88, 110, 34, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(168, 110, 34, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(116, 104); ctx.quadraticCurveTo(128, 94, 140, 104); ctx.stroke();
+  ctx.fillStyle = 'rgba(200, 230, 255, 0.35)';
+  ctx.beginPath(); ctx.arc(88, 110, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(168, 110, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#f4f0e8';                                              // big magnified eyes
+  ctx.beginPath(); ctx.arc(92, 112, 11, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(172, 112, 11, 0, Math.PI * 2); ctx.fill();
+}, () => setMode('stark'));
+
+// The arc reactor: takes you back to Sunnyvale
+const reactorButton = makeButton('SUNNYVALE', (ctx) => {
+  ctx.shadowColor = '#9fe8ff'; ctx.shadowBlur = 20;
+  ctx.strokeStyle = '#bff2ff'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(128, 108, 56, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 10;
+  for (let i = 0; i < 10; i++) {
+    const a = i / 10 * Math.PI * 2;
+    ctx.beginPath(); ctx.moveTo(128 + Math.cos(a) * 30, 108 + Math.sin(a) * 30);
+    ctx.lineTo(128 + Math.cos(a) * 46, 108 + Math.sin(a) * 46); ctx.stroke();
+  }
+  ctx.fillStyle = '#e8fbff';
+  ctx.beginPath(); ctx.arc(128, 108, 20, 0, Math.PI * 2); ctx.fill();
+}, () => setMode('sunnyvale'));
+reactorButton.visible = false;
+
+let pressCooldown = 0;
+function pressButton(b) {
+  if (pressCooldown > 0) return;
+  pressCooldown = 0.8;
+  b.userData.pulse = 1;
+  b.userData.action();
+}
+
+// Is the palm facing up? (worked out from the wrist and the knuckles)
+function palmInfo(s) {
+  const j = s.hand.joints;
+  const wrist = j['wrist'], idx = j['index-finger-metacarpal'], pinky = j['pinky-finger-metacarpal'], mid = j['middle-finger-metacarpal'];
+  if (!wrist || !idx || !pinky || !mid || !s.hand.visible) return null;
+  const w = wrist.getWorldPosition(new THREE.Vector3());
+  const a = idx.getWorldPosition(new THREE.Vector3()).sub(w);
+  const b = pinky.getWorldPosition(new THREE.Vector3()).sub(w);
+  const normal = new THREE.Vector3().crossVectors(a, b).normalize();
+  if (s.handedness === 'left') normal.negate();
+  const center = mid.getWorldPosition(new THREE.Vector3()).add(w).multiplyScalar(0.5);
+  return { normal, center };
+}
+
+const palm = { state: null, upTime: 0, downTime: 0 };
+function updateMenu(dt) {
+  pressCooldown = Math.max(0, pressCooldown - dt);
+  if (renderer.xr.isPresenting) {
+    let found = null;
+    for (const s of inputs) {
+      if (!s.isHand || s.held) continue;
+      const info = palmInfo(s);
+      const needed = palm.state === s && menu.visible ? 0.45 : 0.75;    // easier to keep it up than to bring it up
+      if (info && info.normal.y > needed) { found = { s, info }; break; }
+    }
+    if (found) {
+      palm.upTime += dt; palm.downTime = 0;
+      if (palm.upTime > 0.25) {
+        if (!menu.visible) { menu.visible = true; menu.scale.setScalar(0.01); }
+        palm.state = found.s;
+        menu.position.copy(found.info.center).addScaledVector(found.info.normal, 0.025);
+      }
+    } else {
+      palm.upTime = 0; palm.downTime += dt;
+      if (palm.downTime > 0.2) { menu.visible = false; palm.state = null; }
+    }
+    // Tap a button with the index finger of your other hand
+    if (menu.visible) {
+      for (const s of inputs) {
+        if (s === palm.state || !s.isHand) continue;
+        const tip = s.hand.joints['index-finger-tip'];
+        if (!tip) continue;
+        const p = tip.getWorldPosition(new THREE.Vector3());
+        for (const b of menuButtons) {
+          if (!b.visible) continue;
+          const local = b.worldToLocal(p.clone());
+          if (Math.abs(local.z) < 0.02 && Math.hypot(local.x, local.y) < 0.045) pressButton(b);
+        }
+      }
+    }
+  }
+  if (menu.visible) {
+    menu.scale.setScalar(Math.min(1, menu.scale.x + dt * 6));              // pops in
+    viewerPosition(tmpVec);
+    buttonRow.lookAt(tmpVec);
+    for (const b of menuButtons) {
+      b.userData.pulse = Math.max(0, b.userData.pulse - dt * 3);
+      b.scale.setScalar(1 + b.userData.pulse * 0.25);
+    }
+  }
+}
+
+// ---------- Switching between Sunnyvale and Stark mode ----------
+function setMode(next) {
+  mode = next;
+  const stark = mode === 'stark';
+  park.visible = !stark;                                                  // the park disappears and your real room shows through
+  scene.background = stark ? null : skyTexture;
+  scene.environment = stark ? null : skyTexture;
+  scene.fog = stark ? null : parkFog;
+  handModels.forEach(h => { h.visible = !stark; });                       // you see your real hands instead
+  realGlass.visible = !stark; holoGlass.visible = stark;
+  bubblesButton.visible = !stark; reactorButton.visible = stark;
+  for (const p of panels) {
+    p.material.map = stark ? p.userData.hologram : p.userData.cardboard;
+    p.material.transparent = stark;
+    p.material.depthWrite = !stark;
+    p.material.needsUpdate = true;
+    p.userData.powerUp = 0;                                               // windows "power up" into holograms
+  }
+}
+
+function updatePanels(dt) {
+  for (const p of panels) {
+    if (p.userData.powerUp === undefined || p.userData.powerUp >= 1) continue;
+    p.userData.powerUp = Math.min(1, p.userData.powerUp + dt * 2.2);
+    const k = p.userData.powerUp;
+    p.scale.y = mode === 'stark' ? Math.max(0.02, k * k) : 1;
+    p.material.opacity = mode === 'stark' ? (Math.random() < 0.25 * (1 - k) ? 0.3 : 0.95) : 1;
+  }
+}
+
+// On the computer: M shows the menu in front of you, S switches modes (for testing without the headset)
+window.addEventListener('keydown', e => {
+  if (e.key === 'm' || e.key === 'M') {
+    menu.visible = !menu.visible;
+    menu.scale.setScalar(1);
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    menu.position.copy(camera.position).addScaledVector(dir, 0.45).add(new THREE.Vector3(0, -0.15, 0));
+  }
+  if (e.key === 's' || e.key === 'S') setMode(mode === 'stark' ? 'sunnyvale' : 'stark');
+});
+
 // ---------- Mouse dragging (computer preview) ----------
 const pointer = new THREE.Vector2();
 const dragPlane = new THREE.Plane();
@@ -742,6 +1010,10 @@ function setPointer(e) {
 
 renderer.domElement.addEventListener('pointerdown', e => {
   setPointer(e);
+  if (menu.visible) {
+    const b = raycaster.intersectObjects(menuButtons.filter(b => b.visible), false)[0];
+    if (b) { pressButton(b.object); return; }
+  }
   const hit = raycaster.intersectObjects(panels, false)[0];
   if (!hit) return;
   drag.panel = hit.object;
@@ -772,7 +1044,11 @@ window.addEventListener('resize', () => {
 });
 
 renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; });
-renderer.xr.addEventListener('sessionend', () => { document.getElementById('hint').style.display = ''; });
+renderer.xr.addEventListener('sessionend', () => {
+  document.getElementById('hint').style.display = '';
+  menu.visible = false;
+  if (mode === 'stark') setMode('sunnyvale');
+});
 
 panels.forEach(faceViewer);
 
@@ -788,6 +1064,8 @@ renderer.setAnimationLoop(() => {
   fireLight.intensity = 9 + Math.sin(t * 13) * 1.5 + Math.sin(t * 7.3) * 1.5;
   updateFire(dt);
   updateHeld();
+  updateMenu(dt);
+  updatePanels(dt);
   renderer.render(scene, camera);
 });
 </script>
