@@ -37,6 +37,7 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------- Basic setup ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -45,9 +46,12 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.autoUpdate = false;                 // the park doesn't move: draw shadows once, not every frame
+function refreshShadows() { renderer.shadowMap.needsUpdate = true; }
 renderer.localClippingEnabled = true;
 renderer.xr.enabled = true;
+renderer.xr.setFoveation(1);
 document.body.appendChild(renderer.domElement);
 let passthrough = false;                  // true when the Quest's cameras are on behind the park
 const enterButton = document.createElement('button');
@@ -80,7 +84,7 @@ let mode = 'sunnyvale';                  // 'sunnyvale' (the park) or 'stark' (y
 const parkFog = scene.fog;
 
 const skySphere = new THREE.Mesh(new THREE.SphereGeometry(80, 48, 24),
-  new THREE.MeshBasicMaterial({ color: 0x0b0d14, side: THREE.BackSide, transparent: true, depthWrite: false, fog: false }));
+  new THREE.MeshBasicMaterial({ color: 0x0b0d14, side: THREE.BackSide, depthWrite: false, fog: false }));
 skySphere.renderOrder = -10;
 scene.add(skySphere);
 
@@ -100,7 +104,7 @@ const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerH
 camera.position.set(0, 1.6, 1.6);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-window.studyDebug = { scene, camera, look(px, py, pz, tx, ty, tz) { camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update(); } };
+window.studyDebug = { scene, camera, renderer, look(px, py, pz, tx, ty, tz) { camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update(); } };
 controls.target.set(0, 1.4, -0.9);
 controls.enableDamping = true;
 controls.update();
@@ -157,6 +161,29 @@ function loadModel(name) {
     gltfLoader.load(`assets/models/${name}/${name}.gltf`, resolve, undefined, reject));
 }
 
+// Glues a model's many small pieces into one piece per material. Looks identical, but the Quest
+// draws a few big pieces much faster than thousands of small ones (the maples had 2,000 each).
+function mergeByMaterial(root) {
+  root.updateMatrixWorld(true);
+  const toRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const groups = new Map();
+  root.traverse(o => {
+    if (!o.isMesh || Array.isArray(o.material)) return;
+    const key = `${o.material.uuid}|${Object.keys(o.geometry.attributes).sort().join(',')}|${!!o.geometry.index}`;
+    if (!groups.has(key)) groups.set(key, { material: o.material, meshes: [] });
+    groups.get(key).meshes.push(o);
+  });
+  const merged = new THREE.Group();
+  for (const { material, meshes } of groups.values()) {
+    const geos = meshes.map(o => o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(toRoot, o.matrixWorld)));
+    const geo = geos.length === 1 ? geos[0] : mergeGeometries(geos);
+    if (!geo) { meshes.forEach(o => merged.add(o.clone())); continue; }  // couldn't glue these: keep them as they were
+    merged.add(new THREE.Mesh(geo, material));
+  }
+  return merged;
+}
+function countMeshes(root) { let n = 0; root.traverse(o => { if (o.isMesh) n++; }); return n; }
+
 // Places a copy of a model: sized by height or by length, stood on the ground (or at y), centered on x/z.
 //   part: use just one piece of a set     hide: drop pieces whose name matches (e.g. a ground patch)
 //   alongX: turn it so its long side runs along x first     maxLength: squeeze shorter without making it lower
@@ -174,6 +201,7 @@ function placeModel(name, { part, hide, alongX, height, length, maxLength, shado
       model.traverse(o => { if (o.isMesh && hide.test(`${o.name} ${o.material.name}`)) drop.push(o); });
       drop.forEach(o => o.removeFromParent());
     }
+    if (countMeshes(model) > 8) model = mergeByMaterial(model);
     model.traverse(o => { if (o.isMesh) { o.castShadow = shadows; o.receiveShadow = true; } });
     let size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
     if (alongX && size.z > size.x) {
@@ -194,6 +222,7 @@ function placeModel(name, { part, hide, alongX, height, length, maxLength, shado
     patchTree(model);
     park.add(model);
     onLoad?.(model, bounds.setFromObject(model));
+    refreshShadows();
   }).catch(err => console.error('Could not load model', name, err));
 }
 
@@ -225,9 +254,6 @@ moon.shadow.mapSize.set(1024, 1024);
 Object.assign(moon.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 30 });
 moon.shadow.bias = -0.0005;
 park.add(moon);
-const stringGlow = new THREE.PointLight(0xffc070, 4, 10);
-stringGlow.position.set(0.5, 2.4, -3);
-park.add(stringGlow);
 
 // ---------- Ground: scruffy patchy grass ----------
 const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48),
@@ -292,13 +318,30 @@ for (const [x, z, r] of [[1.2, 1.8, 0.6], [3.5, -2.6, 0.9], [-0.5, -5, 0.7], [6,
   park.add(p);
 }
 
-// Pine tree line around the park ("Pine Tree" by evolveduk)
-for (let i = 0; i < 46; i++) {
-  const a = (i / 46) * Math.PI * 2 + Math.random() * 0.1;
-  const r = 17 + Math.random() * 6;
-  placeModel('pine_tree', { height: 7 + Math.random() * 5, x: Math.cos(a) * r, z: Math.sin(a) * r,
-                            rotY: Math.random() * Math.PI * 2, shadows: false });
-}
+// Pine tree line around the park ("Pine Tree" by evolveduk). Drawn as one batch: the Quest
+// draws the same tree in 24 places in one go instead of 36 separate times.
+loadModel('pine_tree').then(gltf => {
+  const tree = mergeByMaterial(gltf.scene.clone());
+  const b = new THREE.Box3().setFromObject(tree), c = b.getCenter(new THREE.Vector3());
+  const COUNT = 24, matrices = [];
+  for (let i = 0; i < COUNT; i++) {
+    const a = (i / COUNT) * Math.PI * 2 + Math.random() * 0.12;
+    const r = 17 + Math.random() * 6;
+    const s = (8 + Math.random() * 5) / (b.max.y - b.min.y);
+    matrices.push(new THREE.Matrix4().compose(
+      new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI * 2),
+      new THREE.Vector3(s, s, s)
+    ).multiply(new THREE.Matrix4().makeTranslation(-c.x, -b.min.y, -c.z)));
+  }
+  tree.children.forEach(piece => {
+    const batch = new THREE.InstancedMesh(piece.geometry, piece.material, COUNT);
+    matrices.forEach((m, k) => batch.setMatrixAt(k, m));
+    batch.computeBoundingSphere();
+    patchTree(batch);
+    park.add(batch);
+  });
+});
 
 // Red maple trees ("Maple tree" by atrodler, leaves recolored red)
 function maple(x, z, s = 1) {
@@ -564,7 +607,7 @@ cat(2.0, 0, -0.5, 2.4);
 cat(2.2, 0, -1.9, -0.6);
 
 // ---------- Rain ----------
-const DROPS = 2500;
+const DROPS = 1600;
 const rainPos = new Float32Array(DROPS * 6);
 function underTarp(x, z) { return x > -3 && x < 1.8 && z > -3.3 && z < 2.3; }
 function resetDrop(i, randomY) {
@@ -828,10 +871,6 @@ for (const [x, z, r] of [[0.01, 0.005, 0.4], [-0.012, -0.006, 1.1]]) {
   ice.rotation.set(r, r * 0.7, 0.3);
   realGlass.add(ice);
 }
-// The glass needs its own light, since the park's lights switch off in Stark mode
-const glassLight = new THREE.PointLight(0xfff2dd, 0.6, 1.5);
-glassLight.position.set(0.1, 0.25, 0.1);
-realGlass.add(glassLight);
 
 // The Stark version: a glowing arc reactor hovering over your palm instead of the glass
 const reactor = new THREE.Group();
@@ -988,6 +1027,8 @@ function updateMenu(dt) {
 // Final state of a mode (used at the end of the transition, and when leaving the headset)
 function setMode(next) {
   mode = next;
+  skySphere.material.transparent = false;
+  refreshShadows();
   const stark = mode === 'stark';
   park.visible = !stark;                                                  // the park disappears and your real room shows through
   skySphere.visible = !stark;
@@ -1051,7 +1092,7 @@ function patchMaterial(m) {
   m.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, dissolve);
     shader.vertexShader = 'varying vec3 vDWorld;\n' + shader.vertexShader.replace('#include <project_vertex>',
-      '#include <project_vertex>\n  vDWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      '#include <project_vertex>\n  #ifdef USE_INSTANCING\n  vDWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n  #else\n  vDWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  #endif');
     shader.fragmentShader = 'varying vec3 vDWorld;\nuniform vec3 uCenter;\nuniform float uRadius;\nuniform float uOn;\n' +
       shader.fragmentShader
         .replace('#include <clipping_planes_fragment>',
@@ -1197,7 +1238,7 @@ function startTransition(to) {
   try { playWhoosh(to === 'stark'); } catch (e) { /* no sound available */ }
   if (to === 'sunnyvale') {                       // bring the park back, fully hidden, then shrink the hole
     park.visible = true;
-    skySphere.visible = true; skySphere.material.opacity = 0;
+    skySphere.visible = true; skySphere.material.opacity = 0; skySphere.material.transparent = true;
     scene.environment = skyTexture; scene.fog = parkFog;
     dissolve.uRadius.value = MAX_RADIUS; dissolve.uOn.value = 1;
     handModels.forEach(h => { h.visible = true; });
@@ -1224,6 +1265,7 @@ function updateTransition(dt) {
     shockwave.scale.set(Math.max(0.01, r), 1, Math.max(0.01, r));
     shockwave.material.uniforms.uFade.value = (toStark ? 1 - k * 0.6 : 0.4 + k * 0.6) * THREE.MathUtils.smoothstep(r, 0.8, 3);   // fades in once it's clear of your head
     skySphere.material.opacity = toStark ? 1 - k : k;
+    skySphere.material.transparent = true;
     if (!trans.windows && k > (toStark ? 0.12 : 0.75)) { trans.windows = true; applyWindows(toStark); }
   }
   // Fire in the barrel goes out when the shockwave passes it
