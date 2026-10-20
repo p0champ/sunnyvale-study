@@ -40,3 +40,9 @@ Until connected, the existing buttons still open outside VR as requested in NEXT
 References: [Playwright persistent contexts](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context), [Chromium screencast protocol](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-startScreencast), [Anthropic custom connectors](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp), [Cloudflare quick tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/).
 
 Chrome references: [Debugger extension API](https://developer.chrome.com/docs/extensions/reference/api/debugger), [WebSocket service worker lifetime](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets), [Default-profile debugging restrictions](https://developer.chrome.com/blog/remote-debugging-port).
+
+## If Quest stays on Connecting
+
+Refresh the live app so the latest version of the connection module loads. The page now distinguishes connecting to the secure address (15-second limit) from checking pairing after the socket opens (8-second limit). It reports pairing rejection separately from a network failure and validates that the pairing code is complete. It never prints the code.
+
+Opening the relay's HTTPS /health page on Quest is a useful reachability check, but does not prove that the WebSocket handshake/pairing succeeds. Ask for the exact connection status before changing settings. Check the current address against the private shortcut, preserve the existing pairing code, and disconnect other Sunnyvale frontend pages while keeping the Chrome extension connected. Do not restart the relay or regenerate credentials just to clear the status message.

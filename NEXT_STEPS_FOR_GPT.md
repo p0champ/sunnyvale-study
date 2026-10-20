@@ -11,6 +11,8 @@ Read `HANDOVER.md` first, especially **Start here: current checkpoint**, then `b
 
 **User-confirmed:** in-world windows appeared in the original version; the Sunnyvale Browser Bridge extension is now installed in their ordinary Google Chrome and they have explicitly said it is connected. They have also confirmed Claude is signed in on the PC in Chrome. Do not repeat extension installation/pairing or Claude PC sign-in instructions unless troubleshooting requires them.
 
+**Current blocker:** the Quest Sunnyvale page stays on Connecting. User confirmed /health at the current secure relay address opens on Quest with ok/true. PC health and authenticated WSS pairing pass, so do not assume that HTTPS reachability proves Quest WebSocket pairing. A diagnostic frontend update adds open/pairing timeouts, explicit failure messages and a cache version. Next: user refreshes/retries and reports the exact new status. Backend was not restarted; address and code are unchanged. Keep this blocker ahead of the account-in-VR test.
+
 **Not yet confirmed:** real Claude/WhatsApp usability inside VR after replacing automated Chromium with normal Chrome. The old version had Claude bot-verification loops and a WhatsApp browser-update message; these motivated the replacement. Never claim that real sign-in or playback passed based only on fixture tests.
 
 Continue simply, one user step at a time:
