@@ -1,6 +1,8 @@
-# Sunnyvale PC browser bridge — first Quest test
+# Sunnyvale PC browser bridge — normal Chrome connection
 
 This keeps real web pages inside the current Sunnyvale world. Your Windows PC and your usual Google Chrome must stay open. The Sunnyvale extension connects to real tabs in the Chrome profile you already use. No API key, copied cookies, copied profile or automated Chromium is used in normal operation. Sign in yourself on the PC if needed. Login sessions last as long as the sites allow; occasional sign-in and verification can still happen.
+
+For the latest user-confirmed setup and the exact next step, see `../HANDOVER.md`. The instructions below are a setup reference; do not repeat completed steps unnecessarily.
 
 ## Add the Chrome extension once
 
@@ -8,7 +10,7 @@ This keeps real web pages inside the current Sunnyvale world. Your Windows PC an
 2. Turn on **Developer mode**, press **Load unpacked**, and select `F:\QuestStudySpace\bridge\chrome-extension`.
 3. Click Chrome's puzzle-piece Extensions button, then **Sunnyvale Browser Bridge**.
 4. Choose `F:\QuestStudySpace\bridge\private\pairing.txt`, then press **Connect**. The extension says **Connected** when ready. The file and sign-ins stay on this PC.
-5. Keep Chrome open. Refresh Sunnyvale on Quest and reconnect with the same bridge details. Open Claude or WhatsApp from the menu.
+5. Keep Chrome open. Refresh Sunnyvale on Quest and connect using the current private link or current bridge address. A relay restart changes that address; update any stale Quest address. Open Claude or WhatsApp from the menu.
 
 The extension will reuse an open tab for the requested website when possible, preserving the current page and login. Otherwise it opens a normal Chrome tab with that profile's session. Closing a VR window only stops sharing; it leaves the Chrome tab open. Headset disconnection also stops sharing and leaves tabs alone. Chrome displays its standard debugging notification while a tab is shared. Do not press Cancel on that notification while using VR. Open DevTools can also interrupt sharing. Sign-in popups, account choices and any verification should be completed by you on the PC before reopening the tab in VR.
 

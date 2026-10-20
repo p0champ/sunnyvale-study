@@ -1,5 +1,55 @@
 # Sunnyvale Study: handover notes
 
+## Start here: current checkpoint for Claude or GPT
+
+This section is the current state. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
+
+### Exactly where the conversation stopped
+- The user asked us to keep handover documents current so Claude can resume easily.
+- The user has **installed Sunnyvale Browser Bridge in their normal Google Chrome and now explicitly confirmed: "Its now connected"**. Installation and extension pairing are complete; do not ask them to repeat those steps unless the connection fails.
+- **Next user step:** check Claude and WhatsApp are signed in in that normal Chrome profile (the user handles any sign-in), then reconnect Quest to the current bridge address, enter Sunnyvale and test Claude first, then WhatsApp. The user has NOT yet confirmed that the replacement Chrome provider resolves the bot-verification loop / WhatsApp update message inside VR.
+- The first streamed-browser version did show windows inside VR according to the user. It was unusable for Claude/WhatsApp because automated Chromium triggered verification/compatibility problems. Normal Chrome through the extension replaced that engine in normal operation. Do not revert to headless Chromium, copy their cookies/profile, spoof their browser or claim account testing has passed.
+
+### What is built and published
+| Change | State and evidence |
+| --- | --- |
+| In-world browser panels | Frontend `browser-bridge.js` + Node bridge, tab stream, clicks/touch, scroll, basic keyboard, navigation, up to four panels. User confirmed the first version renders inside VR. |
+| Normal Chrome connection | `bridge/chrome-extension/` + `bridge/extension-browser.mjs`; user confirmed installed AND connected. PC extension integration passed session/tab reuse, inputs, frames, mute restoration and retaining tabs after VR close. Real account results are still pending. |
+| Right-wrist watch | Uses WebXR `handedness === 'right'`, never input slot or left fallback. PC regression checks passed. User has not yet confirmed the fixed watch on Quest. |
+| Break menu | YouTube, Instagram, Disney+, HBO Max, Netflix, Prime Video. Hidden while focus timer is running; closes submenu immediately. Reappears when focus is paused or timed break starts. PC full-app checks passed in both modes. Quest check pending. |
+| Claude controlling the world through its website | NOT BUILT. The old API-key tool path exists, but the user's subscription website does not yet have a remote MCP/OAuth connector. |
+
+Latest application commits (already pushed to `main`, GitHub Pages build verified):
+- `5bf0648`: first browser bridge.
+- `787af2d`: normal Chrome extension/provider and session reuse.
+- `1b4b3dc`: right-wrist watch.
+- `483d50e`: Break menu and focus visibility.
+
+### Runtime and private setup
+- Canonical working copy: `F:QuestStudySpace`. Continue there; check Git status before editing. During Codex work a separate scratch copy was used under the chat workspace; it is not the canonical repository.
+- Browser instructions: `bridge/README.md`. Roadmap: `NEXT_STEPS_FOR_GPT.md` (now applies to Claude as well).
+- Node bridge listens on loopback port 8130. Normal runtime defaults to the Chrome extension; `BRIDGE_BROWSER=playwright` is for isolated tests only. Startup: `bridge/Start Browser Bridge.bat`.
+- During this session the bridge and Cloudflare relay were started in the background on the PC. Verify `/health` if troubleshooting; do not assume a past process is still running or launch duplicates on the occupied port.
+- A relay restart generated a new temporary address. The pairing code did not change. The current private link is `bridge/private/Open Sunnyvale.url`; use its current address if Quest's saved address is stale. Private link fragments contain a pairing credential: NEVER print, commit, publish or paste them into the handover/chat. Do not regenerate a working pairing code unnecessarily.
+- Only one headset/frontend connection at a time. Connecting Chrome's extension is separate and does NOT require disconnecting the extension when switching from PC frontend preview to Quest. Disconnect only the PC Sunnyvale page if it holds the frontend connection.
+- Normal Chrome tabs and logins remain in Chrome. Closing VR windows detaches sharing, leaves native tabs open, restores mute state and clears the temporary viewport override.
+- Public repo excludes `bridge/private/`, `bridge/node_modules/`, `bridge/bin/` and logs. No private pairing values, passwords, API keys or girlfriend's number have been added to public source.
+
+### What is still unverified or unfinished
+- Final real-account Chrome -> Quest test for Claude and WhatsApp; current lag, hand gestures and text readability.
+- Quest confirmation for the right-wrist fix and Break/focus visibility.
+- **No headset audio/microphone forwarding.** Shared PC tabs are muted while attached. Subscription-video playback has NOT been verified and protected video may not be capturable. Break buttons are website launchers, not a guarantee of working movie playback.
+- Basic browser keyboard exists; clipboard, text-selection/mouse drag, file picking and calls are not implemented.
+- Remote MCP/OAuth for the Claude subscription is not implemented. Built-in example study tools exist, but no custom Create menu/library/layout saving yet.
+- Browser bridge was explicitly approved. Requested watch and Break changes were explicitly authorized. Ask before future design changes; explain simply, one step at a time, and do technical work yourself.
+
+### Agreed continuation order
+1. Finish testing the existing Chrome -> Quest browser connection; resolve real failures before new features.
+2. Build the authenticated Claude website connector so Claude can create/read/control world tools through the subscription. Recheck current Anthropic/MCP docs first.
+3. Discuss and build custom study-material creation/import, then library and saved layouts.
+4. Polish Quest interaction/performance; resolve missing browser audio as needed for usable media.
+5. Let the user choose later features from the preserved 20-idea list. Inside-trailer space, music/sounds and new designs remain future discussion.
+
 This is for any AI assistant (ChatGPT, Claude, etc.) continuing this project. Read it fully before changing anything.
 
 ## The person you're working with
@@ -60,7 +110,7 @@ Assets are in `assets/` (`models/<name>/<name>.gltf`, `textures/<name>/{Diffuse,
 - **Windows** have a close button (a cigarette burn in Sunnyvale, a glowing X in Stark): fingertip touch, point and pinch, or mouse click.
 - **Unknown until tested on the Quest:** whether the Quest browser supports `SpeechRecognition` and has `speechSynthesis` voices. If not, the OpenAI key path is the fallback.
 
-## Stark tools + Barbera (built 2026-10-20, the user approved all four tool sets)
+## Historical Stark tools + Barbera (built 2026-10-20; browser behavior superseded by current checkpoint)
 - **Claude button with no API key:** it ends the XR session and opens https://claude.ai/new, so the user can use their Claude subscription there. Subscription OAuth for third-party apps isn't available, and WebXR can't show real websites in 3D. With a key in settings, Claude works inside the world, and it can also use `create_mind_map`, `create_timeline`, `make_flashcards` and `clear_desk`.
 - **The Barbera heart button** (main menu row) ends XR and opens `https://wa.me/<number>`. The number is typed into the settings box and stored in localStorage only (`barberaNumber`). NEVER put it in the code, because the repo is public.
 - **Menu layout:** the main row (y 0.17) has mode switch / Barbera / Stash, and the tool row (y 0.27, 0.8 scale) has Draw, Erase, Cards, Map, Timeline. The Claude bottle or orb stands left of the glass. The menu yaws to face the viewer, and `layoutRows()` spaces the visible buttons.
@@ -76,9 +126,9 @@ Assets are in `assets/` (`models/<name>/<name>.gltf`, `textures/<name>/{Diffuse,
 - 2026-10-20: Steps 1–3 done (the park, realism batches, grass, Sketchfab models, the palm menu, Stark mode, the transition, the first lag fix).
 - 2026-10-20 (later): Claude voice button + window tools, close buttons, the desert-flash fix, more speed work (no shadows, pine batches). Waiting on the user's Quest test.
 - 2026-10-20 (later still): the Stark tools + Barbera + the claude.ai fallback (see above). Waiting on the Quest test.
-- **Next up (ask the user first):** test Claude on the Quest, confirm the lag status, then the remaining window gestures (the Stark fist-pull, two-hand resize, flick away into the menu), the inside-trailer scene, sounds and music.
+- **Current next step:** see the checkpoint at the top. Gestures were already built; test them rather than rebuilding them. Future scene/sound changes still need discussion.
 
-## Browser bridge — 2026-10-20 GPT takeover
+## Historical first browser bridge — 2026-10-20 GPT takeover (superseded by Chrome connection below)
 - Read HANDOVER.md and NEXT_STEPS_FOR_GPT.md first. User explicitly reapproved browser bridge and requested immediate work; no redesign authorized.
 - First browser stages implemented in `bridge/` and `browser-bridge.js`: Node/Playwright persistent isolated Chromium, authenticated origin-checked WebSocket, CDP JPEG stream, bounded latest-frame queue/ack, max four tabs, click, fingertip tap, up/down and PC-wheel scrolling, browser keyboard, URL/back/forward/reload/new, and clean close/disconnect.
 - Claude and heart open claude.ai / web.whatsapp.com INSIDE the world when bridge is connected. The old external fallback remains when disconnected, as NEXT_STEPS requested. No keys or phone numbers added. WhatsApp currently opens the inbox; logins/QR linking belong to the user. Browser audio is muted.
@@ -108,4 +158,4 @@ Assets are in `assets/` (`models/<name>/<name>.gltf`, `textures/<name>/{Diffuse,
 - Break toggles two rows of three service choices in the study-tool row area; tapping Break again closes it. Selecting a service opens through the existing PC browser bridge, then closes the choices. No new external-browser fallback, so a disconnected bridge cannot eject the user from VR for these buttons.
 - Focus means `timer.running && timer.phase === 'focus'`. Starting/resuming focus hides Break and closes its submenu immediately; pausing focus or entering the automatic five-minute break reveals it. Service callbacks also guard against focus. Existing open browser windows remain open; this feature only hides the requested menu choices. Study tools return when submenu closes. The right-wrist fix is retained.
 - PC full-app browser check passed in both modes with zero page errors: all six service URL mappings, timer start/pause/resume, automatic focus/break transitions, immediate submenu closure and hidden-action guard. Right-wrist regression and module syntax check also passed. Used exact existing three.js 0.169.0 locally for sandboxed test.
-- Service websites and account/video playback still need the user's real Chrome/Quest test. Protected streaming content may not be capturable. The bridge still has no headset audio forwarding and mutes shared PC tabs, as already documented; do not claim that watching all subscription videos works. No accounts, payments or sign-ins were touched. Chrome-extension installation from the previous task remains user setup if not completed yet.
+- Service websites and account/video playback still need the user's real Chrome/Quest test. Protected streaming content may not be capturable. The bridge still has no headset audio forwarding and mutes shared PC tabs, as already documented; do not claim that watching all subscription videos works. No accounts, payments or sign-ins were touched. The user subsequently confirmed the Chrome extension is installed and connected; final real-account Quest testing remains pending.

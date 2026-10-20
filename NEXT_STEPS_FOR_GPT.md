@@ -1,45 +1,44 @@
-# Prompt for the next AI assistant (ChatGPT): Sunnyvale Study, next steps
+# Continuation plan for Claude, GPT or the next assistant
 
-You're taking over a project from Claude. Read **`HANDOVER.md`** in this repo first. It explains the person, the design, the code layout, how to publish, and every decision so far. Then do the work below.
+Read `HANDOVER.md` first, especially **Start here: current checkpoint**, then `bridge/README.md`. This file replaces the earlier proposal to build the browser bridge from scratch. That bridge and its Chrome extension are already built; do not repeat the A/B/C pitch or ask the user to approve them again.
 
-- Repo: https://github.com/p0champ/sunnyvale-study (the live app is at https://p0champ.github.io/sunnyvale-study/)
-- Main code: `index.html` (a single-file three.js WebXR app). Local copy: `F:\QuestStudySpace`.
+- Project: `F:QuestStudySpace`
+- Repository: https://github.com/p0champ/sunnyvale-study
+- Live app: https://p0champ.github.io/sunnyvale-study/
+- Main world: `index.html`; browser frontend: `browser-bridge.js`; PC bridge: `bridge/`.
 
-## ⚠️ TOP PRIORITY (the user's words): "Just a browser window inside the world"
-The user tested it again: the **Claude button and the WhatsApp heart button still close the VR world and open the normal browser**. That makes the app useless for studying. **Fix this before anything else.** Both claude.ai and WhatsApp (web.whatsapp.com) must open as **browser windows inside the 3D world** (in both Stark and Sunnyvale mode), so the user never has to leave. Use the "browser bridge" approach in Task 1 below. Building it is already approved by the user, so start Task 1 right away (just explain each step simply as you go). Until the bridge is running, keep the current fallback (leave the world and open the page) so the buttons still do something.
+## Immediate next step: test the connected normal Chrome bridge
+
+**User-confirmed:** in-world windows appeared in the original version; the Sunnyvale Browser Bridge extension is now installed in their ordinary Google Chrome and they have explicitly said it is connected. Do not repeat extension installation/pairing instructions unless troubleshooting requires them.
+
+**Not yet confirmed:** real Claude/WhatsApp usability inside VR after replacing automated Chromium with normal Chrome. The old version had Claude bot-verification loops and a WhatsApp browser-update message; these motivated the replacement. Never claim that real sign-in or playback passed based only on fixture tests.
+
+Continue simply, one user step at a time:
+1. Have the user check Claude and WhatsApp are signed in on their PC's normal Chrome. They complete sign-ins/verification themselves; do not enter passwords, request credentials or handle verification for them.
+2. Reconnect the Quest page to the current secure bridge address if needed. A bridge restart changed the temporary relay address, but the pairing code stayed the same. Current private link: `bridge/private/Open Sunnyvale.url`. Do not print its credential or put it in a public file. Only one Sunnyvale frontend can pair at once; disconnect the PC preview page, not the Chrome extension, before Quest connects.
+3. Enter Sunnyvale and test Claude first, then the WhatsApp heart: stay in-world, load the normal signed-in tab, click, scroll and type. Check both modes and confirm readable text and hand input. Reuse the existing account sessions; do not copy the Chrome profile or cookies.
+4. Check the right-wrist watch and Break menu on Quest. Right hand only; tracking loss hides the watch. Break has all six requested services, hides and closes its choices while `timer.running && timer.phase === 'focus'`, and returns when focus is paused or the timed break starts. Existing open media windows are not forcibly closed by focus mode.
+5. Fix observed failures before proceeding. Shared tabs currently have no forwarded headset audio and are muted on PC while attached. Video playback on subscription services is unverified and protected content may not be captured; discuss actual limitations instead of promising all media works.
 
 ## Ground rules
-1. The user has **never coded**. Explain everything in plain language, one step at a time, and do all the technical work yourself.
-2. **Discuss design before you build.** Propose, ask one question at a time, and wait for a clear "yes". Bug fixes they've asked for can just be done.
-3. Test on the PC first (`python -m http.server 8123 --directory F:\QuestStudySpace`, then open localhost:8123; test keys M/S/C/W). Then commit, push, and tell them to refresh on the Quest.
-4. **Never put secrets or personal data in the repo** (it's public): no API keys, passwords, or Barbera's phone number. Those live in the page's settings box (localStorage) or in a local config file that's gitignored.
-5. Keep crediting the CC-BY models in `CREDITS.md`.
-6. Don't create accounts or enter passwords for the user. They do sign-ins themselves.
+- User has never coded. Use plain language and handle technical work. Ask one question at a time when a decision is needed.
+- Ask before new design changes. The browser bridge, right-wrist fix and requested Break menu already have authorization.
+- Test on PC before publishing; then commit/push and verify the correct GitHub Pages build before asking for a Quest refresh. Check Git status and preserve unrelated changes.
+- Keep `HANDOVER.md`, this plan and `bridge/README.md` consistent. Clearly distinguish built, PC-tested, user-confirmed and pending.
+- Never commit private data: keys, passwords, pairing codes/links, browser profiles, cookies or girlfriend's number. Keep credits in `CREDITS.md`. No account creation or automated sign-ins.
 
-## Where things stand (what the user said after testing)
-- They **love the Tony Stark tools** (holo workbench, wrist timer, air drawing, flashcards, mind maps, timelines, fist-pull / resize / flick-to-stash).
-- **Problem 1: leaving the world to open a website makes it useless for studying.** Right now the Claude button and the Barbera (WhatsApp) button end the XR session and open the page outside. They want **real browser windows inside the world**, and they want **Claude to be able to interact with them**.
-- **Problem 2: they can only open the built-in example tools.** They have no way to make their **own** flashcards, mind maps, timelines or windows.
-- **They have a Claude subscription (Pro/Max), not an API key.** Subscription sign-in for third-party apps isn't available, so any in-world Claude has to go through something they're allowed to use with a subscription (claude.ai itself, or a claude.ai custom connector; see Task 1).
-- Not yet confirmed on the Quest: whether the park still lags after the last speed fixes, and how the gestures feel.
+## Task 1 remaining: Claude subscription controlling the world
 
-## Task 1: Real browsers inside the world (highest priority)
-WebXR can't render real websites into 3D (cross-origin iframes can't be drawn to WebGL, and Quest Browser has no DOM layers in immersive mode). Present these options to the user in plain words and **recommend A**:
+The browser panels and Chrome connection are already implemented. Normal runtime uses `bridge/chrome-extension/` and `bridge/extension-browser.mjs`; the old Playwright engine is only an explicit test provider. Do not revert to headless automation to resolve verification or use stealth/verification bypasses. There is no browser debugging TCP port exposed.
 
-**A. The "browser bridge" (keeps the current web app):**
-- A small **Node.js app** on the user's Windows PC runs **Playwright (or Puppeteer) with real Chromium**, using a persistent profile so logins stick (claude.ai, YouTube, Google Docs, school portals).
-- It streams each tab to the headset over a **WebSocket**, using CDP `Page.startScreencast` (JPEG frames) drawn onto a canvas texture on a holographic panel. Target 20–30 fps at 1280×800, and reduce quality while frames queue.
-- **Input:** the hand ray or fingertip hits the panel, which gives a UV coordinate. Map that to page coordinates and send `Input.dispatchMouseEvent` (move/down/up/wheel). A **holographic keyboard** panel sends `Input.insertText` / `dispatchKeyEvent`. Add back/forward/reload/URL bar buttons, plus a "new tab" button that opens another panel.
-- **Connecting:** the Quest and PC are on the same Wi-Fi. WebXR needs HTTPS and the WebSocket needs `wss://`, so use a tunnel (e.g. Cloudflare Tunnel or Tailscale Funnel) or a local HTTPS certificate. Add a pairing code or token so nobody else can drive the browser. Make startup one double-click (a `.bat` file) for a non-coder.
-- **Audio:** start with video playback muted on the PC. Optionally forward tab audio later with WebRTC.
-- **Claude interacting with the world (subscription-friendly):** build a small **MCP server** (inside the same bridge app) that exposes world tools: `open_window`, `update_window`, `close_window`, `add_note`, `create_mind_map`, `create_timeline`, `make_flashcards`, `clear_desk`, `list_windows`, and browser tools such as `open_url`, `read_page_text`, `click`, `type`, `screenshot`. The bridge forwards these to the headset page over the same WebSocket (the page already has `runClaudeTool(name, input)`, so reuse it). Expose the MCP server at an HTTPS URL with auth, and have the user add it in **claude.ai → Settings → Connectors → Add custom connector** (a Pro/Max feature). Then the user talks to Claude in the **claude.ai panel inside the world**, and Claude can open windows and mind maps in their space and read or control the in-world browser tabs. Check Anthropic's current docs on custom connectors / remote MCP before building, because the details change.
-- **Barbera:** with in-world browser panels, the heart button can open **web.whatsapp.com** in a panel (log in once with a QR code) instead of leaving the world. Note that WhatsApp Web can't make voice calls in a browser, so keep "leave the world and open the WhatsApp app" as the "Call" option.
-
-**B. A native Quest app** (for example with **Meta Spatial SDK**, which has real Android WebView panels, passthrough and hand tracking): better browsers and smoother performance, but a full rewrite in Kotlin with sideloading. Mention it as the long-term option.
-
-**C. Unity + a WebView plugin (e.g. Vuplex, paid):** also a full rewrite.
-
-Build A in small steps and test each with the user: (1) one streamed tab you can look at, (2) clicking and scrolling, (3) the keyboard, (4) several tabs, (5) the MCP connector for claude.ai, (6) WhatsApp Web.
+After the real browser test succeeds, implement the secure remote MCP connector proposed in the original approved bridge plan:
+- Recheck Anthropic's current custom-connector and MCP authentication docs. Prior research found Claude connects from Anthropic's cloud, so the endpoint needs reachable HTTPS and proper authentication. Do not expose an unauthenticated control endpoint or assume a local-only server can be reached by claude.ai.
+- World tools: `open_window`, `update_window`, `close_window`, `add_note`, `create_mind_map`, `create_timeline`, `make_flashcards`, `clear_desk`, `list_windows`.
+- Browser tools planned: `open_url`, `read_page_text`, `click`, `type`, `screenshot`. Add only the needed, authenticated operations to the extension/provider; current extension deliberately has a restricted page/input command allowlist.
+- Forward approved world operations to the headset and reuse existing `runClaudeTool(name, input)` rather than recreating the study tools. Handle disconnected-headset errors and bounded responses.
+- The existing API-key Claude path is separate. The user's Claude subscription website currently does NOT control the world. Do not require the user to obtain an API key to replace their subscription.
+- Test securely on PC, then guide the user through adding the connector to their Claude account. They handle their account setup/sign-in.
+- Browser audio, clipboard, mouse drag/text selection, file picking and calls remain future work; prioritize what the user needs for a usable experience. A native/Unity rewrite was an alternative, not the selected approach; do not start one without discussing it.
 
 ## Task 2: Let the user make their own tools
 Discuss the design with the user first. A suggested plan:
@@ -73,15 +72,16 @@ Discuss the design with the user first. A suggested plan:
 19. **Holo whiteboard:** shapes, arrows and connectors snapped to a board, with saving.
 20. **Break buddy:** Jarvis check-ins during long sessions (stretch, water, posture), plus a lo-fi or rain "focus radio" on the record player.
 
-## The girlfriend's WhatsApp button (must keep working)
-- The user's girlfriend is **Brenda**. The heart button is currently labelled "BARBERA", so ask the user whether it should say "BRENDA".
-- Her number must **never** go in the repo, the code or any file that gets pushed, because the repo and site are public. The user has her number and will give it to you directly if needed.
-- It works today if the user types her number (with country code, digits only) into **Claude settings → WhatsApp number** on the page, on the Quest itself, and presses Save. It stays saved in that browser.
-- When you build the PC bridge (Task 1), you can also keep her number in a **gitignored** local config file on the PC (e.g. `bridge/private.json`, added to `.gitignore`) that the bridge serves to the headset over its authenticated connection, so it's set up automatically without being public.
+## WhatsApp heart and personal data
+- With the bridge connected, the existing heart opens WhatsApp Web's inbox through the user's normal Chrome session. The girlfriend's number is not required by this path.
+- The historical disconnected fallback uses the number stored only in the browser's local settings and opens outside VR. Preserve that existing fallback unless the user asks to change it. Break service buttons intentionally have no external fallback.
+- Do not request or store her number to test the new Chrome connection. Never put it in public source or handover documents.
+- The label remains BARBERA. A possible rename was only an earlier suggestion; do not change it without the user asking/agreeing.
 
-## Do this first
-1. Read `HANDOVER.md` and skim `index.html`.
-2. Ask the user how the latest version runs on the Quest (lag, gestures).
-3. Explain Task 1 options A/B/C simply, recommend A, and get a yes.
-4. Build Task 1 step by step, then Task 2, then whichever Task 3 ideas the user picks.
-5. Keep `HANDOVER.md` updated as you go, so the next assistant (or Claude) can continue.
+## What comes after this
+1. After browser reliability, the authenticated Claude website connector above.
+2. Discuss custom study-material creation/import, then library and saved layouts (Task 2).
+3. Polish Quest performance, gestures, watch, readability and audio.
+4. Discuss which optional ideas from Task 3 the user wants, including future inside-trailer scene/music changes. Do not treat the whole idea list as approved work.
+
+The user specifically asked to keep these notes ready for Claude to resume. At each checkpoint, record the user's actual result, current code, validation and the next concrete step; preserve privacy and avoid stale "build it from scratch" instructions.
