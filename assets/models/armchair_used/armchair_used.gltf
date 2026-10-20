@@ -1,0 +1,767 @@
+﻿{
+    "accessors":  [
+                      {
+                          "bufferView":  2,
+                          "componentType":  5126,
+                          "count":  1144,
+                          "max":  [
+                                      -0.2505534887313843,
+                                      0.1813756227493286,
+                                      0.8123846650123596
+                                  ],
+                          "min":  [
+                                      -1.1719896793365479,
+                                      -0.8280944228172302,
+                                      0.16303221881389618
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  13728,
+                          "componentType":  5126,
+                          "count":  1144,
+                          "max":  [
+                                      0.9970171451568604,
+                                      0.9960451126098633,
+                                      0.997549831867218
+                                  ],
+                          "min":  [
+                                      -0.9970079660415649,
+                                      -0.9959414601325989,
+                                      -0.9984419941902161
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  3,
+                          "componentType":  5126,
+                          "count":  1144,
+                          "max":  [
+                                      1.0,
+                                      0.9997920989990234,
+                                      0.999621570110321,
+                                      -1.0
+                                  ],
+                          "min":  [
+                                      -1.0,
+                                      -0.9998024702072144,
+                                      -0.9994649887084961,
+                                      -1.0
+                                  ],
+                          "type":  "VEC4"
+                      },
+                      {
+                          "bufferView":  1,
+                          "componentType":  5126,
+                          "count":  1144,
+                          "max":  [
+                                      0.9402390122413635,
+                                      0.9716609716415405
+                                  ],
+                          "min":  [
+                                      0.0035783862695097923,
+                                      0.0035783862695097923
+                                  ],
+                          "type":  "VEC2"
+                      },
+                      {
+                          "bufferView":  0,
+                          "componentType":  5125,
+                          "count":  4464,
+                          "type":  "SCALAR"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  27456,
+                          "componentType":  5126,
+                          "count":  2670,
+                          "max":  [
+                                      0.2587395906448364,
+                                      0.1457413285970688,
+                                      0.20375370979309082
+                                  ],
+                          "min":  [
+                                      -0.2752511501312256,
+                                      -0.13298344612121582,
+                                      -0.16935288906097412
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  59496,
+                          "componentType":  5126,
+                          "count":  2670,
+                          "max":  [
+                                      0.999525785446167,
+                                      0.995021641254425,
+                                      0.9933228492736816
+                                  ],
+                          "min":  [
+                                      -0.9940585494041443,
+                                      -0.9999657869338989,
+                                      -0.9992536902427673
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  3,
+                          "byteOffset":  18304,
+                          "componentType":  5126,
+                          "count":  2670,
+                          "max":  [
+                                      0.8392007946968079,
+                                      0.9807171821594238,
+                                      0.9998464584350586,
+                                      1.0
+                                  ],
+                          "min":  [
+                                      -0.9034557938575745,
+                                      -0.9556534290313721,
+                                      -0.7660788893699646,
+                                      1.0
+                                  ],
+                          "type":  "VEC4"
+                      },
+                      {
+                          "bufferView":  1,
+                          "byteOffset":  9152,
+                          "componentType":  5126,
+                          "count":  2670,
+                          "max":  [
+                                      0.7586244344711304,
+                                      0.7104204893112183
+                                  ],
+                          "min":  [
+                                      0.0035784244537353516,
+                                      0.0035784244537353516
+                                  ],
+                          "type":  "VEC2"
+                      },
+                      {
+                          "bufferView":  0,
+                          "byteOffset":  17856,
+                          "componentType":  5125,
+                          "count":  15216,
+                          "type":  "SCALAR"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  91536,
+                          "componentType":  5126,
+                          "count":  2686,
+                          "max":  [
+                                      -0.3716486096382141,
+                                      0.07769420742988586,
+                                      0.5372118949890137
+                                  ],
+                          "min":  [
+                                      -1.0529550313949585,
+                                      -0.8456630110740662,
+                                      0.35713130235671997
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  123768,
+                          "componentType":  5126,
+                          "count":  2686,
+                          "max":  [
+                                      0.9999257922172546,
+                                      0.9999969601631165,
+                                      0.9999990463256836
+                                  ],
+                          "min":  [
+                                      -0.9999669194221497,
+                                      -0.9999968409538269,
+                                      -1.0
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  3,
+                          "byteOffset":  61024,
+                          "componentType":  5126,
+                          "count":  2686,
+                          "max":  [
+                                      1.0,
+                                      0.999750018119812,
+                                      0.8266566395759583,
+                                      1.0
+                                  ],
+                          "min":  [
+                                      -1.0,
+                                      -0.9996362328529358,
+                                      -1.0,
+                                      -1.0
+                                  ],
+                          "type":  "VEC4"
+                      },
+                      {
+                          "bufferView":  1,
+                          "byteOffset":  30512,
+                          "componentType":  5126,
+                          "count":  2686,
+                          "max":  [
+                                      0.8108721375465393,
+                                      0.9786666035652161
+                                  ],
+                          "min":  [
+                                      0.029266562312841415,
+                                      0.34236350655555725
+                                  ],
+                          "type":  "VEC2"
+                      },
+                      {
+                          "bufferView":  0,
+                          "byteOffset":  78720,
+                          "componentType":  5125,
+                          "count":  13632,
+                          "type":  "SCALAR"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  156000,
+                          "componentType":  5126,
+                          "count":  2862,
+                          "max":  [
+                                      -0.3780841529369354,
+                                      0.04247484728693962,
+                                      0.9413151741027832
+                                  ],
+                          "min":  [
+                                      -1.0598578453063965,
+                                      -0.21127621829509735,
+                                      0.5041770935058594
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  190344,
+                          "componentType":  5126,
+                          "count":  2862,
+                          "max":  [
+                                      0.999954104423523,
+                                      0.9995967745780945,
+                                      0.9999324083328247
+                                  ],
+                          "min":  [
+                                      -0.9999879002571106,
+                                      -0.9999682903289795,
+                                      -0.9986996650695801
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  3,
+                          "byteOffset":  104000,
+                          "componentType":  5126,
+                          "count":  2862,
+                          "max":  [
+                                      0.9137356281280518,
+                                      0.9998892545700073,
+                                      0.9373841285705566,
+                                      1.0
+                                  ],
+                          "min":  [
+                                      -0.9495151042938232,
+                                      -0.9999335408210754,
+                                      -0.9999958872795105,
+                                      1.0
+                                  ],
+                          "type":  "VEC4"
+                      },
+                      {
+                          "bufferView":  1,
+                          "byteOffset":  52000,
+                          "componentType":  5126,
+                          "count":  2862,
+                          "max":  [
+                                      0.9951871633529663,
+                                      0.9796150922775269
+                                  ],
+                          "min":  [
+                                      0.2905881404876709,
+                                      0.0035784244537353516
+                                  ],
+                          "type":  "VEC2"
+                      },
+                      {
+                          "bufferView":  0,
+                          "byteOffset":  133248,
+                          "componentType":  5125,
+                          "count":  15168,
+                          "type":  "SCALAR"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  224688,
+                          "componentType":  5126,
+                          "count":  528,
+                          "max":  [
+                                      -0.2672107219696045,
+                                      0.1523560881614685,
+                                      0.173246368765831
+                                  ],
+                          "min":  [
+                                      -1.1561845541000366,
+                                      -0.802426815032959,
+                                      0.030318032950162888
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  2,
+                          "byteOffset":  231024,
+                          "componentType":  5126,
+                          "count":  528,
+                          "max":  [
+                                      1.0,
+                                      0.9784193634986877,
+                                      0.0
+                                  ],
+                          "min":  [
+                                      -1.0,
+                                      -0.9784176349639893,
+                                      -1.0
+                                  ],
+                          "type":  "VEC3"
+                      },
+                      {
+                          "bufferView":  3,
+                          "byteOffset":  149792,
+                          "componentType":  5126,
+                          "count":  528,
+                          "max":  [
+                                      0.4547799825668335,
+                                      1.0,
+                                      1.2694027873294544E-07,
+                                      1.0
+                                  ],
+                          "min":  [
+                                      -0.43613189458847046,
+                                      -0.4612330198287964,
+                                      -1.0,
+                                      1.0
+                                  ],
+                          "type":  "VEC4"
+                      },
+                      {
+                          "bufferView":  1,
+                          "byteOffset":  74896,
+                          "componentType":  5126,
+                          "count":  528,
+                          "max":  [
+                                      0.6845635175704956,
+                                      0.8803792595863342
+                                  ],
+                          "min":  [
+                                      0.618681788444519,
+                                      0.7869372963905334
+                                  ],
+                          "type":  "VEC2"
+                      },
+                      {
+                          "bufferView":  0,
+                          "byteOffset":  193920,
+                          "componentType":  5125,
+                          "count":  1488,
+                          "type":  "SCALAR"
+                      }
+                  ],
+    "asset":  {
+                  "extras":  {
+                                 "author":  "janexx (https://sketchfab.com/janexx)",
+                                 "license":  "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+                                 "source":  "https://sketchfab.com/3d-models/armchair-used-e8080a2aae3442b380a1caa337752fe1",
+                                 "title":  "Armchair Used"
+                             },
+                  "generator":  "Sketchfab-13.74.0",
+                  "version":  "2.0"
+              },
+    "bufferViews":  [
+                        {
+                            "buffer":  0,
+                            "byteLength":  199872,
+                            "name":  "floatBufferViews",
+                            "target":  34963
+                        },
+                        {
+                            "buffer":  0,
+                            "byteLength":  79120,
+                            "byteOffset":  199872,
+                            "byteStride":  8,
+                            "name":  "floatBufferViews",
+                            "target":  34962
+                        },
+                        {
+                            "buffer":  0,
+                            "byteLength":  237360,
+                            "byteOffset":  278992,
+                            "byteStride":  12,
+                            "name":  "floatBufferViews",
+                            "target":  34962
+                        },
+                        {
+                            "buffer":  0,
+                            "byteLength":  158240,
+                            "byteOffset":  516352,
+                            "byteStride":  16,
+                            "name":  "floatBufferViews",
+                            "target":  34962
+                        }
+                    ],
+    "buffers":  [
+                    {
+                        "byteLength":  674592,
+                        "uri":  "scene.bin"
+                    }
+                ],
+    "images":  [
+                   {
+                       "uri":  "textures/Armchair_mat_baseColor.jpg"
+                   },
+                   {
+                       "uri":  "textures/Armchair_mat_metallicRoughness.jpg"
+                   },
+                   {
+                       "uri":  "textures/Armchair_mat_normal.jpg"
+                   }
+               ],
+    "materials":  [
+                      {
+                          "doubleSided":  true,
+                          "name":  "Armchair_mat",
+                          "normalTexture":  {
+                                                "index":  2
+                                            },
+                          "occlusionTexture":  {
+                                                   "index":  1
+                                               },
+                          "pbrMetallicRoughness":  {
+                                                       "baseColorTexture":  {
+                                                                                "index":  0
+                                                                            },
+                                                       "metallicRoughnessTexture":  {
+                                                                                        "index":  1
+                                                                                    }
+                                                   }
+                      }
+                  ],
+    "meshes":  [
+                   {
+                       "name":  "Green sofa.011_Armchair_mat_0",
+                       "primitives":  [
+                                          {
+                                              "attributes":  {
+                                                                 "NORMAL":  1,
+                                                                 "POSITION":  0,
+                                                                 "TANGENT":  2,
+                                                                 "TEXCOORD_0":  3
+                                                             },
+                                              "indices":  4,
+                                              "material":  0,
+                                              "mode":  4
+                                          }
+                                      ]
+                   },
+                   {
+                       "name":  "Green sofa.012_Armchair_mat_0",
+                       "primitives":  [
+                                          {
+                                              "attributes":  {
+                                                                 "NORMAL":  6,
+                                                                 "POSITION":  5,
+                                                                 "TANGENT":  7,
+                                                                 "TEXCOORD_0":  8
+                                                             },
+                                              "indices":  9,
+                                              "material":  0,
+                                              "mode":  4
+                                          }
+                                      ]
+                   },
+                   {
+                       "name":  "Green sofa.014_Armchair_mat_0",
+                       "primitives":  [
+                                          {
+                                              "attributes":  {
+                                                                 "NORMAL":  11,
+                                                                 "POSITION":  10,
+                                                                 "TANGENT":  12,
+                                                                 "TEXCOORD_0":  13
+                                                             },
+                                              "indices":  14,
+                                              "material":  0,
+                                              "mode":  4
+                                          }
+                                      ]
+                   },
+                   {
+                       "name":  "Green sofa.018_Armchair_mat_0",
+                       "primitives":  [
+                                          {
+                                              "attributes":  {
+                                                                 "NORMAL":  16,
+                                                                 "POSITION":  15,
+                                                                 "TANGENT":  17,
+                                                                 "TEXCOORD_0":  18
+                                                             },
+                                              "indices":  19,
+                                              "material":  0,
+                                              "mode":  4
+                                          }
+                                      ]
+                   },
+                   {
+                       "name":  "Green sofa.021_Armchair_mat_0",
+                       "primitives":  [
+                                          {
+                                              "attributes":  {
+                                                                 "NORMAL":  21,
+                                                                 "POSITION":  20,
+                                                                 "TANGENT":  22,
+                                                                 "TEXCOORD_0":  23
+                                                             },
+                                              "indices":  24,
+                                              "material":  0,
+                                              "mode":  4
+                                          }
+                                      ]
+                   }
+               ],
+    "nodes":  [
+                  {
+                      "children":  [
+                                       1
+                                   ],
+                      "matrix":  [
+                                     1.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     2.2204460492503131E-16,
+                                     -1.0,
+                                     0.0,
+                                     0.0,
+                                     1.0,
+                                     2.2204460492503131E-16,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     1.0
+                                 ],
+                      "name":  "Sketchfab_model"
+                  },
+                  {
+                      "children":  [
+                                       2
+                                   ],
+                      "matrix":  [
+                                     0.009999999776482582,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.009999999776482582,
+                                     0.0,
+                                     0.0,
+                                     -0.009999999776482582,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     1.0
+                                 ],
+                      "name":  "Armchair.fbx"
+                  },
+                  {
+                      "children":  [
+                                       3,
+                                       5,
+                                       7,
+                                       9,
+                                       11
+                                   ],
+                      "name":  "RootNode"
+                  },
+                  {
+                      "children":  [
+                                       4
+                                   ],
+                      "matrix":  [
+                                     100.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     -4.3711390063094768E-06,
+                                     -99.9999999999999,
+                                     0.0,
+                                     0.0,
+                                     99.9999999999999,
+                                     -4.3711390063094768E-06,
+                                     0.0,
+                                     278.39892578125,
+                                     0.0,
+                                     0.0,
+                                     1.0
+                                 ],
+                      "name":  "Green sofa.011"
+                  },
+                  {
+                      "mesh":  0,
+                      "name":  "Green sofa.011_Armchair_mat_0"
+                  },
+                  {
+                      "children":  [
+                                       6
+                                   ],
+                      "matrix":  [
+                                     98.17617396871317,
+                                     8.0495366032051923E-07,
+                                     19.011505437132424,
+                                     0.0,
+                                     19.011505437132303,
+                                     -1.6136189996551067E-05,
+                                     -98.1761739687119,
+                                     0.0,
+                                     2.2774602786990172E-06,
+                                     99.9999999999987,
+                                     -1.5994930202545277E-05,
+                                     0.0,
+                                     196.4848175048828,
+                                     69.14476776123047,
+                                     29.017730712890625,
+                                     1.0
+                                 ],
+                      "name":  "Green sofa.012"
+                  },
+                  {
+                      "mesh":  1,
+                      "name":  "Green sofa.012_Armchair_mat_0"
+                  },
+                  {
+                      "children":  [
+                                       8
+                                   ],
+                      "matrix":  [
+                                     100.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     -4.3711390063094768E-06,
+                                     -99.9999999999999,
+                                     0.0,
+                                     0.0,
+                                     99.9999999999999,
+                                     -4.3711390063094768E-06,
+                                     0.0,
+                                     278.39892578125,
+                                     0.0,
+                                     0.0,
+                                     1.0
+                                 ],
+                      "name":  "Green sofa.014"
+                  },
+                  {
+                      "mesh":  2,
+                      "name":  "Green sofa.014_Armchair_mat_0"
+                  },
+                  {
+                      "children":  [
+                                       10
+                                   ],
+                      "matrix":  [
+                                     100.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     -4.3711390063094768E-06,
+                                     -99.9999999999999,
+                                     0.0,
+                                     0.0,
+                                     99.9999999999999,
+                                     -4.3711390063094768E-06,
+                                     0.0,
+                                     278.39892578125,
+                                     0.0,
+                                     0.0,
+                                     1.0
+                                 ],
+                      "name":  "Green sofa.018"
+                  },
+                  {
+                      "mesh":  3,
+                      "name":  "Green sofa.018_Armchair_mat_0"
+                  },
+                  {
+                      "children":  [
+                                       12
+                                   ],
+                      "matrix":  [
+                                     100.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     0.0,
+                                     -4.3711390063094768E-06,
+                                     -99.9999999999999,
+                                     0.0,
+                                     0.0,
+                                     99.9999999999999,
+                                     -4.3711390063094768E-06,
+                                     0.0,
+                                     278.39892578125,
+                                     0.0,
+                                     0.0,
+                                     1.0
+                                 ],
+                      "name":  "Green sofa.021"
+                  },
+                  {
+                      "mesh":  4,
+                      "name":  "Green sofa.021_Armchair_mat_0"
+                  }
+              ],
+    "samplers":  [
+                     {
+                         "magFilter":  9729,
+                         "minFilter":  9987,
+                         "wrapS":  10497,
+                         "wrapT":  10497
+                     }
+                 ],
+    "scene":  0,
+    "scenes":  [
+                   {
+                       "name":  "Sketchfab_Scene",
+                       "nodes":  [
+                                     0
+                                 ]
+                   }
+               ],
+    "textures":  [
+                     {
+                         "sampler":  0,
+                         "source":  0
+                     },
+                     {
+                         "sampler":  0,
+                         "source":  1
+                     },
+                     {
+                         "sampler":  0,
+                         "source":  2
+                     }
+                 ]
+}

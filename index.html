@@ -354,19 +354,19 @@ gltfLoader.load('assets/models/plastic_crate_01/plastic_crate_01.gltf', gltf => 
   }
 });
 
-// Duct-taped red recliner: a real armchair re-covered in worn red leather
-const leather = photoMaterial('leather_red_02', 1, 1, { metalnessMap: null, metalness: 0 });
-const tapeMat = mat(0x9a9a9a, { roughness: 0.5, metalness: 0.3 });
-placeModel('ArmChair_01', { height: 0.95, x: -1.9, z: 0.7, rotY: Math.PI / 2 - 0.3, onLoad: model => {
-  model.traverse(o => { if (o.isMesh) o.material = leather; });
-  const seat = surfaceY(model, -1.9, 0.7, 0.45);
-  for (const [dx, dz, r] of [[0.05, 0.12, 0.7], [-0.05, 0.14, -0.6], [0.1, -0.15, 0.2]]) {
+// Duct-taped worn-out armchair ("Armchair Used" by janexx, CC-BY-4.0, see CREDITS.md)
+const tapeMat = mat(0x6e6e6e, { roughness: 0.5, metalness: 0.3 });
+placeModel('armchair_used', { height: 0.95, x: -1.9, z: 0.7, rotY: Math.PI / 2 - 0.3, onLoad: model => {
+  const fx = Math.sin(Math.PI / 2 - 0.3), fz = Math.cos(Math.PI / 2 - 0.3);   // the way the chair faces
+  const sx = -1.9 + fx * 0.15, sz = 0.7 + fz * 0.15;                           // middle of the seat cushion
+  const seat = surfaceY(model, sx, sz, 0.45);
+  for (const [d, r] of [[0.12, 0.7], [-0.05, -0.6]]) {
     const tape = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.004, 0.06), tapeMat);
-    tape.position.set(-1.9 + dx, surfaceY(model, -1.9 + dx, 0.7 + dz, seat) + 0.003, 0.7 + dz);
+    tape.position.set(sx + fx * d, surfaceY(model, sx + fx * d, sz + fz * d, seat) + 0.003, sz + fz * d);
     tape.rotation.y = r;
     scene.add(tape);
   }
-  cat(-1.85, seat, 0.75, 1.2);
+  cat(sx - fx * 0.05, seat, sz - fz * 0.05, 1.2);
 } });
 
 // Wobbly little table with the typewriter and a bottle in a paper bag
