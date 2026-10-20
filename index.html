@@ -117,9 +117,14 @@ function photoMaterial(name, repeatX = 1, repeatY = 1, opts = {}) {
 
 // Real 3D models from Poly Haven. Scales a model so its height matches, and stands it on the ground.
 const gltfLoader = new GLTFLoader();
-function placeModel(name, { height, maxLength, x = 0, y = 0, z = 0, rotY = 0, onLoad } = {}) {
+function placeModel(name, { part, height, maxLength, x = 0, y = 0, z = 0, rotY = 0, onLoad } = {}) {
   gltfLoader.load(`assets/models/${name}/${name}.gltf`, gltf => {
-    const model = gltf.scene;
+    let model = gltf.scene;
+    if (part) {                                        // just one piece from a set (e.g. one bottle)
+      const piece = gltf.scene.getObjectByName(part).clone();
+      piece.position.set(0, 0, 0);
+      model = new THREE.Group().add(piece);
+    }
     model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
     if (height) model.scale.setScalar(height / size.y);
@@ -134,6 +139,13 @@ function placeModel(name, { height, maxLength, x = 0, y = 0, z = 0, rotY = 0, on
     scene.add(model);
     onLoad?.(model);
   });
+}
+
+// Height of the top of something at a spot (for putting things on tables and chairs)
+function surfaceY(object, x, z, fallback = 0) {
+  object.updateMatrixWorld(true);
+  const hit = new THREE.Raycaster(new THREE.Vector3(x, 5, z), new THREE.Vector3(0, -1, 0)).intersectObject(object, true)[0];
+  return hit ? hit.point.y : fallback;
 }
 
 function picture(texture, w, h, x, y, z, parent = scene) {
@@ -342,32 +354,31 @@ gltfLoader.load('assets/models/plastic_crate_01/plastic_crate_01.gltf', gltf => 
   }
 });
 
-// Duct-taped red recliner, in real worn red leather
+// Duct-taped red recliner: a real armchair re-covered in worn red leather
 const leather = photoMaterial('leather_red_02', 1, 1, { metalnessMap: null, metalness: 0 });
-const chair = new THREE.Group();
-box(0.85, 0.45, 0.8, leather, 0, 0.3, 0, chair);
-const back = box(0.85, 0.85, 0.22, leather, 0, 0.85, -0.38, chair);
-back.rotation.x = -0.25;
-box(0.18, 0.3, 0.8, leather, -0.5, 0.6, 0, chair);
-box(0.18, 0.3, 0.8, leather, 0.5, 0.6, 0, chair);
-for (const r of [0.6, -0.6]) {
-  const t = box(0.5, 0.07, 0.01, 0x9a9a9a, 0, 0.95, -0.25, chair);
-  t.rotation.set(-0.25, 0, r);
-}
-chair.position.set(-1.9, 0, 0.7);
-chair.rotation.y = Math.PI / 2 - 0.3;
-scene.add(chair);
+const tapeMat = mat(0x9a9a9a, { roughness: 0.5, metalness: 0.3 });
+placeModel('ArmChair_01', { height: 0.95, x: -1.9, z: 0.7, rotY: Math.PI / 2 - 0.3, onLoad: model => {
+  model.traverse(o => { if (o.isMesh) o.material = leather; });
+  const seat = surfaceY(model, -1.9, 0.7, 0.45);
+  for (const [dx, dz, r] of [[0.05, 0.12, 0.7], [-0.05, 0.14, -0.6], [0.1, -0.15, 0.2]]) {
+    const tape = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.004, 0.06), tapeMat);
+    tape.position.set(-1.9 + dx, surfaceY(model, -1.9 + dx, 0.7 + dz, seat) + 0.003, 0.7 + dz);
+    tape.rotation.y = r;
+    scene.add(tape);
+  }
+  cat(-1.85, seat, 0.75, 1.2);
+} });
 
-// Card table with typewriter and a bottle in a paper bag
-box(0.8, 0.03, 0.8, 0x3a5a3a, -1.0, 0.72, -2.2);
-for (const [lx, lz] of [[-0.37, -0.37], [0.37, -0.37], [-0.37, 0.37], [0.37, 0.37]]) {
-  cyl(0.012, 0.012, 0.72, 0x7a7a7a, -1.0 + lx, 0.36, -2.2 + lz, scene, { metalness: 0.7 });
-}
-box(0.36, 0.12, 0.28, 0x141110, -1.05, 0.8, -2.2);
-const paper = box(0.22, 0.2, 0.005, 0xe6dccb, -1.05, 0.95, -2.3);
-paper.rotation.x = -0.25;
-box(0.11, 0.24, 0.09, 0x8a6a3a, -0.72, 0.86, -2.0);
-cyl(0.018, 0.03, 0.12, 0x2a4a22, -0.72, 1.04, -2.0, scene, { roughness: 0.2 });
+// Wobbly little table with the typewriter and a bottle in a paper bag
+placeModel('small_wooden_table_01', { height: 0.72, x: -1.0, z: -2.2, onLoad: model => {
+  const top = surfaceY(model, -1.0, -2.2, 0.72);
+  box(0.36, 0.12, 0.28, 0x141110, -1.05, top + 0.06, -2.2);
+  const paper = box(0.22, 0.2, 0.005, 0xe6dccb, -1.05, top + 0.21, -2.3);
+  paper.rotation.x = -0.25;
+  const bagTop = surfaceY(model, -0.78, -2.0, top);
+  box(0.1, 0.2, 0.09, 0x8a6a3a, -0.78, bagTop + 0.1, -2.0);
+  placeModel('wine_bottles_01', { part: 'wine_bottles_01_bordeaux', height: 0.3, x: -0.78, y: bagTop + 0.005, z: -2.0 });
+} });
 
 // Record player on cinder blocks
 box(0.38, 0.2, 0.2, 0x6a6660, 0.75, 0.1, -2.4);
@@ -431,20 +442,31 @@ sheet.position.set(1.4, 1.75, -7.2);
 sheet.rotation.y = -0.11;
 scene.add(sheet);
 
-const lawnChair = new THREE.Group();
-box(0.5, 0.04, 0.45, 0x4ab3a0, 0, 0.4, 0, lawnChair);
-const lcBack = box(0.5, 0.5, 0.04, 0x4ab3a0, 0, 0.65, -0.22, lawnChair);
-lcBack.rotation.x = -0.2;
-for (const lx of [-0.24, 0.24]) box(0.03, 0.4, 0.03, 0xbfbfbf, lx, 0.2, 0, lawnChair, { metalness: 0.8 });
-box(0.3, 0.16, 0.22, 0x2a2a2a, 0, 0.5, 0.02, lawnChair);
-for (const rx of [-0.07, 0.07]) {
-  const reel = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.012, 6, 16), mat(0x7a7a7a, { metalness: 0.8 }));
-  reel.position.set(rx, 0.66, 0.02);
-  lawnChair.add(reel);
-}
-lawnChair.position.set(1.6, 0, -3.8);
-lawnChair.rotation.y = Math.PI;
-scene.add(lawnChair);
+placeModel('plastic_monobloc_chair_01', { height: 0.8, x: 1.6, z: -3.8, rotY: Math.PI, onLoad: model => {
+  const seat = surfaceY(model, 1.6, -3.8, 0.42);
+  placeModel('filmstrip_projector_8mm', { height: 0.32, x: 1.6, y: seat, z: -3.8, rotY: 0 });
+} });
+
+// ---------- An old car under a dusty cover, on the gravel ----------
+placeModel('covered_car', { x: 7, z: -3, rotY: 0.35 });
+
+// ---------- Rusty chain-link fence along the back of the park ----------
+gltfLoader.load('assets/models/modular_chainlink_fence/modular_chainlink_fence.gltf', gltf => {
+  const panel = gltf.scene.getObjectByName('modular_chainlink_fence');
+  const post = gltf.scene.getObjectByName('modular_chainlink_fence_post');
+  const pb = new THREE.Box3().setFromObject(panel);
+  const width = pb.max.x - pb.min.x;
+  for (let x = -12; x < 12; x += width) {
+    const p = panel.clone();
+    p.position.set(x - pb.min.x + panel.position.x, -pb.min.y + panel.position.y, -12.5 - (pb.min.z + pb.max.z) / 2 + panel.position.z);
+    p.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(p);
+    const q = post.clone();
+    const qb = new THREE.Box3().setFromObject(post);
+    q.position.set(x - (qb.min.x + qb.max.x) / 2 + post.position.x, -qb.min.y + post.position.y, -12.5 - (qb.min.z + qb.max.z) / 2 + post.position.z);
+    scene.add(q);
+  }
+});
 
 // ---------- Picnic table ----------
 // a little something carved into the wood
@@ -485,7 +507,6 @@ function cat(x, y, z, rotY, color = 0x050404) {
   scene.add(g);
 }
 cat(2.0, 0, -0.5, 2.4);
-cat(-1.85, 0.52, 0.75, 1.2);
 cat(2.2, 0, -1.9, -0.6, 0x2a2420);
 
 // ---------- Rain ----------
