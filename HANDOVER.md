@@ -28,7 +28,7 @@ Latest application commits (already pushed to `main`, GitHub Pages build verifie
 - `483d50e`: Break menu and focus visibility.
 
 ### Runtime and private setup
-- Canonical working copy: `F:QuestStudySpace`. Continue there; check Git status before editing. During Codex work a separate scratch copy was used under the chat workspace; it is not the canonical repository.
+- Canonical working copy: `F:/QuestStudySpace`. Continue there; check Git status before editing. During Codex work a separate scratch copy was used under the chat workspace; it is not the canonical repository.
 - Browser instructions: `bridge/README.md`. Roadmap: `NEXT_STEPS_FOR_GPT.md` (now applies to Claude as well).
 - Node bridge listens on loopback port 8130. Normal runtime defaults to the Chrome extension; `BRIDGE_BROWSER=playwright` is for isolated tests only. Startup: `bridge/Start Browser Bridge.bat`.
 - During this session the bridge and Cloudflare relay were started in the background on the PC. Verify `/health` if troubleshooting; do not assume a past process is still running or launch duplicates on the occupied port.

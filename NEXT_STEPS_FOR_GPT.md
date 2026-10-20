@@ -2,7 +2,7 @@
 
 Read `HANDOVER.md` first, especially **Start here: current checkpoint**, then `bridge/README.md`. This file replaces the earlier proposal to build the browser bridge from scratch. That bridge and its Chrome extension are already built; do not repeat the A/B/C pitch or ask the user to approve them again.
 
-- Project: `F:QuestStudySpace`
+- Project: `F:/QuestStudySpace`
 - Repository: https://github.com/p0champ/sunnyvale-study
 - Live app: https://p0champ.github.io/sunnyvale-study/
 - Main world: `index.html`; browser frontend: `browser-bridge.js`; PC bridge: `bridge/`.
