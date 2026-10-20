@@ -4,7 +4,16 @@
 
 This section is the current state. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
 
-### Exactly where the conversation stopped
+### NEWEST (Claude, 2026-10-21): the Claude connector is BUILT
+- The user tested the clarity update: "It lags like crazy. It cant even run a netflix video." Netflix/Disney+/HBO/Prime are DRM-protected and can't be captured. The user asked to pause the browser lag work and do the Claude connector + new tools. Lag/clarity balance is still open (foveation 0 + 2560px PNGs are heavy).
+- **Built and live (commit b4ccee2):** `bridge/connector.mjs` is a stateless Streamable HTTP MCP server at `/mcp` on the bridge (official `@modelcontextprotocol/sdk` 1.32.1 + zod 4.6.5). Auth is a fixed header `Authorization: Bearer <secret>` (claude.ai custom connectors support fixed request headers), with the secret in `bridge/private/connector.txt` (gitignored). 401 without it, and it rate-limits failures.
+- **19 tools.** World tools are forwarded to the paired Sunnyvale page as `world-call` and answered with `world-result`, handled in `browser-bridge.js` and `runWorldTool()` in index.html: list_windows, open/update/close_window, add_note, create_mind_map, create_timeline, make_flashcards, clear_desk, show_message. Browser tools use the existing tab queue: list/open/screenshot (JPEG, CSS-pixel coordinates)/click/type/press_key/scroll/go_to_address/go_back. They only work while a Sunnyvale page is paired.
+- Tested on the PC with an isolated test bridge (`node try-connector.mjs <url> <secretfile>`): all tools worked. `npm test` still passes 4/4. The real bridge was restarted (new tunnel address, same pairing code; tab sound needs re-enabling). `node check-connector.mjs` confirmed the public tunnel refuses requests without the secret and lists 19 tools with it.
+- **User setup:** `node make-connector-setup.mjs` writes `bridge/private/Claude connector setup.txt` (URL + header value) for the user to paste into claude.ai > Connectors > Add custom connector. NEVER print the secret in chat or docs.
+- **Limitation:** the trycloudflare address is temporary, so after each bridge restart the connector has to be removed and re-added (connectors can't be edited). The next step is a permanent address (Tailscale Funnel or an ngrok free static domain; a Cloudflare named tunnel needs a domain). The user must create that account themselves.
+- **After that:** the user picked new tools (discuss each design first): film clip player, shot analyzer grids, storyboard wall, PDF reader, spaced-repetition flashcards, study stats, voice memos, sticky notes on real walls, 3D model viewer, quiz show, essay outliner, deadline countdown, film comparison table, color palette, sound lab, explode-a-text.
+
+### Exactly where the conversation stopped (earlier, Codex)
 - The user asked us to keep handover documents current so Claude can resume easily.
 - The user has **installed Sunnyvale Browser Bridge in their normal Google Chrome and now explicitly confirmed: "Its now connected"**. Installation and extension pairing are complete; do not ask them to repeat those steps unless the connection fails.
 - The user has now also confirmed Claude is signed in on their PC in normal Chrome. WhatsApp sign-in has not been separately confirmed.
