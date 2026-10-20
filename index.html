@@ -65,6 +65,7 @@ document.body.appendChild(enterButton);
       requiredFeatures: ['local-floor'], optionalFeatures: ['bounded-floor', 'hand-tracking']
     });
     passthrough = ar;
+    try { sound().resume(); } catch (e) { /* no sound available */ }
     await renderer.xr.setSession(session);
   };
 })();
@@ -72,19 +73,26 @@ document.body.appendChild(enterButton);
 const scene = new THREE.Scene();
 const park = new THREE.Group();          // everything that belongs to Sunnyvale (hidden in Stark mode)
 scene.add(park);
-scene.background = new THREE.Color(0x0b0d14);
 scene.fog = new THREE.Fog(0x0b0d14, 14, 40);
 
 let skyTexture = null;
 let mode = 'sunnyvale';                  // 'sunnyvale' (the park) or 'stark' (your real room + holograms)
 const parkFog = scene.fog;
 
+const skySphere = new THREE.Mesh(new THREE.SphereGeometry(80, 48, 24),
+  new THREE.MeshBasicMaterial({ color: 0x0b0d14, side: THREE.BackSide, transparent: true, depthWrite: false, fog: false }));
+skySphere.renderOrder = -10;
+scene.add(skySphere);
+
 // Real moonlit night sky (photo from Poly Haven). It also lights the scene.
 new RGBELoader().load('assets/sky/rogland_moonlit_night.hdr', hdr => {
   hdr.mapping = THREE.EquirectangularReflectionMapping;
   skyTexture = hdr;
-  if (mode === 'sunnyvale') { scene.background = hdr; scene.environment = hdr; }
-  scene.backgroundIntensity = 0.06;     // the photo is brightened; dim it back to real night
+  hdr.wrapS = THREE.RepeatWrapping; hdr.repeat.x = -1;                    // seen from inside, so flip it back
+  skySphere.material.map = hdr;
+  skySphere.material.color.setScalar(0.06);                               // the photo is brightened; dim it back to real night
+  skySphere.material.needsUpdate = true;
+  if (mode === 'sunnyvale') scene.environment = hdr;
   scene.environmentIntensity = 0.18;
 });
 
@@ -183,6 +191,7 @@ function placeModel(name, { part, hide, alongX, height, length, maxLength, shado
     const bounds = new THREE.Box3().setFromObject(model);
     const center = bounds.getCenter(new THREE.Vector3());
     model.position.set(x - center.x, y - bounds.min.y, z - center.z);
+    patchTree(model);
     park.add(model);
     onLoad?.(model, bounds.setFromObject(model));
   }).catch(err => console.error('Could not load model', name, err));
@@ -394,6 +403,7 @@ gltfLoader.load('assets/models/plastic_crate_01/plastic_crate_01.gltf', gltf => 
     const c = bounds.getCenter(new THREE.Vector3());
     const size = bounds.getSize(new THREE.Vector3());
     crate.position.set(-2.55 - c.x, y - bounds.min.y, -1.7 - c.z);
+    patchTree(crate);
     park.add(crate);
     bookColors[level].forEach((col, i) =>
       box(0.2, 0.22 + (i % 2) * 0.04, 0.06, col, -2.55, y + 0.14 + (i % 2) * 0.02, -1.7 - size.z / 2 + 0.1 + i * (size.z - 0.2) / 4));
@@ -504,10 +514,12 @@ gltfLoader.load('assets/models/modular_chainlink_fence/modular_chainlink_fence.g
     const p = panel.clone();
     p.position.set(x - pb.min.x + panel.position.x, -pb.min.y + panel.position.y, -12.5 - (pb.min.z + pb.max.z) / 2 + panel.position.z);
     p.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    patchTree(p);
     park.add(p);
     const q = post.clone();
     const qb = new THREE.Box3().setFromObject(post);
     q.position.set(x - (qb.min.x + qb.max.x) / 2 + post.position.x, -qb.min.y + post.position.y, -12.5 - (qb.min.z + qb.max.z) / 2 + post.position.z);
+    patchTree(q);
     park.add(q);
   }
 });
@@ -883,7 +895,7 @@ const bubblesButton = makeButton('SUNNYVALE', (ctx) => {
   ctx.fillStyle = '#f4f0e8';                                              // big magnified eyes
   ctx.beginPath(); ctx.arc(92, 112, 11, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.arc(172, 112, 11, 0, Math.PI * 2); ctx.fill();
-}, () => setMode('sunnyvale'));
+}, () => startTransition('sunnyvale'));
 bubblesButton.visible = false;
 
 // The arc reactor: takes you to Stark mode
@@ -899,7 +911,7 @@ const reactorButton = makeButton('STARK MODE', (ctx) => {
   }
   ctx.fillStyle = '#e8fbff';
   ctx.beginPath(); ctx.arc(128, 108, 20, 0, Math.PI * 2); ctx.fill();
-}, () => setMode('stark'));
+}, () => startTransition('stark'));
 
 let pressCooldown = 0;
 function pressButton(b) {
@@ -973,33 +985,261 @@ function updateMenu(dt) {
 }
 
 // ---------- Switching between Sunnyvale and Stark mode ----------
+// Final state of a mode (used at the end of the transition, and when leaving the headset)
 function setMode(next) {
   mode = next;
   const stark = mode === 'stark';
   park.visible = !stark;                                                  // the park disappears and your real room shows through
-  scene.background = stark ? null : skyTexture;
+  skySphere.visible = !stark;
+  skySphere.material.opacity = 1;
   scene.environment = stark ? null : skyTexture;
   scene.fog = stark ? null : parkFog;
   handModels.forEach(h => { h.visible = !stark; });                       // you see your real hands instead
   realGlass.visible = !stark; reactor.visible = stark;
   reactorButton.visible = !stark; bubblesButton.visible = stark;
+  dissolve.uOn.value = 0;
+  if (panels[0] && (panels[0].material.map === panels[0].userData.hologram) !== stark) applyWindows(stark);
+}
+
+// Swap the windows between cardboard and hologram; holograms build up with a scan line
+function applyWindows(stark) {
   for (const p of panels) {
     p.material.map = stark ? p.userData.hologram : p.userData.cardboard;
     p.material.transparent = stark;
     p.material.depthWrite = !stark;
     p.material.needsUpdate = true;
-    p.userData.powerUp = 0;                                               // windows "power up" into holograms
+    p.userData.powerUp = 0;
+    p.userData.powerTo = stark ? 'stark' : 'sunnyvale';
+    if (!p.userData.scanLine) {
+      p.userData.scanLine = new THREE.Mesh(new THREE.PlaneGeometry(p.userData.size.w * 1.04, 0.012),
+        new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      p.userData.scanLine.position.z = 0.003;
+      p.add(p.userData.scanLine);
+    }
+    p.userData.scanLine.visible = stark;
   }
 }
 
 function updatePanels(dt) {
   for (const p of panels) {
     if (p.userData.powerUp === undefined || p.userData.powerUp >= 1) continue;
-    p.userData.powerUp = Math.min(1, p.userData.powerUp + dt * 2.2);
+    p.userData.powerUp = Math.min(1, p.userData.powerUp + dt * 1.4);
     const k = p.userData.powerUp;
-    p.scale.y = mode === 'stark' ? Math.max(0.02, k * k) : 1;
-    p.material.opacity = mode === 'stark' ? (Math.random() < 0.25 * (1 - k) ? 0.3 : 0.95) : 1;
+    const stark = p.userData.powerTo === 'stark';
+    p.scale.y = stark ? Math.max(0.02, Math.min(1, k * 1.6)) : 1;
+    p.material.opacity = stark ? (Math.random() < 0.3 * (1 - k) ? 0.3 : 0.95) : 1;
+    const line = p.userData.scanLine;
+    if (line) {
+      line.visible = stark && k < 1;
+      line.position.y = p.userData.size.h * (0.5 - k);                     // sweeps top to bottom
+      line.material.opacity = 1 - k * 0.5;
+    }
   }
+}
+
+// ---------- The transition: Jarvis boots up, then a shockwave dissolves the park ----------
+// Every park material gets a small extra bit of shader: hide anything inside the shockwave ring,
+// and make the edge glow gold.
+const dissolve = {
+  uCenter: { value: new THREE.Vector3() },
+  uRadius: { value: 0 },
+  uOn: { value: 0 }
+};
+function patchMaterial(m) {
+  if (!m || m.userData.dissolvePatched || m.isSpriteMaterial || m.isShaderMaterial) return;
+  m.userData.dissolvePatched = true;
+  m.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, dissolve);
+    shader.vertexShader = 'varying vec3 vDWorld;\n' + shader.vertexShader.replace('#include <project_vertex>',
+      '#include <project_vertex>\n  vDWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = 'varying vec3 vDWorld;\nuniform vec3 uCenter;\nuniform float uRadius;\nuniform float uOn;\n' +
+      shader.fragmentShader
+        .replace('#include <clipping_planes_fragment>',
+          '#include <clipping_planes_fragment>\n  float dD = distance(vDWorld.xz, uCenter.xz);\n  if (uOn > 0.5 && dD < uRadius) discard;')
+        .replace('#include <dithering_fragment>',
+          '#include <dithering_fragment>\n  if (uOn > 0.5) gl_FragColor.rgb += vec3(1.0, 0.62, 0.18) * 2.5 * (1.0 - smoothstep(0.0, 0.4, dD - uRadius));');
+  };
+  m.customProgramCacheKey = () => 'dissolve';
+  m.needsUpdate = true;
+}
+function patchTree(root) {
+  root.traverse(o => {
+    if (!o.material) return;
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach(patchMaterial);
+  });
+}
+
+// The shockwave itself: a glowing wall of light that races outward
+const shockwave = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 4, 64, 1, true), new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+  uniforms: { uFade: { value: 1 } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `varying vec2 vUv; uniform float uFade;
+    void main() {
+      float lines = 0.55 + 0.45 * step(0.5, fract(vUv.y * 40.0));
+      float a = pow(1.0 - vUv.y, 2.2) * lines * uFade;
+      gl_FragColor = vec4(mix(vec3(0.9, 0.15, 0.08), vec3(1.0, 0.8, 0.35), 1.0 - vUv.y) * a, a);
+    }`
+}));
+shockwave.position.y = 2;
+shockwave.visible = false;
+scene.add(shockwave);
+
+// A gold scan grid that sweeps across your floor just behind the shockwave
+const scanGrid = new THREE.Mesh(new THREE.CircleGeometry(45, 64), new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  uniforms: dissolve,
+  vertexShader: 'varying vec3 vW; void main() { vW = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0); }',
+  fragmentShader: `varying vec3 vW; uniform vec3 uCenter; uniform float uRadius;
+    void main() {
+      vec2 g = abs(fract(vW.xz * 2.0) - 0.5);
+      float line = 1.0 - smoothstep(0.0, 0.04, min(g.x, g.y));
+      float d = uRadius - distance(vW.xz, uCenter.xz);
+      float band = smoothstep(0.0, 0.3, d) * (1.0 - smoothstep(0.3, 2.5, d));
+      float a = line * band * 0.8;
+      gl_FragColor = vec4(vec3(1.0, 0.75, 0.3) * a, a);
+    }`
+}));
+scanGrid.rotation.x = -Math.PI / 2;
+scanGrid.position.y = 0.01;
+scanGrid.visible = false;
+scene.add(scanGrid);
+
+// The Jarvis HUD, right in front of your eyes
+const hudCanvas = document.createElement('canvas');
+hudCanvas.width = 1024; hudCanvas.height = 640;
+const hudTex = new THREE.CanvasTexture(hudCanvas);
+hudTex.colorSpace = THREE.SRGBColorSpace;
+const hud = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.75),
+  new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending }));
+hud.position.z = -0.9;
+hud.renderOrder = 999;
+hud.visible = false;
+camera.add(hud);
+scene.add(camera);
+
+function drawHud(t, lines, progress, fade) {
+  const ctx = hudCanvas.getContext('2d');
+  const W = hudCanvas.width, H = hudCanvas.height, cx = W / 2, cy = H / 2;
+  ctx.clearRect(0, 0, W, H);
+  ctx.globalAlpha = fade;
+  ctx.strokeStyle = '#ffc861'; ctx.fillStyle = '#ffd98a';
+  ctx.shadowColor = '#ff9a3c'; ctx.shadowBlur = 14;
+  const grow = Math.min(1, t * 3);
+  ctx.lineWidth = 4;                                                      // targeting rings, spinning opposite ways
+  ctx.beginPath(); ctx.arc(cx, cy, 150 * grow, t * 2, t * 2 + Math.PI * 1.4); ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, 185 * grow, -t * 1.4, -t * 1.4 + Math.PI * 0.9); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, 185 * grow, -t * 1.4 + Math.PI, -t * 1.4 + Math.PI * 1.6); ctx.stroke();
+  for (let k = 0; k < 24; k++) {                                          // tick marks
+    const a = k / 24 * Math.PI * 2 + t * 0.5;
+    const r1 = 205 * grow, r2 = (k % 6 ? 215 : 230) * grow;
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(cx - 20, cy); ctx.lineTo(cx + 20, cy); ctx.moveTo(cx, cy - 20); ctx.lineTo(cx, cy + 20); ctx.stroke();
+  ctx.font = '600 30px "Segoe UI", system-ui, sans-serif';               // typed text
+  const chars = Math.floor(t * 40);
+  let used = 0;
+  lines.forEach((line, k) => {
+    const shown = line.slice(0, Math.max(0, chars - used));
+    used += line.length;
+    ctx.fillText(shown, 60, 70 + k * 42);
+  });
+  ctx.lineWidth = 2;                                                      // progress bar
+  ctx.strokeRect(60, H - 80, 320, 16);
+  ctx.fillRect(62, H - 78, 316 * progress, 12);
+  ctx.font = '22px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(`${Math.round(progress * 100)}%`, 392, H - 66);
+  hudTex.needsUpdate = true;
+}
+
+// Sound effects, made on the spot: a rising whoosh and a deep boom
+let audioCtx = null;
+function sound() { return audioCtx ??= new (window.AudioContext || window.webkitAudioContext)(); }
+function playWhoosh(rising) {
+  const ctx = sound(), now = ctx.currentTime;
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource(); noise.buffer = buffer;
+  const filter = ctx.createBiquadFilter(); filter.type = 'bandpass'; filter.Q.value = 1.2;
+  filter.frequency.setValueAtTime(rising ? 250 : 3000, now);
+  filter.frequency.exponentialRampToValueAtTime(rising ? 3500 : 200, now + 1.6);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.35, now + 1.1);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.9);
+  noise.connect(filter).connect(gain).connect(ctx.destination);
+  noise.start(now); noise.stop(now + 2);
+}
+function playBoom() {
+  const ctx = sound(), now = ctx.currentTime;
+  const osc = ctx.createOscillator(); osc.type = 'sine';
+  osc.frequency.setValueAtTime(90, now);
+  osc.frequency.exponentialRampToValueAtTime(28, now + 1.2);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.6, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.4);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(now); osc.stop(now + 1.5);
+}
+
+const MAX_RADIUS = 40;
+const trans = { active: false, to: null, t: 0, wave: false, windows: false };
+function startTransition(to) {
+  if (trans.active || to === mode) return;
+  Object.assign(trans, { active: true, to, t: 0, wave: false, windows: false });
+  patchTree(park);
+  viewerPosition(tmpVec);
+  dissolve.uCenter.value.set(tmpVec.x, 0, tmpVec.z);
+  shockwave.position.x = tmpVec.x; shockwave.position.z = tmpVec.z;
+  hud.visible = true;
+  try { playWhoosh(to === 'stark'); } catch (e) { /* no sound available */ }
+  if (to === 'sunnyvale') {                       // bring the park back, fully hidden, then shrink the hole
+    park.visible = true;
+    skySphere.visible = true; skySphere.material.opacity = 0;
+    scene.environment = skyTexture; scene.fog = parkFog;
+    dissolve.uRadius.value = MAX_RADIUS; dissolve.uOn.value = 1;
+    handModels.forEach(h => { h.visible = true; });
+    realGlass.visible = true; reactor.visible = false;
+    reactorButton.visible = true; bubblesButton.visible = false;
+  }
+}
+
+function updateTransition(dt) {
+  if (!trans.active) return;
+  trans.t += dt;
+  const t = trans.t, toStark = trans.to === 'stark';
+  const BOOT = toStark ? 0.6 : 0.35, WAVE = 1.8, END = BOOT + WAVE;
+  const k = Math.min(1, Math.max(0, (t - BOOT) / WAVE));
+  if (t >= BOOT && !trans.wave) {
+    trans.wave = true;
+    try { playBoom(); } catch (e) { /* no sound available */ }
+    shockwave.visible = true; scanGrid.visible = true;
+    if (toStark) { dissolve.uOn.value = 1; dissolve.uRadius.value = 0; }
+  }
+  if (trans.wave) {
+    const r = toStark ? MAX_RADIUS * k * k : MAX_RADIUS * (1 - k) * (1 - k);
+    dissolve.uRadius.value = r;
+    shockwave.scale.set(Math.max(0.01, r), 1, Math.max(0.01, r));
+    shockwave.material.uniforms.uFade.value = (toStark ? 1 - k * 0.6 : 0.4 + k * 0.6) * THREE.MathUtils.smoothstep(r, 0.8, 3);   // fades in once it's clear of your head
+    skySphere.material.opacity = toStark ? 1 - k : k;
+    if (!trans.windows && k > (toStark ? 0.12 : 0.75)) { trans.windows = true; applyWindows(toStark); }
+  }
+  // Fire in the barrel goes out when the shockwave passes it
+  const barrelGone = dissolve.uOn.value > 0.5 && Math.hypot(2.7 - dissolve.uCenter.value.x, -1.2 - dissolve.uCenter.value.z) < dissolve.uRadius.value;
+  flames.forEach(f => { f.visible = !barrelGone; });
+  const lines = toStark
+    ? ['J.A.R.V.I.S.', 'INITIALIZING STARK MODE', 'SCANNING ENVIRONMENT...', k >= 1 ? 'ONLINE' : '']
+    : ['J.A.R.V.I.S.', 'RETURNING TO SUNNYVALE', 'REBUILDING THE PARK...', k >= 1 ? 'DONE. DECENT.' : ''];
+  const fade = t < END ? 1 : Math.max(0, 1 - (t - END) / 0.7);
+  drawHud(t, lines, k, fade);
+  if (t >= END && trans.wave && shockwave.visible) {
+    shockwave.visible = false; scanGrid.visible = false;
+    setMode(trans.to);
+    flames.forEach(f => { f.visible = true; });
+  }
+  if (t >= END + 0.7) { trans.active = false; hud.visible = false; }
 }
 
 // On the computer: M shows the menu in front of you, S switches modes (for testing without the headset)
@@ -1010,7 +1250,7 @@ window.addEventListener('keydown', e => {
     const dir = camera.getWorldDirection(new THREE.Vector3());
     menu.position.copy(camera.position).addScaledVector(dir, 0.45).add(new THREE.Vector3(0, -0.15, 0));
   }
-  if (e.key === 's' || e.key === 'S') setMode(mode === 'stark' ? 'sunnyvale' : 'stark');
+  if (e.key === 's' || e.key === 'S') startTransition(mode === 'stark' ? 'sunnyvale' : 'stark');
 });
 
 // ---------- Mouse dragging (computer preview) ----------
@@ -1062,10 +1302,13 @@ renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hi
 renderer.xr.addEventListener('sessionend', () => {
   document.getElementById('hint').style.display = '';
   menu.visible = false;
-  if (mode === 'stark') setMode('sunnyvale');
+  trans.active = false; hud.visible = false; shockwave.visible = false; scanGrid.visible = false;
+  flames.forEach(f => { f.visible = true; });
+  setMode('sunnyvale');
 });
 
 panels.forEach(faceViewer);
+patchTree(park);
 
 // Moon shadows for everything solid (not the glowing bits)
 scene.traverse(o => { if (o.isMesh && !o.material.isMeshBasicMaterial) { o.castShadow = true; o.receiveShadow = true; } });
@@ -1081,6 +1324,8 @@ renderer.setAnimationLoop(() => {
   updateHeld();
   updateMenu(dt);
   updatePanels(dt);
+  updateTransition(dt);
+  if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
   renderer.render(scene, camera);
 });
 </script>
