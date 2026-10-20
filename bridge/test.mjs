@@ -17,7 +17,7 @@ test('private pairing, streamed tabs, click, keyboard, scroll, close, invalid UR
   });
   await new Promise(r => fixture.listen(18131, '127.0.0.1', r));
   const process = spawn(globalThis.process.execPath, ['server.mjs'], { cwd: fileURLToPath(new URL('.', import.meta.url)), windowsHide: true,
-    env: { ...globalThis.process.env, BRIDGE_PORT: '18130', BRIDGE_PRIVATE_DIR: dir, BRIDGE_TUNNEL: '0' }, stdio: 'ignore' });
+    env: { ...globalThis.process.env, BRIDGE_PORT: '18130', BRIDGE_PRIVATE_DIR: dir, BRIDGE_TUNNEL: '0', BRIDGE_BROWSER: 'playwright' }, stdio: 'ignore' });
   const pause = ms => new Promise(r => setTimeout(r, ms));
   async function until(fn) { for (let i = 0; i < 300; i++) { const v = await fn(); if (v) return v; await pause(100); } throw Error('Timed out'); }
   let ws;

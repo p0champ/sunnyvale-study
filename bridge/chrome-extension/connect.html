@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Connect Sunnyvale to Chrome</title>
+<style>body{font:15px system-ui;background:#17140f;color:#f6e9c9;width:340px;margin:20px}button,input{font:inherit;margin:8px 0;padding:8px;max-width:100%;box-sizing:border-box}button{cursor:pointer}#status{white-space:pre-wrap}small{display:block;line-height:1.4}details{margin-top:12px}</style>
+<h2>Sunnyvale + your Chrome</h2>
+<p>Choose the private pairing file from your PC once. Then this extension remembers the connection.</p>
+<input id="file" type="file" accept=".txt,text/plain" aria-label="Choose pairing.txt">
+<button id="connect">Connect</button> <button id="disconnect">Disconnect</button>
+<p id="status">Checking connection…</p>
+<small>Uses only tabs you open from Sunnyvale. Sign in on the PC as usual. Your logins stay in Chrome. Closing a VR window leaves its Chrome tab open.</small>
+<details><summary>Advanced</summary><label>Local bridge port <input id="port" type="number" min="1024" max="65535" value="8130"></label></details>
+<script src="connect.js"></script></html>

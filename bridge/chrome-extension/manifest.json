@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Sunnyvale Browser Bridge",
+  "version": "0.2.0",
+  "description": "Show your Chrome tabs inside your private Sunnyvale VR study space.",
+  "minimum_chrome_version": "118",
+  "permissions": [
+    "debugger",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "connect.html"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnPAzeH1OEJRXMCrU+QYeMqZKeX1A8CkdprSmp2UWNbNuw+AmnYS3rJJyUi23v6fdcMAbhvBpCXhaO6J9Io7nP3syRt3jdQK3wU0PlhaRRy5EErhyQsEDyk4KU/Wy6Slkebhkwh6sNiUIe4ISJQYlCk49is+QkyTRyq6owR640iQ2y+5zYtW/sbNXo2tPBlIKp41wfjtkZJ35fDttcO9eLOCHadRQ4YBMbneNRs8ycN05ZL+rJlaK4Zr9JAL7h0aT/7x3uW0eqU2yQltxsrY0R90aIFkGiAAEpq2QqQDvvISdb4oYAYVvKH9dylIFGWdhWFF47a/mgTIYJbeVW+yr9QIDAQAB"
+}

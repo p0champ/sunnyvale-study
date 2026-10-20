@@ -85,7 +85,8 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     current.onmessage = async event => {
       if (socket !== current) return;
       const m = JSON.parse(event.data);
-      if (m.type === 'ready') { ready = true; report('Connected. Claude and the heart now open inside the world.'); }
+      if (m.type === 'ready') { ready = true; report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : 'Connected. Claude and the heart use your PC browser.'); }
+      if (m.type === 'browser-status') report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.');
       if (m.type === 'tab') newPanel(m);
       if (m.type === 'location' && tabs.has(m.id)) tabs.get(m.id).url = m.url;
       if (m.type === 'error') { report(m.message); status(m.message); }
