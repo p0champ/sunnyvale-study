@@ -683,7 +683,10 @@ function hologramTexture(title, body, W, H) {
       ctx.beginPath(); ctx.moveTo(x, y + dy * 60); ctx.lineTo(x, y); ctx.lineTo(x + dx * 60, y); ctx.stroke();
     }
     ctx.fillStyle = '#ffd27a';
-    ctx.font = '600 60px "Segoe UI", system-ui, sans-serif';
+    for (let ts = 60; ts > 26; ts -= 4) {                              // long titles shrink to fit
+      ctx.font = `600 ${ts}px "Segoe UI", system-ui, sans-serif`;
+      if (ctx.measureText(title.toUpperCase()).width < W - 220) break;
+    }
     ctx.fillText(title.toUpperCase(), 60, 118);
     ctx.shadowBlur = 8;
     ctx.fillRect(60, 140, 260, 4);
@@ -709,7 +712,10 @@ function cardboardTexture(title, body, W, H) {
     ctx.beginPath(); ctx.arc(860, 560, 70, 0, Math.PI * 2); ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(70,45,20,0.35)'; ctx.stroke();
 
     ctx.fillStyle = '#1a1410';
-    ctx.font = 'bold 72px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif';
+    for (let ts = 72; ts > 30; ts -= 4) {                              // long titles shrink to fit
+      ctx.font = `bold ${ts}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`;
+      if (ctx.measureText(title).width < W - 220) break;
+    }
     ctx.fillText(title, 60, 120);
     ctx.fillRect(60, 140, ctx.measureText(title).width, 6);
     const size = textSize(body);
@@ -733,6 +739,22 @@ function setWindowContent(p, title, body) {
   p.userData.title = title; p.userData.body = body;
 }
 
+const burnTex = canvasTexture(128, 128, (ctx) => {
+  const g = ctx.createRadialGradient(64, 64, 8, 64, 64, 60);
+  g.addColorStop(0, '#120804'); g.addColorStop(0.55, '#2a1406'); g.addColorStop(0.8, 'rgba(90,50,20,0.8)'); g.addColorStop(1, 'rgba(90,50,20,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(64, 64, 60, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#e8d8b8'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(44, 44); ctx.lineTo(84, 84); ctx.moveTo(84, 44); ctx.lineTo(44, 84); ctx.stroke();
+});
+const glowXTex = canvasTexture(128, 128, (ctx) => {
+  ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 16;
+  ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(64, 64, 46, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 9; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(46, 46); ctx.lineTo(82, 82); ctx.moveTo(82, 46); ctx.lineTo(46, 82); ctx.stroke();
+});
+const closeButtons = [];
+
 function makeCardboardWindow(title, body, position) {
   const W = 1024, H = 700;
   const texture = cardboardTexture(title, body, W, H);
@@ -745,6 +767,13 @@ function makeCardboardWindow(title, body, position) {
   mesh.userData.hologram = hologramTexture(title, body, W, H);
   mesh.userData.title = title;
   mesh.userData.body = body;
+  const close = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24),
+    new THREE.MeshBasicMaterial({ map: burnTex, transparent: true, depthWrite: false }));
+  close.position.set(w / 2 - 0.045, h / 2 - 0.045, 0.004);
+  close.userData.window = mesh;
+  mesh.add(close);
+  mesh.userData.closeButton = close;
+  closeButtons.push(close);
   scene.add(mesh);
   panels.push(mesh);
   return mesh;
@@ -843,6 +872,13 @@ function grab(state) {
     raycaster.set(origin, dir);
     const hit = raycaster.intersectObjects(menuButtons.filter(shown), false)[0];
     if (hit) { pressButton(hit.object); return; }
+  }
+  // Pointing at a window's close button and pinching closes it
+  {
+    const { origin, dir } = rayFrom(state);
+    raycaster.set(origin, dir);
+    const hit = raycaster.intersectObjects(closeButtons, false)[0];
+    if (hit) { closeWindow(hit.object.userData.window); return; }
   }
   // Close grab: pinch right on a window.
   if (state.isHand) {
@@ -1056,6 +1092,17 @@ function updateMenu(dt) {
       }
     }
   }
+  if (renderer.xr.isPresenting && pressCooldown <= 0) {
+    for (const s of inputs) {
+      const tip = s.isHand && s.hand.joints['index-finger-tip'];
+      if (!tip) continue;
+      const p = tip.getWorldPosition(new THREE.Vector3());
+      for (const c of [...closeButtons]) {
+        const local = c.worldToLocal(p.clone());
+        if (Math.abs(local.z) < 0.02 && Math.hypot(local.x, local.y) < 0.035) { pressCooldown = 0.6; closeWindow(c.userData.window); break; }
+      }
+    }
+  }
   if (menu.visible) {
     menu.scale.setScalar(Math.min(1, menu.scale.x + dt * 6));              // pops in
     viewerPosition(tmpVec);
@@ -1193,7 +1240,7 @@ function claudeWindowPosition(slot) {
   viewerPosition(tmpVec);
   const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   const dir = cam.getWorldDirection(new THREE.Vector3()); dir.y = 0; dir.normalize();
-  const angles = [0, 0.6, -0.6, 1.15, -1.15, 1.65, -1.65];
+  const angles = [0, 0.82, -0.82, 1.64, -1.64, 2.45, -2.45];         // far enough apart that windows don't overlap
   const a = angles[slot % angles.length];
   const d = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
   return new THREE.Vector3(tmpVec.x + d.x * 1.05, tmpVec.y - 0.12 - Math.floor(slot / angles.length) * 0.6, tmpVec.z + d.z * 1.05);
@@ -1207,6 +1254,8 @@ function openWindow(title, body) {
 }
 function findWindow(id) { return panels.find(p => p.userData.id === id); }
 function closeWindow(p) {
+  if (p.userData.closeButton) closeButtons.splice(closeButtons.indexOf(p.userData.closeButton), 1);
+  if (p === claudePanel) claudePanel = null;
   scene.remove(p);
   panels.splice(panels.indexOf(p), 1);
   for (const s of inputs) if (s.held === p) release(s);
@@ -1478,6 +1527,11 @@ function setMode(next) {
 function applyWindows(stark) { for (const p of panels) lookFor(p, stark); }
 function lookFor(p, stark) {
   {
+    if (p.userData.closeButton) {
+      p.userData.closeButton.material.map = stark ? glowXTex : burnTex;
+      p.userData.closeButton.material.blending = stark ? THREE.AdditiveBlending : THREE.NormalBlending;
+      p.userData.closeButton.material.needsUpdate = true;
+    }
     p.material.map = stark ? p.userData.hologram : p.userData.cardboard;
     p.material.transparent = stark;
     p.material.depthWrite = !stark;
@@ -1752,6 +1806,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
     const b = raycaster.intersectObjects(menuButtons.filter(shown), false)[0];
     if (b) { pressButton(b.object); return; }
   }
+  const x = raycaster.intersectObjects(closeButtons, false)[0];
+  if (x) { closeWindow(x.object.userData.window); return; }
   const hit = raycaster.intersectObjects(panels, false)[0];
   if (!hit) return;
   drag.panel = hit.object;
@@ -1795,6 +1851,8 @@ patchTree(park);
 
 // Moon shadows for everything solid (not the glowing bits)
 scene.traverse(o => { if (o.isMesh && !o.material.isMeshBasicMaterial) { o.castShadow = true; o.receiveShadow = true; } });
+
+window.studyDebug.claudeTool = runClaudeTool;   // for testing Claude's windows on the computer
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
