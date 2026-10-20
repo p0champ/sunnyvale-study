@@ -60,7 +60,20 @@ Assets are in `assets/` (`models/<name>/<name>.gltf`, `textures/<name>/{Diffuse,
 - **Windows** have a close button (a cigarette burn in Sunnyvale, a glowing X in Stark): fingertip touch, point and pinch, or mouse click.
 - **Unknown until tested on the Quest:** whether the Quest browser supports `SpeechRecognition` and has `speechSynthesis` voices. If not, the OpenAI key path is the fallback.
 
+## Stark tools + Barbera (built 2026-10-20, the user approved all four tool sets)
+- **Claude button with no API key:** it ends the XR session and opens https://claude.ai/new, so the user can use their Claude subscription there. Subscription OAuth for third-party apps isn't available, and WebXR can't show real websites in 3D. With a key in settings, Claude works inside the world, and it can also use `create_mind_map`, `create_timeline`, `make_flashcards` and `clear_desk`.
+- **The Barbera heart button** (main menu row) ends XR and opens `https://wa.me/<number>`. The number is typed into the settings box and stored in localStorage only (`barberaNumber`). NEVER put it in the code, because the repo is public.
+- **Menu layout:** the main row (y 0.17) has mode switch / Barbera / Stash, and the tool row (y 0.27, 0.8 scale) has Draw, Erase, Cards, Map, Timeline. The Claude bottle or orb stands left of the glass. The menu yaws to face the viewer, and `layoutRows()` spaces the visible buttons.
+- **Holo objects** (`makeHoloObject`): an invisible handle plane goes in `panels` (so grabbing works) with the content as a child, plus a glowing close X. `userData.kind` is 'map' | 'timeline' | 'cards'. The built-in demos are DEMO_MAP (film language), DEMO_TIMELINE (film history) and DEMO_CARDS (film terms).
+- **Touchables:** fingertip-touch zones (flashcards: tap flips, tap again for the next card; the wrist timer: tap to start or pause). Controller rays and the mouse work too.
+- **Wrist HUD:** look at the back of your wrist (the negated palm normal facing the eyes, within 0.75m). It shows the clock, date, and a 25/5 Pomodoro ring, and Jarvis announces session ends via `jarvisSay` (speechSynthesis + HUD text).
+- **Air drawing:** the Draw toggle. Pinch in empty air to draw additive gold lines (`drawings` group), and Erase clears them.
+- **Jarvis gestures:** point at a far window and close your fist, and it flies to you (`isFist`, `flyTo`). Pinch the same object with both hands to resize it (`baseScale`). Flick a held object fast (more than 1.6 m/s) and it goes into the stash, and the Stash button (it shows a count) brings everything back. Voice commands weren't built (they need speech recognition / Claude in-world).
+- **starkFX** (visible only in Stark mode): the holo workbench (shader disc, rings, light cone) placed 0.75m in front at waist height when entering Stark, floor rings that follow you, and dust particles. Sounds come from `blip()`.
+- PC test keys: M menu, S mode, C Claude, W wrist display.
+
 ## Progress log
 - 2026-10-20: Steps 1–3 done (the park, realism batches, grass, Sketchfab models, the palm menu, Stark mode, the transition, the first lag fix).
 - 2026-10-20 (later): Claude voice button + window tools, close buttons, the desert-flash fix, more speed work (no shadows, pine batches). Waiting on the user's Quest test.
+- 2026-10-20 (later still): the Stark tools + Barbera + the claude.ai fallback (see above). Waiting on the Quest test.
 - **Next up (ask the user first):** test Claude on the Quest, confirm the lag status, then the remaining window gestures (the Stark fist-pull, two-hand resize, flick away into the menu), the inside-trailer scene, sounds and music.

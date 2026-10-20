@@ -33,10 +33,11 @@
   On the computer: drag the background to look around, and drag the cardboard window to move it.<br>
   On the Quest: press <b>Enter Sunnyvale</b>, then pinch the window (thumb + index finger) to grab it,
   or point at it from far away and pinch. Turn your palm up for Julian's glass and its menu.<br>
-  Testing on the computer: <b>M</b> shows the menu, <b>S</b> switches to Stark mode, <b>C</b> talks to Claude.
+  Testing on the computer: <b>M</b> shows the menu, <b>S</b> switches to Stark mode, <b>C</b> talks to Claude, <b>W</b> shows the wrist display.
   <details id="claudeSettings">
     <summary><b>Claude settings</b></summary>
-    <label>Claude API key (from console.anthropic.com)<input id="claudeKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
+    <label>Barbera's WhatsApp number, with country code<input id="barberaNumber" type="tel" autocomplete="off" placeholder="+45 12 34 56 78"></label>
+    <label>Optional: Claude API key, for talking to Claude inside the world. Without it, the Claude button opens claude.ai<input id="claudeKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
     <label>OpenAI key, optional (only for voice if this browser can't do speech-to-text)<input id="openaiKey" type="password" autocomplete="off" placeholder="sk-..."></label>
     <button id="saveKeys">Save</button> <button id="micTest">Allow microphone</button>
     <label>Or type to Claude<input id="typeToClaude" type="text" placeholder="Ask something, press Enter"></label>
@@ -800,13 +801,14 @@ function faceViewer(panel) {
 }
 
 function setHeld(panel, held) {
-  panel.scale.setScalar(held ? 1.05 : 1);
+  panel.scale.setScalar((panel.userData.baseScale || 1) * (held ? 1.05 : 1));
 }
 
 // Is a point close enough to a window to grab it by pinching?
 function panelNear(point) {
   let best = null, bestDist = Infinity;
   for (const p of panels) {
+    if (!p.visible) continue;
     const local = p.worldToLocal(point.clone());
     const { w, h } = p.userData.size;
     if (Math.abs(local.x) < w / 2 + 0.05 && Math.abs(local.y) < h / 2 + 0.05 && Math.abs(local.z) < 0.1) {
@@ -877,8 +879,10 @@ function grab(state) {
   {
     const { origin, dir } = rayFrom(state);
     raycaster.set(origin, dir);
-    const hit = raycaster.intersectObjects(closeButtons, false)[0];
+    const hit = raycaster.intersectObjects(closeButtons.filter(shown), false)[0];
     if (hit) { closeWindow(hit.object.userData.window); return; }
+    const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(shown), false)[0];
+    if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
   }
   // Close grab: pinch right on a window.
   if (state.isHand) {
@@ -894,23 +898,29 @@ function grab(state) {
   // Far grab: point at a window and pinch / pull the trigger.
   const { origin, dir } = rayFrom(state);
   raycaster.set(origin, dir);
-  const hit = raycaster.intersectObjects(panels, false)[0];
+  const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
   if (hit) {
     state.held = hit.object; state.mode = 'ray';
     state.dist = hit.distance;
     state.offset.copy(hit.object.position).sub(hit.point);
     setHeld(hit.object, true);
+    return;
   }
+  // Nothing to grab and drawing is on: start a glowing line
+  if (draw.on) { const p = drawPoint(state); if (p) startStroke(state, p); }
 }
 
 function release(state) {
-  if (state.held) setHeld(state.held, false);
+  if (state.stroke) { state.stroke = null; return; }
+  if (state.held) { setHeld(state.held, false); checkFlick(state, state.held); }
   state.held = null; state.mode = null;
 }
 
 function updateHeld() {
   for (const s of inputs) {
-    if (!s.held) continue;
+    if (s.stroke) { const p = drawPoint(s); if (p) addStrokePoint(s, p); }
+    trackHeld(s);
+    if (!s.held || !panels.includes(s.held)) continue;
     if (s.mode === 'near') {
       const p = pinchPoint(s, new THREE.Vector3());
       if (p) s.held.position.copy(p).add(s.offset);
@@ -1034,6 +1044,7 @@ function pressButton(b) {
   if (pressCooldown > 0) return;
   pressCooldown = 0.8;
   b.userData.pulse = 1;
+  blip(mode === 'stark' ? 1000 : 600);
   b.userData.action();
 }
 
@@ -1106,6 +1117,8 @@ function updateMenu(dt) {
   if (menu.visible) {
     menu.scale.setScalar(Math.min(1, menu.scale.x + dt * 6));              // pops in
     viewerPosition(tmpVec);
+    menu.rotation.y = Math.atan2(tmpVec.x - menu.position.x, tmpVec.z - menu.position.z);
+    layoutRows();
     buttonRow.lookAt(tmpVec);
     if (reactor.visible) { reactor.lookAt(tmpVec); coils.rotation.z += dt * 0.8; coreGlow.material.opacity = 0.8 + Math.sin(performance.now() / 180) * 0.2; }
     for (const b of menuButtons) {
@@ -1124,7 +1137,7 @@ const CLAUDE_MODEL = 'claude-opus-5-5';
 const CLAUDE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.131.0/+esm';
 const CLAUDE_SYSTEM = `You are Claude, the user's study buddy inside their VR study space on a Meta Quest 3 (a Trailer Park Boys themed trailer park called "Sunnyvale", or "Stark mode", which shows their real room with holographic windows).
 The user talks to you by voice and your replies are read aloud. So keep spoken replies short and natural: one to three sentences, no lists, no markdown, no emoji.
-Put anything longer (explanations, key facts, summaries, quiz questions, timelines, examples) into floating windows with your tools. Each window holds about 120 words, so split bigger topics across several windows with clear titles. Open windows whenever it helps the user study, like Jarvis does for Tony Stark.
+Put anything longer (explanations, key facts, summaries, quiz questions, examples) into floating windows with your tools. You can also build 3D mind maps, walk-along timelines and flashcard decks, and clear the desk. Each window holds about 120 words, so split bigger topics across several windows with clear titles. Open windows whenever it helps the user study, like Jarvis does for Tony Stark.
 When the user says "write that down", "note that" or similar, use add_note. When they ask to be quizzed, ask one question at a time out loud, wait for their answer, then tell them if they were right.
 Each user turn starts with a list of the windows that are currently open, so you can read and refer to them, update them, or close ones that are no longer needed.
 The user studies film and loves books and literature, especially Charles Bukowski. Be yourself: friendly, clear and honest.`;
@@ -1138,7 +1151,24 @@ const CLAUDE_TOOLS = [
   { name: 'close_window', description: 'Close an open window.', strict: true,
     input_schema: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string' } } } },
   { name: 'add_note', description: "Add a line to the user's Notes window (it's created if it isn't open).", strict: true,
-    input_schema: { type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string' } } } }
+    input_schema: { type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string' } } } },
+  { name: 'create_mind_map', description: 'Build a glowing 3D mind map in front of the user: a central topic with up to 8 branches, each with up to 4 short sub-points.', strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: ['title', 'branches'], properties: {
+      title: { type: 'string' },
+      branches: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['label', 'children'],
+        properties: { label: { type: 'string' }, children: { type: 'array', items: { type: 'string' } } } } } } } },
+  { name: 'create_timeline', description: 'Build a glowing timeline the user can walk along, with up to 16 events in order.', strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: ['title', 'events'], properties: {
+      title: { type: 'string' },
+      events: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['year', 'label'],
+        properties: { year: { type: 'string' }, label: { type: 'string', description: 'Under 60 characters' } } } } } } },
+  { name: 'make_flashcards', description: 'Make a deck of holographic flashcards (term or question on the front, short answer on the back).', strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: ['title', 'cards'], properties: {
+      title: { type: 'string' },
+      cards: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['front', 'back'],
+        properties: { front: { type: 'string' }, back: { type: 'string' } } } } } } },
+  { name: 'clear_desk', description: "Put every open window and object away into the user's stash (they can bring them back from the menu).", strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: [], properties: {} } }
 ];
 
 const claude = { state: 'idle', chat: [], client: null, recognizer: null, recorder: null, heard: '', silenceTimer: null, windowCount: 0 };
@@ -1201,7 +1231,7 @@ claudeOrb.visible = false;
 
 // Both sit above the round buttons; an invisible ball around them catches your fingertip
 const claudeSpot = new THREE.Group();
-claudeSpot.position.y = 0.24;
+claudeSpot.position.set(-0.17, 0, 0);                              // the bottle stands next to the glass
 claudeSpot.add(claudeBottle, claudeOrb);
 menu.add(claudeSpot);
 const claudeHit = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
@@ -1259,7 +1289,9 @@ function closeWindow(p) {
   scene.remove(p);
   panels.splice(panels.indexOf(p), 1);
   for (const s of inputs) if (s.held === p) release(s);
-  p.userData.cardboard.dispose(); p.userData.hologram.dispose(); p.geometry.dispose(); p.material.dispose();
+  p.userData.cardboard?.dispose(); p.userData.hologram?.dispose(); p.geometry.dispose(); p.material.dispose();
+  for (let i = touchables.length - 1; i >= 0; i--) { let x = touchables[i].mesh; while (x && x !== p) x = x.parent; if (x === p) touchables.splice(i, 1); }
+  blip(500, 0.08);
 }
 
 function runClaudeTool(name, input) {
@@ -1286,6 +1318,10 @@ function runClaudeTool(name, input) {
     setWindowContent(notes, 'Notes', body.split('\n').slice(-12).join('\n'));
     return JSON.stringify({ ok: true });
   }
+  if (name === 'create_mind_map') return JSON.stringify({ ok: true, id: createMindMap(String(input.title), input.branches || []).userData.id });
+  if (name === 'create_timeline') return JSON.stringify({ ok: true, id: createTimeline(String(input.title), input.events || []).userData.id });
+  if (name === 'make_flashcards') return JSON.stringify({ ok: true, id: createFlashcards(String(input.title), input.cards || []).userData.id });
+  if (name === 'clear_desk') { clearDesk(); return JSON.stringify({ ok: true }); }
   return JSON.stringify({ ok: false, error: 'Unknown tool' });
 }
 
@@ -1313,10 +1349,7 @@ function claudeTap() {
 }
 
 function startListening() {
-  if (!getKey('claudeKey')) {
-    claudeSays('', "I need your Claude API key first. Take the headset off, open Claude settings on the page, paste your key and press Save.");
-    return;
-  }
+  if (!getKey('claudeKey')) { openClaudeWebsite(); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   claude.heard = '';
   if (SR) {
@@ -1480,20 +1513,22 @@ function speak(text) {
 
 // ---------- The Claude settings box on the page (outside the headset view) ----------
 (function setupClaudeSettings() {
-  const keyBox = document.getElementById('claudeKey'), oaBox = document.getElementById('openaiKey');
+  const keyBox = document.getElementById('claudeKey'), oaBox = document.getElementById('openaiKey'), herBox = document.getElementById('barberaNumber');
   const status = document.getElementById('claudeStatus');
   if (!keyBox) return;
   keyBox.value = getKey('claudeKey') ? '********' : '';
   oaBox.value = getKey('openaiKey') ? '********' : '';
+  herBox.value = getKey('barberaNumber') ? '********' : '';
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  status.textContent = (getKey('claudeKey') ? 'Claude key saved. ' : 'No Claude key yet. ') +
+  status.textContent = (getKey('claudeKey') ? 'Claude key saved. ' : 'No Claude key: the Claude button opens claude.ai. ') +
     (SR ? 'Voice: built in.' : 'Voice: this browser needs an OpenAI key for speech-to-text.');
   document.getElementById('saveKeys').onclick = () => {
-    for (const [box, name] of [[keyBox, 'claudeKey'], [oaBox, 'openaiKey']]) {
+    for (const [box, name] of [[keyBox, 'claudeKey'], [oaBox, 'openaiKey'], [herBox, 'barberaNumber']]) {
       if (box.value && box.value !== '********') { memoryKeys[name] = box.value.trim(); store.set(name, box.value.trim()); box.value = '********'; }
     }
     claude.client = null;
-    status.textContent = getKey('claudeKey') ? 'Saved. Tap the Claude bottle in the menu to talk.' : 'Paste your Claude API key first.';
+    status.textContent = 'Saved.' + (getKey('barberaNumber') ? ' The heart button calls Barbera.' : '') +
+      (getKey('claudeKey') ? ' Claude talks inside the world.' : ' The Claude button opens claude.ai.');
   };
   document.getElementById('micTest').onclick = async () => {
     try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(t => t.stop()); status.textContent = 'Microphone allowed.'; }
@@ -1503,8 +1538,667 @@ function speak(text) {
     if (e.key === 'Enter' && e.target.value.trim() && claude.state !== 'thinking') { askClaude(e.target.value.trim()); e.target.value = ''; }
     e.stopPropagation();                                                // don't trigger the M / S / C test keys while typing
   });
-  for (const box of [keyBox, oaBox]) box.addEventListener('keydown', e => e.stopPropagation());
+  for (const box of [keyBox, oaBox, herBox]) box.addEventListener('keydown', e => e.stopPropagation());
 })();
+
+// =====================================================================================================
+// ---------- Tony Stark's study tools: holo workbench, wrist HUD + timer, air drawing, flashcards, ----------
+// ---------- mind maps, timelines, Jarvis gestures, and the Barbera heart button                   ----------
+// =====================================================================================================
+
+// Little UI sounds
+function blip(freq = 880, length = 0.06, volume = 0.12) {
+  try {
+    const ctx = sound(), now = ctx.currentTime;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 1.5, now + length);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + length * 2);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now); osc.stop(now + length * 2.2);
+  } catch (e) { /* no sound available */ }
+}
+
+// Jarvis talking (the browser's own voice) + a line on the HUD
+function jarvisSay(text, hudLines) {
+  try {
+    if (text && 'speechSynthesis' in window) {
+      const u = new SpeechSynthesisUtterance(text);
+      const voices = speechSynthesis.getVoices();
+      u.voice = voices.find(v => /en(-|_)GB/i.test(v.lang)) || voices.find(v => /^en/i.test(v.lang)) || null;
+      speechSynthesis.speak(u);
+    }
+  } catch (e) { /* no voice available */ }
+  if (hudLines && !trans.active) { hudMessage.lines = hudLines; hudMessage.t = 0; hud.visible = true; }
+}
+const hudMessage = { lines: null, t: 0 };
+function updateHudMessage(dt) {
+  if (!hudMessage.lines || trans.active) return;
+  hudMessage.t += dt;
+  drawHud(hudMessage.t, hudMessage.lines, 1, hudMessage.t < 3.5 ? 1 : Math.max(0, 1 - (hudMessage.t - 3.5) / 0.6));
+  if (hudMessage.t > 4.1) { hudMessage.lines = null; hud.visible = false; }
+}
+
+// Opening things outside the 3D world (claude.ai, WhatsApp): leave the headset view first
+async function openOutside(url) {
+  const session = renderer.xr.getSession();
+  if (session) { try { await session.end(); } catch (e) { /* already ended */ } }
+  const w = window.open(url, '_blank');
+  if (!w) location.href = url;
+}
+
+// ---------- Things you can touch with a fingertip (cards, the wrist timer, ...) ----------
+const touchables = [];   // { mesh, w, h, action }
+let touchCooldown = 0;
+function updateTouches(dt) {
+  touchCooldown = Math.max(0, touchCooldown - dt);
+  if (!renderer.xr.isPresenting || touchCooldown > 0) return;
+  for (const s of inputs) {
+    const tip = s.isHand && s.hand.joints['index-finger-tip'];
+    if (!tip || s === palm.state) continue;
+    const p = tip.getWorldPosition(new THREE.Vector3());
+    for (const t of touchables) {
+      if (!shown(t.mesh)) continue;
+      const local = t.mesh.worldToLocal(p.clone());
+      if (Math.abs(local.z) < 0.02 && Math.abs(local.x) < t.w / 2 && Math.abs(local.y) < t.h / 2) {
+        touchCooldown = 0.7; blip(1200); t.action(); return;
+      }
+    }
+  }
+}
+
+// ---------- Holographic objects you can grab (mind maps, timelines, flashcards) ----------
+// They hang off an invisible "handle" the size of the object, so the normal pinch / point grabbing works on them.
+function makeHoloObject(content, w, h, title, kind) {
+  const handle = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ visible: false }));
+  handle.userData = { size: { w, h }, kind, title, body: '', id: kind + (++claude.windowCount) };
+  handle.add(content);
+  const close = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24),
+    new THREE.MeshBasicMaterial({ map: glowXTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  close.position.set(w / 2 - 0.03, h / 2 - 0.03, 0.01);
+  close.userData.window = handle;
+  handle.add(close);
+  handle.userData.closeButton = close;
+  closeButtons.push(close);
+  scene.add(handle);
+  panels.push(handle);
+  return handle;
+}
+function placeInFront(obj, distance = 0.9, height = -0.1) {
+  viewerPosition(tmpVec);
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const dir = cam.getWorldDirection(new THREE.Vector3()); dir.y = 0; dir.normalize();
+  obj.position.set(tmpVec.x + dir.x * distance, tmpVec.y + height, tmpVec.z + dir.z * distance);
+  faceViewer(obj);
+  obj.userData.popIn = 0;                                             // grows in like it's being projected
+}
+
+// A glowing text label (used by mind maps and timelines)
+function holoLabel(text, { w = 0.2, h = 0.06, big = '', color = '#ffd27a', fill = 'rgba(70,6,6,0.6)' } = {}) {
+  const cw = 512, ch = Math.round(512 * h / w);
+  const tex = canvasTexture(cw, ch, (ctx) => {
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(4, 4, cw - 8, ch - 8, 18); ctx.fill();
+    ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 12;
+    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (big) {
+      ctx.font = `700 ${Math.round(ch * 0.34)}px "Segoe UI", system-ui, sans-serif`; ctx.fillText(big, cw / 2, ch * 0.32);
+      ctx.font = `${Math.round(ch * 0.2)}px "Segoe UI", system-ui, sans-serif`; wrapCentered(ctx, text, cw / 2, ch * 0.66, cw - 40, ch * 0.22);
+    } else {
+      let size = Math.round(ch * 0.42);
+      do { ctx.font = `600 ${size}px "Segoe UI", system-ui, sans-serif`; size -= 2; } while (ctx.measureText(text).width > cw - 40 && size > 14);
+      ctx.fillText(text, cw / 2, ch / 2);
+    }
+  });
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+}
+function wrapCentered(ctx, text, x, y, maxW, lineH) {
+  const words = String(text).split(' '); let line = '', lines = [];
+  for (const word of words) { const t = line ? line + ' ' + word : word; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = word; } else line = t; }
+  lines.push(line);
+  lines.slice(0, 3).forEach((l, i) => ctx.fillText(l, x, y + (i - (Math.min(lines.length, 3) - 1) / 2) * lineH));
+}
+const holoLineMat = new THREE.LineBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+
+// ---------- Mind maps: a glowing 3D web of ideas ----------
+function createMindMap(title, branches) {
+  const group = new THREE.Group();
+  const center = holoLabel(title, { w: 0.26, h: 0.08, fill: 'rgba(110,10,10,0.75)' });
+  group.add(center);
+  const pts = [];
+  branches.slice(0, 8).forEach((b, i, all) => {
+    const a = (i / all.length) * Math.PI * 2 + Math.PI / 2;
+    const bp = new THREE.Vector3(Math.cos(a) * 0.36, Math.sin(a) * 0.24, (i % 2 ? 0.06 : -0.06));
+    const node = holoLabel(b.label, { w: 0.19, h: 0.055 });
+    node.position.copy(bp); group.add(node);
+    pts.push(new THREE.Vector3(), bp.clone());
+    (b.children || []).slice(0, 4).forEach((c, j, kids) => {
+      const ca = a + (j - (kids.length - 1) / 2) * 0.42;
+      const cp = bp.clone().add(new THREE.Vector3(Math.cos(ca) * 0.2, Math.sin(ca) * 0.14, (j % 2 ? 0.08 : -0.04)));
+      const leaf = holoLabel(c, { w: 0.15, h: 0.045, fill: 'rgba(40,4,4,0.55)', color: '#ffe9c4' });
+      leaf.position.copy(cp); group.add(leaf);
+      pts.push(bp.clone(), cp.clone());
+    });
+  });
+  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), holoLineMat));
+  const obj = makeHoloObject(group, 1.15, 0.85, title, 'map');
+  obj.userData.body = branches.map(b => b.label + ': ' + (b.children || []).join(', ')).join('; ');
+  placeInFront(obj, 1.0, -0.05);
+  blip(660, 0.12);
+  return obj;
+}
+
+// ---------- Timelines: a glowing rail you can walk along ----------
+function createTimeline(title, events) {
+  const group = new THREE.Group();
+  const evs = events.slice(0, 16);
+  const span = Math.max(2.4, evs.length * 0.36);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(span, 0.008, 0.008),
+    new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, blending: THREE.AdditiveBlending }));
+  group.add(rail);
+  const head = holoLabel(title, { w: 0.4, h: 0.08, fill: 'rgba(110,10,10,0.75)' });
+  head.position.set(-span / 2 + 0.2, 0.42, 0); group.add(head);
+  evs.forEach((e, i) => {
+    const x = -span / 2 + 0.15 + i * ((span - 0.3) / Math.max(1, evs.length - 1));
+    const up = i % 2 ? 0.14 : 0.27;
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.004, up, 0.004),
+      new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending }));
+    post.position.set(x, up / 2, 0); group.add(post);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffe0a0 }));
+    dot.position.set(x, 0, 0); group.add(dot);
+    const label = holoLabel(e.label, { w: 0.3, h: 0.11, big: String(e.year) });
+    label.position.set(x, up + 0.06, 0); group.add(label);
+  });
+  const obj = makeHoloObject(group, span + 0.2, 0.6, title, 'timeline');
+  obj.userData.body = evs.map(e => e.year + ': ' + e.label).join('; ');
+  placeInFront(obj, 1.4, -0.35);
+  blip(660, 0.12);
+  return obj;
+}
+
+// ---------- Flashcards: tap to flip, tap again for the next card ----------
+function cardTexture(text, back, n, total, title) {
+  return canvasTexture(768, 512, (ctx) => {
+    ctx.fillStyle = back ? 'rgba(20,30,60,0.75)' : 'rgba(80,8,8,0.75)';
+    ctx.beginPath(); ctx.roundRect(8, 8, 752, 496, 30); ctx.fill();
+    ctx.shadowColor = back ? '#9fe8ff' : '#ffb347'; ctx.shadowBlur = 16;
+    ctx.strokeStyle = back ? '#bff2ff' : '#f2c94c'; ctx.lineWidth = 6; ctx.stroke();
+    ctx.shadowBlur = 6; ctx.fillStyle = back ? '#dff8ff' : '#ffe2a0'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const size = text.length < 40 ? 54 : text.length < 120 ? 38 : 30;
+    ctx.font = `600 ${size}px "Segoe UI", system-ui, sans-serif`;
+    wrapCentered(ctx, text, 384, 250, 680, size * 1.3);
+    ctx.font = '24px "Segoe UI", system-ui, sans-serif'; ctx.globalAlpha = 0.7;
+    ctx.fillText(`${title}  ·  ${n}/${total}  ·  ${back ? 'tap for next card' : 'tap to flip'}`, 384, 470);
+  });
+}
+function createFlashcards(title, cards) {
+  const deck = { cards: cards.slice(0, 30), i: 0, flipped: false, flip: 0 };
+  const card = new THREE.Group();
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.28), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }));
+  const backFace = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.28), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }));
+  backFace.rotation.y = Math.PI;
+  card.add(front, backFace);
+  const show = () => {
+    const c = deck.cards[deck.i];
+    front.material.map?.dispose(); backFace.material.map?.dispose();
+    front.material.map = cardTexture(c.front, false, deck.i + 1, deck.cards.length, title);
+    backFace.material.map = cardTexture(c.back, true, deck.i + 1, deck.cards.length, title);
+    front.material.needsUpdate = backFace.material.needsUpdate = true;
+  };
+  show();
+  const obj = makeHoloObject(card, 0.44, 0.3, title, 'cards');
+  obj.userData.body = deck.cards.map(c => c.front + ' = ' + c.back).join('; ');
+  obj.userData.deck = deck;
+  obj.userData.update = dt => {                                        // the flip animation
+    const target = deck.flipped ? Math.PI : 0;
+    card.rotation.y += (target - card.rotation.y) * Math.min(1, dt * 10);
+  };
+  const tap = () => {
+    if (!deck.flipped) { deck.flipped = true; return; }
+    deck.flipped = false; deck.i = (deck.i + 1) % deck.cards.length;
+    card.rotation.y = 0; show();
+  };
+  const zone = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.28), new THREE.MeshBasicMaterial({ visible: false }));
+  zone.position.z = 0.005;
+  obj.add(zone);
+  touchables.push({ mesh: zone, w: 0.42, h: 0.28, action: tap });
+  obj.userData.tapZone = zone; obj.userData.tap = tap;
+  placeInFront(obj, 0.65, -0.12);
+  blip(660, 0.12);
+  return obj;
+}
+
+// Built-in examples (used when Claude isn't connected inside the world)
+const DEMO_MAP = { title: 'Film language', branches: [
+  { label: 'Shots', children: ['Wide', 'Medium', 'Close-up', 'Insert'] },
+  { label: 'Angles', children: ['Low', 'High', 'Dutch', "Bird's-eye"] },
+  { label: 'Movement', children: ['Pan', 'Tilt', 'Dolly', 'Handheld'] },
+  { label: 'Editing', children: ['Match cut', 'Jump cut', 'Montage', 'Cross-cut'] },
+  { label: 'Lighting', children: ['High-key', 'Low-key', 'Chiaroscuro'] },
+  { label: 'Sound', children: ['Diegetic', 'Non-diegetic', 'Foley'] } ] };
+const DEMO_TIMELINE = { title: 'Film history', events: [
+  { year: 1895, label: 'Lumière brothers hold the first public film screening' },
+  { year: 1902, label: 'A Trip to the Moon (Méliès)' },
+  { year: 1920, label: 'The Cabinet of Dr. Caligari: German Expressionism' },
+  { year: 1927, label: 'The Jazz Singer: synchronized dialogue arrives' },
+  { year: 1939, label: 'Technicolor takes off: The Wizard of Oz' },
+  { year: 1941, label: 'Citizen Kane' },
+  { year: 1959, label: 'French New Wave: The 400 Blows' },
+  { year: 1968, label: '2001: A Space Odyssey' },
+  { year: 1975, label: 'Jaws: the first summer blockbuster' },
+  { year: 1995, label: 'Toy Story: first fully computer-animated feature' },
+  { year: 2009, label: 'Avatar pushes 3D and motion capture' } ] };
+const DEMO_CARDS = { title: 'Film terms', cards: [
+  { front: 'Mise-en-scène', back: 'Everything placed in front of the camera: set, props, actors, costume, lighting.' },
+  { front: 'Diegetic sound', back: 'Sound that exists inside the story world, which the characters can hear.' },
+  { front: 'Match cut', back: 'A cut between two shots linked by a matching shape, action or sound.' },
+  { front: 'Dolly zoom', back: 'The camera moves while zooming the opposite way, so the background warps (Vertigo).' },
+  { front: 'Long take', back: 'A shot that runs a long time without a cut.' },
+  { front: 'Chiaroscuro', back: 'Strong contrast between light and dark, often used in film noir.' },
+  { front: 'Kuleshov effect', back: 'Viewers read meaning from how two shots are put together.' },
+  { front: 'Auteur theory', back: "The idea that the director is a film's main creative author." } ] };
+
+// ---------- Air drawing: pinch in the air and draw glowing lines ----------
+const drawings = new THREE.Group();
+scene.add(drawings);
+const draw = { on: false };
+const strokeMat = new THREE.LineBasicMaterial({ color: 0xffc861, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+function startStroke(s, point) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3 * 4000), 3));
+  geo.setDrawRange(0, 0);
+  const line = new THREE.Line(geo, strokeMat);
+  line.frustumCulled = false;
+  drawings.add(line);
+  s.stroke = { line, count: 0, last: point.clone() };
+  addStrokePoint(s, point, true);
+}
+function addStrokePoint(s, point, force) {
+  const st = s.stroke;
+  if (!st || st.count >= 4000) return;
+  if (!force && st.last.distanceTo(point) < 0.004) return;
+  st.line.geometry.attributes.position.setXYZ(st.count++, point.x, point.y, point.z);
+  st.line.geometry.attributes.position.needsUpdate = true;
+  st.line.geometry.setDrawRange(0, st.count);
+  st.last.copy(point);
+}
+function drawPoint(s) {
+  if (s.isHand) return pinchPoint(s, new THREE.Vector3());
+  const { origin, dir } = rayFrom(s);
+  return origin.addScaledVector(dir, 0.35);                          // controllers draw a little in front of the tip
+}
+function eraseDrawings() {
+  for (const l of [...drawings.children]) { l.geometry.dispose(); drawings.remove(l); }
+}
+
+// ---------- Jarvis gestures: fist-pull, two-hand resize, flick to stash ----------
+const stash = [];
+function isFist(s) {
+  const j = s.hand.joints, wrist = j['wrist'];
+  if (!wrist || !s.hand.visible) return false;
+  const w = wrist.getWorldPosition(new THREE.Vector3());
+  return ['index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip']
+    .every(n => j[n] && j[n].getWorldPosition(new THREE.Vector3()).distanceTo(w) < 0.095);
+}
+function flyTo(p, target, duration = 0.45) {
+  p.userData.fly = { from: p.position.clone(), to: target.clone(), t: 0, duration };
+}
+function updateGestures(dt) {
+  if (renderer.xr.isPresenting) {
+    for (const s of inputs) {
+      if (!s.isHand) continue;
+      const fist = isFist(s);
+      if (fist && !s.wasFist && !s.held) {
+        // The Tony Stark pull: point at a far window, close your fist, and it flies to you
+        const { origin, dir } = rayFrom(s);
+        raycaster.set(origin, dir);
+        const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
+        if (hit && hit.distance > 0.6) {
+          viewerPosition(tmpVec);
+          const cam = renderer.xr.getCamera();
+          const fwd = cam.getWorldDirection(new THREE.Vector3()); fwd.y = 0; fwd.normalize();
+          flyTo(hit.object, new THREE.Vector3(tmpVec.x + fwd.x * 0.6, tmpVec.y - 0.1, tmpVec.z + fwd.z * 0.6));
+          blip(520, 0.15, 0.15);
+        }
+      }
+      s.wasFist = fist;
+    }
+  }
+  // two hands holding the same thing: pull them apart to make it bigger
+  const holders = new Map();
+  for (const s of inputs) if (s.held) { if (!holders.has(s.held)) holders.set(s.held, []); holders.get(s.held).push(s); }
+  for (const [p, hs] of holders) {
+    if (hs.length < 2) { p.userData.resize = null; continue; }
+    const a = grabPoint(hs[0]), b = grabPoint(hs[1]);
+    if (!a || !b) continue;
+    const d = a.distanceTo(b);
+    if (!p.userData.resize) p.userData.resize = { d0: d, s0: p.userData.baseScale || 1 };
+    p.userData.baseScale = THREE.MathUtils.clamp(p.userData.resize.s0 * d / Math.max(0.05, p.userData.resize.d0), 0.35, 3);
+    p.scale.setScalar(p.userData.baseScale * 1.05);
+  }
+  // animations: flying, popping in, flicking away
+  for (const p of [...panels, ...stash]) {
+    const f = p.userData.fly;
+    if (f) {
+      f.t = Math.min(1, f.t + dt / f.duration);
+      const e = 1 - Math.pow(1 - f.t, 3);
+      p.position.lerpVectors(f.from, f.to, e);
+      faceViewer(p);
+      if (f.t >= 1) p.userData.fly = null;
+    }
+    if (p.userData.popIn !== undefined && p.userData.popIn < 1) {
+      p.userData.popIn = Math.min(1, p.userData.popIn + dt * 3);
+      const k = 1 - Math.pow(1 - p.userData.popIn, 3);
+      p.scale.setScalar((p.userData.baseScale || 1) * Math.max(0.01, k));
+    }
+    const away = p.userData.away;
+    if (away) {
+      away.t += dt;
+      p.position.addScaledVector(away.v, dt);
+      p.scale.setScalar((p.userData.baseScale || 1) * Math.max(0.01, 1 - away.t / 0.4));
+      if (away.t >= 0.4) { p.userData.away = null; p.visible = false; }
+    }
+    p.userData.update?.(dt);
+  }
+}
+function grabPoint(s) {
+  if (s.mode === 'near') return pinchPoint(s, new THREE.Vector3());
+  const { origin, dir } = rayFrom(s);
+  return origin.addScaledVector(dir, s.dist);
+}
+// Called when you let go of something: a fast flick sends it into your stash
+function checkFlick(s, p) {
+  const tr = s.track || [];
+  if (tr.length < 3) return;
+  const a = tr[0], b = tr[tr.length - 1];
+  const dtime = (b.t - a.t) / 1000;
+  if (dtime <= 0) return;
+  const v = b.p.clone().sub(a.p).divideScalar(dtime);
+  if (v.length() > 1.6) {
+    p.userData.away = { v: v.multiplyScalar(0.6), t: 0 };
+    panels.splice(panels.indexOf(p), 1);
+    stash.push(p);
+    blip(400, 0.18, 0.15);
+    updateStashButton();
+  }
+}
+function trackHeld(s) {
+  if (!s.held) { s.track = []; return; }
+  const p = grabPoint(s);
+  if (!p) return;
+  (s.track ??= []).push({ p, t: performance.now() });
+  if (s.track.length > 6) s.track.shift();
+}
+function restoreStash() {
+  if (!stash.length) return;
+  stash.splice(0).forEach((p, i) => {
+    p.visible = true; p.userData.away = null;
+    panels.push(p);
+    p.position.copy(claudeWindowPosition(i));
+    faceViewer(p);
+    p.userData.popIn = 0;
+  });
+  updateStashButton();
+  blip(700, 0.15);
+}
+function clearDesk() {
+  for (const p of [...panels]) {
+    if (!p.visible) continue;
+    p.userData.away = { v: new THREE.Vector3(0, 0.6, 0), t: 0 };
+    panels.splice(panels.indexOf(p), 1);
+    stash.push(p);
+  }
+  updateStashButton();
+}
+
+// ---------- Wrist HUD: look at the back of your wrist like a watch ----------
+const timer = { phase: 'focus', left: 25 * 60, running: false, lastDrawn: '' };
+const wristCanvas = document.createElement('canvas');
+wristCanvas.width = 512; wristCanvas.height = 320;
+const wristTex = new THREE.CanvasTexture(wristCanvas);
+wristTex.colorSpace = THREE.SRGBColorSpace;
+const wrist = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.081),
+  new THREE.MeshBasicMaterial({ map: wristTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+wrist.visible = false;
+scene.add(wrist);
+touchables.push({ mesh: wrist, w: 0.13, h: 0.081, action: () => toggleTimer() });
+function toggleTimer() {
+  if (timer.left <= 0) { timer.phase = 'focus'; timer.left = 25 * 60; }
+  timer.running = !timer.running;
+  if (timer.running && timer.phase === 'focus') jarvisSay('Focus session started. Twenty five minutes.', ['J.A.R.V.I.S.', 'FOCUS SESSION STARTED', '25 MINUTES. GOOD LUCK.']);
+}
+function fmt(sec) { sec = Math.max(0, Math.ceil(sec)); return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'); }
+function drawWrist() {
+  const now = new Date();
+  const key = now.getHours() + ':' + now.getMinutes() + '|' + fmt(timer.left) + timer.running + timer.phase;
+  if (key === timer.lastDrawn) return;
+  timer.lastDrawn = key;
+  const ctx = wristCanvas.getContext('2d');
+  ctx.clearRect(0, 0, 512, 320);
+  ctx.fillStyle = 'rgba(70,6,6,0.55)'; ctx.beginPath(); ctx.roundRect(6, 6, 500, 308, 26); ctx.fill();
+  ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 14; ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.fillStyle = '#ffe2a0'; ctx.textBaseline = 'middle';
+  ctx.font = '700 84px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(now.toTimeString().slice(0, 5), 34, 100);
+  ctx.font = '26px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }).toUpperCase(), 36, 170);
+  const total = timer.phase === 'focus' ? 25 * 60 : 5 * 60;           // timer ring
+  ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(255,200,120,0.25)';
+  ctx.beginPath(); ctx.arc(400, 120, 70, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = timer.phase === 'focus' ? '#ffb347' : '#9fe8ff';
+  ctx.beginPath(); ctx.arc(400, 120, 70, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (timer.left / total)); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.font = '600 34px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(fmt(timer.left), 400, 120);
+  ctx.font = '20px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(timer.phase === 'focus' ? 'FOCUS' : 'BREAK', 400, 220);
+  ctx.textAlign = 'left'; ctx.font = '22px "Segoe UI", system-ui, sans-serif'; ctx.globalAlpha = 0.75;
+  ctx.fillText(timer.running ? 'TAP TO PAUSE' : 'TAP TO START', 36, 270);
+  ctx.globalAlpha = 1;
+  wristTex.needsUpdate = true;
+}
+function updateTimer(dt) {
+  if (!timer.running) return;
+  timer.left -= dt;
+  if (timer.left > 0) return;
+  if (timer.phase === 'focus') {
+    timer.phase = 'break'; timer.left = 5 * 60;
+    blip(880, 0.3, 0.2); setTimeout(() => blip(1100, 0.3, 0.2), 250);
+    jarvisSay('Focus session complete. Time for a five minute break.', ['J.A.R.V.I.S.', 'FOCUS SESSION COMPLETE', 'TAKE A 5 MINUTE BREAK']);
+  } else {
+    timer.phase = 'focus'; timer.left = 25 * 60; timer.running = false;
+    blip(700, 0.3, 0.2);
+    jarvisSay("Break's over. Ready when you are.", ['J.A.R.V.I.S.', "BREAK'S OVER", 'TAP YOUR WRIST TO START']);
+  }
+}
+let wristDemo = false;
+function updateWrist(dt) {
+  drawWrist();
+  if (wristDemo) return;
+  if (!renderer.xr.isPresenting) { wrist.visible = false; return; }
+  let best = null;
+  for (const s of inputs) {
+    if (!s.isHand || s === palm.state) continue;
+    const info = palmInfo(s);
+    if (!info) continue;
+    const back = info.normal.clone().negate();
+    viewerPosition(tmpVec);
+    const w = s.hand.joints['wrist'].getWorldPosition(new THREE.Vector3());
+    const toEye = tmpVec.clone().sub(w);
+    const need = wrist.visible && wrist.userData.hand === s ? 0.35 : 0.6;
+    if (toEye.length() < 0.75 && back.dot(toEye.normalize()) > need) best = { s, w, back };
+  }
+  wrist.visible = !!best;
+  if (best) {
+    wrist.userData.hand = best.s;
+    wrist.position.copy(best.w).addScaledVector(best.back, 0.03);
+    viewerPosition(tmpVec);
+    wrist.lookAt(tmpVec);
+  }
+}
+
+// ---------- The holo workbench, floor rings and floating dust (Stark mode only) ----------
+const starkFX = new THREE.Group();
+starkFX.visible = false;
+scene.add(starkFX);
+const glowAdd = (color, opacity = 1) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+const bench = new THREE.Group();
+const benchDisc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 64), new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: 'varying vec2 vP; void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `varying vec2 vP; uniform float uTime;
+    void main() {
+      float r = length(vP);
+      vec2 g = abs(fract(vP * 22.0) - 0.5);
+      float grid = 1.0 - smoothstep(0.0, 0.06, min(g.x, g.y));
+      float sweep = smoothstep(0.9, 1.0, fract(atan(vP.y, vP.x) / 6.2832 - uTime * 0.15));
+      float edge = smoothstep(0.38, 0.42, r) * (1.0 - smoothstep(0.42, 0.425, r));
+      float a = (grid * 0.12 + sweep * 0.25) * (1.0 - smoothstep(0.3, 0.42, r)) + edge * 0.9;
+      gl_FragColor = vec4(mix(vec3(0.9, 0.2, 0.1), vec3(1.0, 0.75, 0.3), r * 2.0) * a, a);
+    }`
+}));
+benchDisc.rotation.x = -Math.PI / 2;
+bench.add(benchDisc);
+const benchRings = [0.46, 0.52, 0.3].map((r, i) => {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.0025, 6, 96, Math.PI * (1.2 + i * 0.3)), glowAdd(i === 2 ? 0xffe0a0 : 0xffb347, 0.8));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.01 + i * 0.012;
+  bench.add(ring);
+  return ring;
+});
+const benchBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.38, 0.5, 48, 1, true), new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'varying vec2 vUv; void main() { float a = pow(1.0 - vUv.y, 2.0) * 0.12; gl_FragColor = vec4(vec3(1.0, 0.6, 0.25) * a, a); }'
+}));
+benchBeam.position.y = 0.25;
+bench.add(benchBeam);
+starkFX.add(bench);
+
+const floorRings = new THREE.Group();
+const dashTex = canvasTexture(1024, 16, (ctx) => {
+  for (let x = 0; x < 1024; x += 32) { ctx.fillStyle = x % 128 ? 'rgba(255,190,100,0.7)' : 'rgba(255,230,170,1)'; ctx.fillRect(x, 0, 18, 16); }
+});
+dashTex.wrapS = THREE.RepeatWrapping;
+for (const [r, w] of [[0.55, 0.012], [0.85, 0.008], [1.25, 0.02]]) {
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + w, 128, 1),
+    new THREE.MeshBasicMaterial({ map: dashTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2;
+  floorRings.add(ring);
+}
+floorRings.position.y = 0.005;
+starkFX.add(floorRings);
+
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(260 * 3);
+for (let i = 0; i < 260; i++) { dustPos.set([(Math.random() - 0.5) * 5, 0.2 + Math.random() * 2.4, (Math.random() - 0.5) * 5], i * 3); }
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xffc070, size: 0.01, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }));
+starkFX.add(dust);
+
+function placeBench() {
+  viewerPosition(tmpVec);
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const dir = cam.getWorldDirection(new THREE.Vector3()); dir.y = 0; dir.normalize();
+  bench.position.set(tmpVec.x + dir.x * 0.75, Math.max(0.7, tmpVec.y - 0.7), tmpVec.z + dir.z * 0.75);
+  dust.position.set(tmpVec.x, 0, tmpVec.z);
+}
+function updateStarkFX(dt) {
+  if (!starkFX.visible) return;
+  const t = performance.now() / 1000;
+  benchDisc.material.uniforms.uTime.value = t;
+  benchRings.forEach((r, i) => { r.rotation.z += dt * (i % 2 ? -0.3 : 0.45); });
+  viewerPosition(tmpVec);
+  floorRings.position.x += (tmpVec.x - floorRings.position.x) * Math.min(1, dt * 3);
+  floorRings.position.z += (tmpVec.z - floorRings.position.z) * Math.min(1, dt * 3);
+  floorRings.children.forEach((r, i) => { r.rotation.z += dt * (i % 2 ? 0.08 : -0.05); });
+  dust.rotation.y += dt * 0.02;
+}
+
+// ---------- Menu: the new buttons ----------
+const toolRow = new THREE.Group();
+toolRow.position.y = 0.27;
+toolRow.scale.setScalar(0.8);
+menu.add(toolRow);
+function makeToolButton(label, drawIcon, action) {
+  const b = makeButton(label, drawIcon, action);
+  buttonRow.remove(b); toolRow.add(b);
+  return b;
+}
+const heartButton = makeButton('BARBERA', (ctx) => {
+  ctx.fillStyle = '#e8384f'; ctx.shadowColor = '#ff6b81'; ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.moveTo(128, 150);
+  ctx.bezierCurveTo(60, 105, 70, 50, 108, 58); ctx.bezierCurveTo(122, 61, 128, 74, 128, 82);
+  ctx.bezierCurveTo(128, 74, 134, 61, 148, 58); ctx.bezierCurveTo(186, 50, 196, 105, 128, 150);
+  ctx.fill();
+}, () => callBarbera());
+const stashButton = makeButton('STASH', (ctx) => drawStashIcon(ctx, 0), () => restoreStash());
+function drawStashIcon(ctx, n) {
+  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 8;
+  ctx.strokeRect(82, 80, 92, 64); ctx.beginPath(); ctx.moveTo(82, 98); ctx.lineTo(174, 98); ctx.stroke();
+  ctx.fillStyle = '#ffb347'; ctx.font = '700 40px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+  if (n) ctx.fillText(String(n), 128, 136);
+}
+function updateStashButton() {
+  stashButton.material.map.dispose();
+  stashButton.material.map = canvasTexture(256, 256, (ctx) => {
+    ctx.fillStyle = 'rgba(16, 14, 12, 0.85)'; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 6; ctx.stroke();
+    drawStashIcon(ctx, stash.length);
+    ctx.fillStyle = '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('STASH', 128, 206);
+  });
+  stashButton.material.needsUpdate = true;
+}
+const drawButton = makeToolButton('DRAW', (ctx) => {
+  ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(70, 140); ctx.bezierCurveTo(100, 60, 130, 160, 160, 90); ctx.lineTo(186, 70); ctx.stroke();
+}, () => { draw.on = !draw.on; jarvisSay('', ['J.A.R.V.I.S.', draw.on ? 'DRAWING ON' : 'DRAWING OFF', draw.on ? 'PINCH IN THE AIR TO DRAW' : '']); });
+makeToolButton('ERASE', (ctx) => {
+  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(90, 75); ctx.lineTo(166, 151); ctx.moveTo(166, 75); ctx.lineTo(90, 151); ctx.stroke();
+}, () => eraseDrawings());
+makeToolButton('CARDS', (ctx) => {
+  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 7;
+  ctx.strokeRect(70, 70, 90, 62); ctx.fillStyle = 'rgba(255,180,80,0.5)'; ctx.fillRect(96, 92, 90, 62); ctx.strokeRect(96, 92, 90, 62);
+}, () => createFlashcards(DEMO_CARDS.title, DEMO_CARDS.cards));
+makeToolButton('MAP', (ctx) => {
+  ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 5; ctx.fillStyle = '#f4f0e8';
+  const pts = [[128, 110], [74, 78], [182, 78], [80, 148], [176, 148]];
+  pts.slice(1).forEach(([x, y]) => { ctx.beginPath(); ctx.moveTo(128, 110); ctx.lineTo(x, y); ctx.stroke(); });
+  pts.forEach(([x, y], i) => { ctx.beginPath(); ctx.arc(x, y, i ? 11 : 17, 0, Math.PI * 2); ctx.fill(); });
+}, () => createMindMap(DEMO_MAP.title, DEMO_MAP.branches));
+makeToolButton('TIMELINE', (ctx) => {
+  ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(56, 112); ctx.lineTo(200, 112); ctx.stroke();
+  ctx.fillStyle = '#f4f0e8';
+  [74, 112, 150, 186].forEach((x, i) => { ctx.fillRect(x - 2, i % 2 ? 80 : 112, 4, 32); ctx.beginPath(); ctx.arc(x, 112, 9, 0, Math.PI * 2); ctx.fill(); });
+}, () => createTimeline(DEMO_TIMELINE.title, DEMO_TIMELINE.events));
+
+// Lay the buttons out in rows, and turn the whole menu to face you
+function layoutRows() {
+  for (const row of [buttonRow, toolRow]) {
+    const vis = row.children.filter(b => b.visible);
+    vis.forEach((b, i) => { b.position.x = (i - (vis.length - 1) / 2) * 0.092; });
+  }
+}
+
+// ---------- Barbera: opens your WhatsApp chat with her ----------
+function callBarbera() {
+  const number = getKey('barberaNumber').replace(/[^0-9]/g, '');
+  if (!number) {
+    jarvisSay('', ['J.A.R.V.I.S.', "BARBERA'S NUMBER ISN'T SET", 'ADD IT IN SETTINGS ON THE PAGE']);
+    claudeSays('', "Add Barbera's WhatsApp number in the settings box on the page first (with country code), then tap the heart again.");
+    return;
+  }
+  openOutside('https://wa.me/' + number);
+}
+
+// ---------- Claude: without an in-world key, the button opens claude.ai (your subscription) ----------
+function openClaudeWebsite() { openOutside('https://claude.ai/new'); }
 
 // ---------- Switching between Sunnyvale and Stark mode ----------
 // Final state of a mode (used at the end of the transition, and when leaving the headset)
@@ -1519,6 +2213,8 @@ function setMode(next) {
   realGlass.visible = !stark; reactor.visible = stark;
   reactorButton.visible = !stark; bubblesButton.visible = stark;
   setClaudeLook(stark);
+  starkFX.visible = stark;
+  if (stark) placeBench();
   dissolve.uOn.value = 0;
   if (panels[0] && (panels[0].material.map === panels[0].userData.hologram) !== stark) applyWindows(stark);
 }
@@ -1526,6 +2222,7 @@ function setMode(next) {
 // Swap the windows between cardboard and hologram; holograms build up with a scan line
 function applyWindows(stark) { for (const p of panels) lookFor(p, stark); }
 function lookFor(p, stark) {
+  if (p.userData.kind) return;
   {
     if (p.userData.closeButton) {
       p.userData.closeButton.material.map = stark ? glowXTex : burnTex;
@@ -1550,11 +2247,11 @@ function lookFor(p, stark) {
 
 function updatePanels(dt) {
   for (const p of panels) {
-    if (p.userData.powerUp === undefined || p.userData.powerUp >= 1) continue;
+    if (p.userData.kind || p.userData.powerUp === undefined || p.userData.powerUp >= 1) continue;
     p.userData.powerUp = Math.min(1, p.userData.powerUp + dt * 1.4);
     const k = p.userData.powerUp;
     const stark = p.userData.powerTo === 'stark';
-    p.scale.y = stark ? Math.max(0.02, Math.min(1, k * 1.6)) : 1;
+    p.scale.y = (p.userData.baseScale || 1) * (stark ? Math.max(0.02, Math.min(1, k * 1.6)) : 1);
     p.material.opacity = stark ? (Math.random() < 0.3 * (1 - k) ? 0.3 : 0.95) : 1;
     const line = p.userData.scanLine;
     if (line) {
@@ -1740,6 +2437,7 @@ function startTransition(to) {
     realGlass.visible = true; reactor.visible = false;
     reactorButton.visible = true; bubblesButton.visible = false;
     setClaudeLook(false);
+    starkFX.visible = false;
   }
 }
 
@@ -1787,6 +2485,11 @@ window.addEventListener('keydown', e => {
     menu.position.copy(camera.position).addScaledVector(dir, 0.45).add(new THREE.Vector3(0, -0.15, 0));
   }
   if (e.key === 'c' || e.key === 'C') claudeTap();
+  if (e.key === 'w' || e.key === 'W') {
+    wristDemo = !wristDemo; wrist.visible = wristDemo;
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    wrist.position.copy(camera.position).addScaledVector(dir, 0.35); wrist.lookAt(camera.position);
+  }
   if (e.key === 's' || e.key === 'S') startTransition(mode === 'stark' ? 'sunnyvale' : 'stark');
 });
 
@@ -1806,9 +2509,11 @@ renderer.domElement.addEventListener('pointerdown', e => {
     const b = raycaster.intersectObjects(menuButtons.filter(shown), false)[0];
     if (b) { pressButton(b.object); return; }
   }
-  const x = raycaster.intersectObjects(closeButtons, false)[0];
+  const x = raycaster.intersectObjects(closeButtons.filter(shown), false)[0];
   if (x) { closeWindow(x.object.userData.window); return; }
-  const hit = raycaster.intersectObjects(panels, false)[0];
+  const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(shown), false)[0];
+  if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
+  const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
   if (!hit) return;
   drag.panel = hit.object;
   dragPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).negate(), hit.point);
@@ -1865,6 +2570,12 @@ renderer.setAnimationLoop(() => {
   updateHeld();
   updateMenu(dt);
   updateClaudeButton(dt);
+  updateTouches(dt);
+  updateGestures(dt);
+  updateTimer(dt);
+  updateWrist(dt);
+  updateStarkFX(dt);
+  updateHudMessage(dt);
   updatePanels(dt);
   updateTransition(dt);
   if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
