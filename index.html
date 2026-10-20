@@ -59,7 +59,7 @@ new RGBELoader().load('assets/sky/rogland_moonlit_night.hdr', hdr => {
   scene.background = hdr;
   scene.environment = hdr;
   scene.backgroundIntensity = 0.06;     // the photo is brightened; dim it back to real night
-  scene.environmentIntensity = 0.12;
+  scene.environmentIntensity = 0.18;
 });
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 120);
@@ -144,8 +144,8 @@ function picture(texture, w, h, x, y, z, parent = scene) {
 }
 
 // ---------- Light ----------
-scene.add(new THREE.HemisphereLight(0x5a6a8a, 0x1a140c, 0.25));
-const moon = new THREE.DirectionalLight(0xa8b8d8, 0.6);
+scene.add(new THREE.HemisphereLight(0x5a6a8a, 0x1a140c, 0.45));
+const moon = new THREE.DirectionalLight(0xa8b8d8, 1.3);
 moon.position.set(-6, 12, -4);
 moon.castShadow = true;
 moon.shadow.mapSize.set(1024, 1024);
@@ -156,12 +156,59 @@ const stringGlow = new THREE.PointLight(0xffc070, 4, 10);
 stringGlow.position.set(0.5, 2.4, -3);
 scene.add(stringGlow);
 
-// ---------- Ground: real wet gravel ----------
+// ---------- Ground: scruffy patchy grass ----------
 const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48),
-  photoMaterial('gravel_road', 30, 30, { roughness: 0.8, metalnessMap: null, metalness: 0 }));
+  photoMaterial('sparse_grass', 32, 32, { metalnessMap: null, metalness: 0, color: 0x9ccc7a }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
+
+// Soft-edged fade so paths and the gravel patch blend into the grass
+const edgeFade = canvasTexture(4, 256, (ctx, w, h) => {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#000'); g.addColorStop(0.3, '#fff'); g.addColorStop(0.7, '#fff'); g.addColorStop(1, '#000');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+});
+const roundFade = canvasTexture(256, 256, (ctx, w, h) => {
+  const g = ctx.createRadialGradient(128, 128, 30, 128, 128, 128);
+  g.addColorStop(0, '#fff'); g.addColorStop(1, '#000');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+});
+const overlay = { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, metalnessMap: null, metalness: 0 };
+
+// Worn dirt paths, walked flat over the years
+function wornPath(points, width = 1.1) {
+  const curve = new THREE.CatmullRomCurve3(points.map(([x, z]) => new THREE.Vector3(x, 0, z)));
+  const steps = 60, len = curve.getLength();
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const p = curve.getPointAt(t), tan = curve.getTangentAt(t);
+    const side = new THREE.Vector3(-tan.z, 0, tan.x).multiplyScalar(width / 2);
+    pos.push(p.x + side.x, 0.01, p.z + side.z, p.x - side.x, 0.01, p.z - side.z);
+    uv.push(t * len / 2, 0, t * len / 2, 1);
+    if (i < steps) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const path = new THREE.Mesh(geo, photoMaterial('grass_path_2', 1, 1, { ...overlay, alphaMap: edgeFade, side: THREE.DoubleSide, color: 0x8a8070, opacity: 0.8 }));
+  path.receiveShadow = true;
+  scene.add(path);
+}
+wornPath([[-1.2, 0.5], [0.6, -0.3], [2.2, -1.0], [3.4, 0.6], [3.6, 2.2]]);   // tarp → barrel → picnic table
+wornPath([[0.2, -1.2], [0.9, -3.0], [1.4, -5.6]]);                          // tarp → the drive-in
+wornPath([[2.2, -1.0], [4.0, -3.4], [5.2, -5.0]], 0.9);                     // barrel → the next trailer
+
+// A gravel patch where the cars park by the next trailer
+const gravelPatch = new THREE.Mesh(new THREE.CircleGeometry(3, 32),
+  photoMaterial('gravel_road', 3, 3, { ...overlay, alphaMap: roundFade }));
+gravelPatch.rotation.x = -Math.PI / 2;
+gravelPatch.position.set(7, 0.012, -3);
+gravelPatch.receiveShadow = true;
+scene.add(gravelPatch);
 
 // Puddles
 for (const [x, z, r] of [[1.2, 1.8, 0.6], [3.5, -2.6, 0.9], [-0.5, -5, 0.7], [6, 0.5, 1.1]]) {
