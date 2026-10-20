@@ -2027,7 +2027,8 @@ function updateWrist(dt) {
   if (!renderer.xr.isPresenting) { wrist.visible = false; return; }
   let best = null;
   for (const s of inputs) {
-    if (!s.isHand || s === palm.state) continue;
+    // A lost right hand hides the watch; it must never transfer to the left.
+    if (!s.isHand || s.handedness !== 'right') continue;
     const info = palmInfo(s);
     if (!info) continue;
     const back = info.normal.clone().negate();
