@@ -1069,6 +1069,7 @@ function palmInfo(s) {
 
 const palm = { state: null, upTime: 0, downTime: 0 };
 function updateMenu(dt) {
+  syncBreakMenu();
   pressCooldown = Math.max(0, pressCooldown - dt);
   if (renderer.xr.isPresenting) {
     let found = null;
@@ -1975,6 +1976,7 @@ touchables.push({ mesh: wrist, w: 0.13, h: 0.081, action: () => toggleTimer() })
 function toggleTimer() {
   if (timer.left <= 0) { timer.phase = 'focus'; timer.left = 25 * 60; }
   timer.running = !timer.running;
+  syncBreakMenu();
   if (timer.running && timer.phase === 'focus') jarvisSay('Focus session started. Twenty five minutes.', ['J.A.R.V.I.S.', 'FOCUS SESSION STARTED', '25 MINUTES. GOOD LUCK.']);
 }
 function fmt(sec) { sec = Math.max(0, Math.ceil(sec)); return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'); }
@@ -2019,6 +2021,7 @@ function updateTimer(dt) {
     blip(700, 0.3, 0.2);
     jarvisSay("Break's over. Ready when you are.", ['J.A.R.V.I.S.', "BREAK'S OVER", 'TAP YOUR WRIST TO START']);
   }
+  syncBreakMenu();
 }
 let wristDemo = false;
 function updateWrist(dt) {
@@ -2186,9 +2189,57 @@ makeToolButton('TIMELINE', (ctx) => {
   [74, 112, 150, 186].forEach((x, i) => { ctx.fillRect(x - 2, i % 2 ? 80 : 112, 4, 32); ctx.beginPath(); ctx.arc(x, 112, 9, 0, Math.PI * 2); ctx.fill(); });
 }, () => createTimeline(DEMO_TIMELINE.title, DEMO_TIMELINE.events));
 
+// Break services use the same browser bridge and menu style as the study tools.
+let breakMenuOpen = false;
+const breakRows = [0.27, 0.36].map(y => {
+  const row = new THREE.Group(); row.position.y = y; row.scale.setScalar(0.8);
+  row.visible = false; menu.add(row); return row;
+});
+const breakButton = makeButton('BREAK', ctx => {
+  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.strokeRect(78, 94, 86, 56);
+  ctx.beginPath(); ctx.arc(170, 117, 18, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+  ctx.strokeStyle = '#ffc861';
+  for (const x of [96, 123, 150]) { ctx.beginPath(); ctx.moveTo(x, 76); ctx.lineTo(x + 6, 58); ctx.stroke(); }
+}, () => {
+  if (isFocusActive()) return;
+  breakMenuOpen = !breakMenuOpen; syncBreakMenu(); layoutRows();
+});
+const breakServices = [
+  ['YOUTUBE', 'YT', 'https://www.youtube.com/'],
+  ['INSTAGRAM', 'IG', 'https://www.instagram.com/'],
+  ['DISNEY+', 'D+', 'https://www.disneyplus.com/'],
+  ['HBO MAX', 'HBO', 'https://www.hbomax.com/'],
+  ['NETFLIX', 'N', 'https://www.netflix.com/'],
+  ['PRIME VIDEO', 'prime', 'https://www.primevideo.com/'],
+];
+for (const [i, [label, icon, url]] of breakServices.entries()) {
+  const b = makeButton(label, ctx => {
+    ctx.fillStyle = '#f4f0e8'; ctx.font = '700 62px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(icon, 128, 129, 170);
+  }, () => {
+    if (isFocusActive()) return;
+    if (!browserBridge?.open(url)) {
+      jarvisSay('', ['BREAK', 'CONNECT YOUR PC BROWSER BRIDGE', 'THEN CHOOSE A SERVICE AGAIN']);
+      return;
+    }
+    breakMenuOpen = false; syncBreakMenu(); layoutRows();
+  });
+  breakRows[Math.floor(i / 3)].add(b);
+}
+function isFocusActive() { return timer.running && timer.phase === 'focus'; }
+function syncBreakMenu() {
+  const allowed = !isFocusActive();
+  if (!allowed) breakMenuOpen = false;
+  breakButton.visible = allowed;
+  for (const row of breakRows) row.visible = allowed && breakMenuOpen;
+  toolRow.visible = !breakMenuOpen;
+}
+syncBreakMenu();
+
 // Lay the buttons out in rows, and turn the whole menu to face you
 function layoutRows() {
-  for (const row of [buttonRow, toolRow]) {
+  for (const row of [buttonRow, toolRow, ...breakRows]) {
     const vis = row.children.filter(b => b.visible);
     vis.forEach((b, i) => { b.position.x = (i - (vis.length - 1) / 2) * 0.092; });
   }
