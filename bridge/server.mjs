@@ -77,21 +77,29 @@ wss.on('connection', ws => {
     const cdp = useExtension ? page.cdp : await context.newCDPSession(page);
     if (!useExtension) await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
     if (closed) { await page.close(); return; }
-    const tab = { page, cdp, waiting: false, sentAt: 0, latest: null, timer: null, stillTimer: null, zoom: 0, width: 1280, height: 800, micEnabled: false, micPending: 0 }; tabs.set(id, tab);
+    const tab = { page, cdp, waiting: false, sentAt: 0, latest: null, timer: null, stillTimer: null, dirty: true, capturedAt: 0, lastImage: null, zoom: 0, width: 1280, height: 800, micEnabled: false, micPending: 0 }; tabs.set(id, tab);
+    tab.schedule = () => {
+      if (closed || !tabs.has(id) || !tab.dirty || tab.waiting || tab.capturing || tab.resizing || tab.stillTimer) return;
+      tab.stillTimer = setTimeout(() => { tab.stillTimer = null; tab.still(); }, Math.max(0, 250 - (Date.now() - tab.capturedAt)));
+    };
     tab.still = async () => {
-      if (closed || !tabs.has(id) || tab.capturing) return;
-      tab.capturing = true;
-      tab.ignoreCastUntil = Date.now() + 250;
+      if (closed || !tabs.has(id)) return;
+      tab.dirty = true;
+      if (tab.capturing || tab.waiting || tab.resizing) return;
+      clearTimeout(tab.stillTimer); tab.stillTimer = null;
+      tab.capturing = true; tab.dirty = false; tab.capturedAt = Date.now();
+      tab.captureComplete = new Promise(resolve => { tab.captureFinished = resolve; });
       try {
         let shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface: true });
         if (shot.data.length > 3000000) shot = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 95, captureBeyondViewport: false, fromSurface: true });
-        if (tabs.has(id)) { tab.ignoreCastUntil = Date.now() + 250; tab.latest = shot.data; tab.flush(); }
+        if (tabs.has(id) && shot.data !== tab.lastImage) { tab.lastImage = shot.data; tab.latest = shot.data; tab.flush(); }
       } catch { /* Navigating tabs may not be ready for a still image yet. */ }
-      finally { tab.capturing = false; }
+      finally { tab.capturing = false; tab.captureFinished(); tab.schedule(); }
     };
     tab.flush = () => {
       clearTimeout(tab.timer); tab.timer = null;
-      if (closed || !tabs.has(id) || !tab.latest || tab.waiting) return;
+      if (closed || !tabs.has(id) || tab.waiting) return;
+      if (!tab.latest) { tab.schedule(); return; }
       const delay = Math.max(0, 40 - (Date.now() - tab.sentAt));
       if (delay || ws.bufferedAmount > 1024000) { tab.timer = setTimeout(tab.flush, delay || 100); return; }
       tab.waiting = true; tab.sentAt = Date.now();
@@ -107,18 +115,14 @@ wss.on('connection', ws => {
     page.on('audio-status', enabled => send({ type: 'audio-status', id, enabled }));
     send({ type: 'tab', id, url, width: tab.width, height: tab.height, audioEnabled: !!page.audioEnabled });
     cdp.on('Page.screencastFrame', async frame => {
-      // Capturing a sharp still can itself cause a low-resolution cast frame.
-      // Keep that synthetic paint from immediately replacing the sharp image.
-      if (Date.now() < (tab.ignoreCastUntil || 0)) {
-        await cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {}); return;
-      }
-      // Bound both network queues and headset decoding: never build up old frames.
-      tab.latest = frame.data; tab.flush();
-      clearTimeout(tab.stillTimer); tab.stillTimer = setTimeout(tab.still, 650);
+      // Cast images can be low resolution even with a high maximum size. Use
+      // them only as change notifications, then capture the actual HiDPI page.
+      // Continuous cursors/spinners must not postpone sharp text indefinitely.
+      tab.dirty = true; tab.schedule();
       await cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {});
     });
-    await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: 2560, maxHeight: 1600, everyNthFrame: 2 });
-    tab.stillTimer = setTimeout(tab.still, 900);
+    await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 30, maxWidth: 64, maxHeight: 40, everyNthFrame: 2 });
+    tab.schedule();
     if (useExtension) send({ type: 'location', id, url: page.url() });
     else await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => send({ type: 'error', message: 'Page is still loading or could not be reached.' }));
     return id;
@@ -132,7 +136,6 @@ wss.on('connection', ws => {
     if (m.type === 'open') { await addTab(webURL(m.url)); return; }
     const tab = tabs.get(m.id); if (!tab) throw Error('Browser window is closed.');
     const { page, cdp } = tab;
-    if (!['ack', 'mic-data'].includes(m.type)) tab.ignoreCastUntil = 0;
     if (m.type === 'ack') { tab.waiting = false; return; }
     if (m.type === 'close') { clearTimeout(tab.timer); clearTimeout(tab.stillTimer); tabs.delete(m.id); await page.close(); return; }
     if (m.type === 'audio-start') {
@@ -149,7 +152,11 @@ wss.on('connection', ws => {
     if (m.type === 'text-scale') {
       tab.zoom = Math.max(0, Math.min(3, tab.zoom + (m.delta > 0 ? 1 : -1)));
       tab.width = [1280, 1120, 960, 800][tab.zoom]; tab.height = Math.round(tab.width * .625);
-      await cdp.send('Emulation.setDeviceMetricsOverride', { width: tab.width, height: tab.height, deviceScaleFactor: 2, mobile: false });
+      tab.resizing = true;
+      try {
+        if (tab.capturing) await tab.captureComplete;
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: tab.width, height: tab.height, deviceScaleFactor: 2, mobile: false });
+      } finally { tab.resizing = false; }
       send({ type: 'viewport', id: m.id, width: tab.width, height: tab.height }); await tab.still(); return;
     }
     if (m.type === 'navigate') { await page.goto(webURL(m.url), { waitUntil: 'domcontentloaded' }); return; }

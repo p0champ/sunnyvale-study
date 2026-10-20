@@ -38,7 +38,7 @@ test('private pairing, streamed tabs, click, keyboard, scroll, close, invalid UR
     send({ type: 'open', url: 'http://127.0.0.1:18131' });
     const tab = await until(() => messages.find(m => m.type === 'tab'));
     const frame = await until(() => messages.find(m => m.type === 'frame'));
-    assert.equal(Buffer.from(frame.data, 'base64')[0], 255);
+    assert.ok([137, 255].includes(Buffer.from(frame.data, 'base64')[0]));
     await pause(1000);
     send({ type: 'click', id: tab.id, x: 90, y: 130 }); await until(() => received.find(x => x.includes('click=yes')));
     send({ type: 'click', id: tab.id, x: 90, y: 40 }); send({ type: 'text', id: tab.id, text: 'Sunnyvale test' });

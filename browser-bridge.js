@@ -5,6 +5,8 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status }) {
   let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false;
   const tabs = new Map();
+  const normalFoveation = renderer?.xr?.getFoveation?.() ?? 1;
+  const updateReadingQuality = () => renderer?.xr?.setFoveation?.(tabs.size ? 0 : normalFoveation);
   const send = m => { if (ready && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(m)); };
   const fields = document.getElementById('bridgeSettings');
   fields.innerHTML = `<summary><b>PC browser bridge</b></summary>
@@ -70,10 +72,11 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     const ctx = canvas.getContext('2d'); ctx.fillStyle = '#101010'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#fff'; ctx.font = '32px sans-serif'; ctx.fillText('Loading browser…', 30, 70);
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
-    texture.minFilter = THREE.LinearFilter; texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearMipmapLinearFilter; texture.generateMipmaps = true;
     const content = new THREE.Mesh(new THREE.PlaneGeometry(.72, .45), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
     content.position.set(0, -.025, .006); panel.add(content);
     const tab = { panel, content, canvas, ctx, texture, url: m.url, decoding: false, width: m.width || 1280, height: m.height || 800, audioEnabled: !!m.audioEnabled }; tabs.set(m.id, tab);
+    updateReadingQuality();
     button(panel, 'Back', -.32, .235, .09, () => send({ type: 'back', id: m.id }));
     button(panel, 'Next', -.22, .235, .09, () => send({ type: 'forward', id: m.id }));
     button(panel, 'Reload', -.12, .235, .09, () => send({ type: 'reload', id: m.id }));
@@ -95,7 +98,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     media.stopAll();
     ready = false; const old = socket; socket = null; old?.close();
     for (const t of [...tabs.values()]) closeWindow(t.panel);
-    tabs.clear(); report('Disconnected. Reconnect before using the browser buttons.');
+    tabs.clear(); updateReadingQuality(); report('Disconnected. Reconnect before using the browser buttons.');
   }
   document.getElementById('bridgeDisconnect').onclick = disconnect;
   window.addEventListener('pagehide', () => { media.stopAll(); ready = false; socket?.close(); });
@@ -164,7 +167,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
               if (t.canvas.width !== img.naturalWidth || t.canvas.height !== img.naturalHeight) {
                 t.canvas.width = img.naturalWidth; t.canvas.height = img.naturalHeight;
                 t.content.material.map.dispose(); t.texture = new THREE.CanvasTexture(t.canvas); t.texture.colorSpace = THREE.SRGBColorSpace;
-                t.texture.minFilter = THREE.LinearFilter; t.texture.generateMipmaps = false; t.texture.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
+                t.texture.minFilter = THREE.LinearMipmapLinearFilter; t.texture.generateMipmaps = true; t.texture.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
                 t.content.material.map = t.texture; t.content.material.needsUpdate = true;
               }
               t.ctx.drawImage(img, 0, 0); t.texture.needsUpdate = true;
@@ -241,7 +244,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       }
       const id = panel.userData.browserId, t = tabs.get(id);
       if (!t) return;
-      send({ type: 'close', id }); tabs.delete(id);
+      send({ type: 'close', id }); tabs.delete(id); updateReadingQuality();
     },
     get connected() { return ready; },
   };

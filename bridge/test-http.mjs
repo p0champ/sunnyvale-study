@@ -47,7 +47,7 @@ test('HTTPS transport: auth, CORS, pairing, streaming, input, close, and actual 
     async function send(data) { assert.equal((await request('send', session, { data: JSON.stringify(data) })).status, 200); }
     await send({ type: 'open', url: 'http://127.0.0.1:18151' });
     const tab = await pollUntil(() => messages.find(m => m.type === 'tab'));
-    const frame = await pollUntil(() => messages.find(m => m.type === 'frame')); assert.equal(Buffer.from(frame.data, 'base64')[0], 255);
+    const frame = await pollUntil(() => messages.find(m => m.type === 'frame')); assert.ok([137, 255].includes(Buffer.from(frame.data, 'base64')[0]));
     await pause(300);
     await send({ type: 'click', id: tab.id, x: 90, y: 130 }); await until(() => events.includes('/event?click=yes'));
     await send({ type: 'click', id: tab.id, x: 90, y: 40 }); await send({ type: 'text', id: tab.id, text: 'HTTPS fallback' });

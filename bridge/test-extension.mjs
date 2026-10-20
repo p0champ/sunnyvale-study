@@ -62,8 +62,21 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     const png = Buffer.from(still.data, 'base64');
     assert.equal(png.readUInt32BE(16), 2560, 'Idle text is sent losslessly at double resolution');
     assert.equal(png.readUInt32BE(20), 1600);
+    const beforeAnimation = messages.length;
+    await existing.evaluate(() => {
+      const box = document.createElement('div'); box.style.cssText = 'position:fixed;right:20px;top:200px;width:32px;height:32px'; document.body.append(box);
+      window.busyAnimation = setInterval(() => { box.style.background = `rgb(${Math.floor(Math.random()*255)},20,30)`; }, 60);
+    });
+    await until(() => messages.slice(beforeAnimation).filter(m => m.type === 'frame').length >= 4);
+    for (const image of messages.slice(beforeAnimation).filter(m => m.type === 'frame')) {
+      const data = Buffer.from(image.data, 'base64');
+      assert.ok(image.data.startsWith('iVBOR'), 'Animations never substitute the low-resolution cast JPEG');
+      assert.equal(data.readUInt32BE(16), 2560, 'Animated pages retain full-resolution text');
+    }
+    await existing.evaluate(() => clearInterval(busyAnimation));
     send({ type: 'text-scale', id: tab.id, delta: 1 });
     await until(() => messages.find(m => m.type === 'viewport' && m.width === 1120));
+    await until(() => messages.find(m => m.type === 'frame' && m.data.startsWith('iVBOR') && Buffer.from(m.data, 'base64').readUInt32BE(16) === 2240));
     send({ type: 'mic-start', id: tab.id });
     await until(() => messages.find(m => m.type === 'mic-status' && m.enabled));
     await existing.evaluate(async () => {

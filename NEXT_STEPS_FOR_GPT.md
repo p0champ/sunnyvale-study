@@ -11,14 +11,16 @@ Read `HANDOVER.md` first, especially **Start here: current checkpoint**, then `b
 
 **User-confirmed:** in-world windows appeared in the original version; the Sunnyvale Browser Bridge extension is now installed in their ordinary Google Chrome and they have explicitly said it is connected. They have also confirmed Claude is signed in on the PC in Chrome. Do not repeat extension installation/pairing or Claude PC sign-in instructions unless troubleshooting requires them.
 
-**Newest user result:** the secure HTTPS fallback works. They now report poor browser picture, no sound and inability to speak to Claude. The media update adds sharper idle images, text sizing, tab sound and headset microphone forwarding. See HANDOVER's 2026-10-21 section for implementation/tests and privacy details. Real Quest/Claude voice results still need user confirmation; never claim fixture tests prove actual account behavior.
+**Newest user result:** extension reload/audio-enable and Quest connection/microphone permission steps are completed. They said it works now but the browser image is still very bad, specifically blurry and hard to look at. Treat readability as the current blocker; a complete Claude voice conversation is not separately confirmed.
+
+**Newest revision:** zero XR foveation while browser panels are open, mipmapped texture filtering, and full HiDPI snapshots for every delivered page frame. Cast frames only mark content dirty; animations no longer starve sharp text. Capture is bounded to at most four screenshots/second, so this is for readable pages, not smooth movie playback. See HANDOVER's Reading clarity revision for code/tests/tradeoffs.
 
 Continue simply, one user step at a time:
-1. Reload the already installed extension in chrome://extensions to version 0.3.0. It retains pairing and Chrome sign-ins. The user opens Claude's PC tab, invokes the Sunnyvale toolbar action, and presses Enable sound for this tab. Chrome requires this action before tab audio capture. Do not silently bypass browser permissions or automate account access.
-2. Refresh Quest only after the tested app update is deployed. Connect using the current relay address from the private shortcut and SAME pairing code; backend restart rotates only the relay address. Only one Sunnyvale frontend can connect. Leave the Chrome extension connected; disconnect a PC frontend preview before the Quest test.
-3. Before Enter VR, use Allow headset microphone and approve Quest's microphone prompt. In the Claude panel, tap Mic (Mic ON indicates sharing), then Claude's own voice control. Test speech input and spoken reply; Mic toggles sharing off. Text +/- adjusts readability, and closing the panel/disconnecting ends audio/microphone sharing. No PC microphone is used.
-4. Check picture, clicks, scroll and typing in both world modes. Then check WhatsApp (sign-in not separately confirmed), right-wrist watch and Break/focus visibility. Do not redesign anything without asking.
-5. Fix observed failures before new features. Real Quest media and streaming-service playback remain unverified; protected media may not be capturable. Do not promise movie playback based only on launch buttons or test tones.
+1. After PC validation/deployment, refresh Quest, update the relay address from private/Open Sunnyvale.url and use the SAME pairing code. Reopen Claude and ask whether text is sharper. Do not claim real headset clarity from PC fixture tests.
+2. No extension reload is needed for this revision; keep 0.3.0, pairing and Chrome sessions. Backend restart stops tab sound capture, so if Sound is off invoke the extension on Claude's PC tab and enable sound again. Avoid repeating the original installation/login/setup walkthrough.
+3. Check actual speaker/microphone conversation with Claude once readable. Mic ON shares only the Quest microphone; closing/disconnecting/toggling off stops it. Use Claude's own voice control to start its conversation.
+4. Confirm both world modes, input, right-wrist watch and Break/focus visibility on Quest. Then check WhatsApp (sign-in not separately confirmed). Ask before design changes.
+5. Fix observed browser faults before new tools or connector work. Protected streaming remains unverified. Do not present four-fps image snapshots as a movie-quality browser stream.
 
 ## Ground rules
 - User has never coded. Use plain language and handle technical work. Ask one question at a time when a decision is needed.
