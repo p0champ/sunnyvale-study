@@ -9,15 +9,16 @@
     font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
   #hint { position: fixed; left: 16px; top: 16px; max-width: 360px; font-size: 14px; line-height: 1.45;
     background: rgba(20, 16, 10, .8); padding: 12px 14px; border-radius: 10px; border: 1px solid #5a4a2a; }
+  #hint { max-height: calc(100vh - 110px); overflow-y: auto; }
   #hint b { color: #f2c94c; }
   #enter { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 22px; font: 600 14px system-ui, sans-serif;
     letter-spacing: .06em; color: #f2e6c8; background: rgba(20, 16, 10, .85); border: 1px solid #a8873a; border-radius: 8px; cursor: pointer; }
   #enter:disabled { opacity: .5; cursor: default; }
-  #claudeSettings { margin-top: 8px; }
-  #claudeSettings label { display: block; margin-top: 6px; font-size: 13px; }
-  #claudeSettings input { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; padding: 6px; font: 13px system-ui;
+  #claudeSettings, #bridgeSettings { margin-top: 8px; }
+  #claudeSettings label, #bridgeSettings label { display: block; margin-top: 6px; font-size: 13px; }
+  #claudeSettings input, #bridgeSettings input { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; padding: 6px; font: 13px system-ui;
     background: #120e08; color: #f2e6c8; border: 1px solid #5a4a2a; border-radius: 6px; }
-  #claudeSettings button { margin-top: 8px; padding: 6px 10px; font: 600 13px system-ui; color: #f2e6c8; background: #2a2014; border: 1px solid #a8873a; border-radius: 6px; cursor: pointer; }
+  #claudeSettings button, #bridgeSettings button { margin-top: 8px; padding: 6px 10px; font: 600 13px system-ui; color: #f2e6c8; background: #2a2014; border: 1px solid #a8873a; border-radius: 6px; cursor: pointer; }
   #claudeStatus { margin-top: 6px; font-size: 13px; color: #f2c94c; }
 </style>
 <script type="importmap">
@@ -44,10 +45,13 @@
     <div id="claudeStatus"></div>
     <small>Your keys stay in this browser only. They're never put in the code or on GitHub.</small>
   </details>
+  <details id="bridgeSettings"></details>
 </div>
 
 <script type="module">
 import * as THREE from 'three';
+import { installBrowserBridge } from './browser-bridge.js';
+let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
@@ -884,6 +888,7 @@ function grab(state) {
     const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(shown), false)[0];
     if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
   }
+  { const { origin, dir } = rayFrom(state); raycaster.set(origin, dir); if (browserBridge?.hit(raycaster)) return; }
   // Close grab: pinch right on a window.
   if (state.isHand) {
     const p = pinchPoint(state, new THREE.Vector3());
@@ -1284,6 +1289,7 @@ function openWindow(title, body) {
 }
 function findWindow(id) { return panels.find(p => p.userData.id === id); }
 function closeWindow(p) {
+  browserBridge?.closed(p);
   if (p.userData.closeButton) closeButtons.splice(closeButtons.indexOf(p.userData.closeButton), 1);
   if (p === claudePanel) claudePanel = null;
   scene.remove(p);
@@ -1599,6 +1605,7 @@ function updateTouches(dt) {
     const tip = s.isHand && s.hand.joints['index-finger-tip'];
     if (!tip || s === palm.state) continue;
     const p = tip.getWorldPosition(new THREE.Vector3());
+    browserBridge?.touch(p, s);
     for (const t of touchables) {
       if (!shown(t.mesh)) continue;
       const local = t.mesh.worldToLocal(p.clone());
@@ -2188,6 +2195,7 @@ function layoutRows() {
 
 // ---------- Barbera: opens your WhatsApp chat with her ----------
 function callBarbera() {
+  if (browserBridge?.open('https://web.whatsapp.com/')) return;
   const number = getKey('barberaNumber').replace(/[^0-9]/g, '');
   if (!number) {
     jarvisSay('', ['J.A.R.V.I.S.', "BARBERA'S NUMBER ISN'T SET", 'ADD IT IN SETTINGS ON THE PAGE']);
@@ -2198,7 +2206,7 @@ function callBarbera() {
 }
 
 // ---------- Claude: without an in-world key, the button opens claude.ai (your subscription) ----------
-function openClaudeWebsite() { openOutside('https://claude.ai/new'); }
+function openClaudeWebsite() { if (!browserBridge?.open('https://claude.ai/new')) openOutside('https://claude.ai/new'); }
 
 // ---------- Switching between Sunnyvale and Stark mode ----------
 // Final state of a mode (used at the end of the transition, and when leaving the headset)
@@ -2222,7 +2230,7 @@ function setMode(next) {
 // Swap the windows between cardboard and hologram; holograms build up with a scan line
 function applyWindows(stark) { for (const p of panels) lookFor(p, stark); }
 function lookFor(p, stark) {
-  if (p.userData.kind) return;
+  if (p.userData.kind && !['browser', 'browser-keyboard'].includes(p.userData.kind)) return;
   {
     if (p.userData.closeButton) {
       p.userData.closeButton.material.map = stark ? glowXTex : burnTex;
@@ -2233,6 +2241,7 @@ function lookFor(p, stark) {
     p.material.transparent = stark;
     p.material.depthWrite = !stark;
     p.material.needsUpdate = true;
+    if (p.userData.kind) return;
     p.userData.powerUp = 0;
     p.userData.powerTo = stark ? 'stark' : 'sunnyvale';
     if (!p.userData.scanLine) {
@@ -2513,6 +2522,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
   if (x) { closeWindow(x.object.userData.window); return; }
   const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(shown), false)[0];
   if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
+  if (browserBridge?.hit(raycaster)) { e.preventDefault(); return; }
   const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
   if (!hit) return;
   drag.panel = hit.object;
@@ -2534,6 +2544,8 @@ window.addEventListener('pointerup', () => {
   drag.panel = null;
   controls.enabled = true;
 });
+
+renderer.domElement.addEventListener('wheel', e => { setPointer(e); if (browserBridge?.hit(raycaster, e.deltaY)) e.preventDefault(); }, { passive: false });
 
 // ---------- Loop ----------
 window.addEventListener('resize', () => {
@@ -2559,8 +2571,11 @@ scene.traverse(o => { if (o.isMesh && !o.material.isMeshBasicMaterial) { o.castS
 
 window.studyDebug.claudeTool = runClaudeTool;   // for testing Claude's windows on the computer
 
+browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]) });
+window.studyDebug.browserBridge = browserBridge;
+window.studyDebug.setMode = setMode;
 const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop(window.studyDebug.animate = () => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
   if (!renderer.xr.isPresenting) controls.update();
