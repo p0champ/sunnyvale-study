@@ -50,7 +50,7 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=20261021-reading-2';
+import { installBrowserBridge } from './browser-bridge.js?v=20261021-connector-1';
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
@@ -317,9 +317,9 @@ function wornPath(points, width = 1.1) {
   path.receiveShadow = true;
   park.add(path);
 }
-wornPath([[-1.2, 0.5], [0.6, -0.3], [2.2, -1.0], [3.4, 0.6], [3.6, 2.2]]);   // tarp → barrel → picnic table
-wornPath([[0.2, -1.2], [0.9, -3.0], [1.4, -5.6]]);                          // tarp → the drive-in
-wornPath([[2.2, -1.0], [4.0, -3.4], [5.2, -5.0]], 0.9);                     // barrel → the next trailer
+wornPath([[-1.2, 0.5], [0.6, -0.3], [2.2, -1.0], [3.4, 0.6], [3.6, 2.2]]);   // tarp â†’ barrel â†’ picnic table
+wornPath([[0.2, -1.2], [0.9, -3.0], [1.4, -5.6]]);                          // tarp â†’ the drive-in
+wornPath([[2.2, -1.0], [4.0, -3.4], [5.2, -5.0]], 0.9);                     // barrel â†’ the next trailer
 
 // A gravel patch where the cars park by the next trailer
 const gravelPatch = new THREE.Mesh(new THREE.CircleGeometry(3, 32),
@@ -1739,7 +1739,7 @@ function cardTexture(text, back, n, total, title) {
     ctx.font = `600 ${size}px "Segoe UI", system-ui, sans-serif`;
     wrapCentered(ctx, text, 384, 250, 680, size * 1.3);
     ctx.font = '24px "Segoe UI", system-ui, sans-serif'; ctx.globalAlpha = 0.7;
-    ctx.fillText(`${title}  ·  ${n}/${total}  ·  ${back ? 'tap for next card' : 'tap to flip'}`, 384, 470);
+    ctx.fillText(`${title}  Â·  ${n}/${total}  Â·  ${back ? 'tap for next card' : 'tap to flip'}`, 384, 470);
   });
 }
 function createFlashcards(title, cards) {
@@ -1788,8 +1788,8 @@ const DEMO_MAP = { title: 'Film language', branches: [
   { label: 'Lighting', children: ['High-key', 'Low-key', 'Chiaroscuro'] },
   { label: 'Sound', children: ['Diegetic', 'Non-diegetic', 'Foley'] } ] };
 const DEMO_TIMELINE = { title: 'Film history', events: [
-  { year: 1895, label: 'Lumière brothers hold the first public film screening' },
-  { year: 1902, label: 'A Trip to the Moon (Méliès)' },
+  { year: 1895, label: 'LumiÃ¨re brothers hold the first public film screening' },
+  { year: 1902, label: 'A Trip to the Moon (MÃ©liÃ¨s)' },
   { year: 1920, label: 'The Cabinet of Dr. Caligari: German Expressionism' },
   { year: 1927, label: 'The Jazz Singer: synchronized dialogue arrives' },
   { year: 1939, label: 'Technicolor takes off: The Wizard of Oz' },
@@ -1800,7 +1800,7 @@ const DEMO_TIMELINE = { title: 'Film history', events: [
   { year: 1995, label: 'Toy Story: first fully computer-animated feature' },
   { year: 2009, label: 'Avatar pushes 3D and motion capture' } ] };
 const DEMO_CARDS = { title: 'Film terms', cards: [
-  { front: 'Mise-en-scène', back: 'Everything placed in front of the camera: set, props, actors, costume, lighting.' },
+  { front: 'Mise-en-scÃ¨ne', back: 'Everything placed in front of the camera: set, props, actors, costume, lighting.' },
   { front: 'Diegetic sound', back: 'Sound that exists inside the story world, which the characters can hear.' },
   { front: 'Match cut', back: 'A cut between two shots linked by a matching shape, action or sound.' },
   { front: 'Dolly zoom', back: 'The camera moves while zooming the opposite way, so the background warps (Vertigo).' },
@@ -2623,7 +2623,26 @@ scene.traverse(o => { if (o.isMesh && !o.material.isMeshBasicMaterial) { o.castS
 
 window.studyDebug.claudeTool = runClaudeTool;   // for testing Claude's windows on the computer
 
-browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]) });
+// Commands from the user's Claude (through the Claude connector on the PC bridge)
+const CONNECTOR_TOOLS = new Set(['open_window', 'update_window', 'close_window', 'add_note', 'create_mind_map', 'create_timeline', 'make_flashcards', 'clear_desk']);
+function runWorldTool(name, input) {
+  if (name === 'list_windows') {
+    return JSON.stringify(panels.filter(p => p.visible).map(p => ({
+      id: p.userData.browserId ? 'browser:' + p.userData.browserId : p.userData.id || null,
+      type: p.userData.kind || 'window',
+      title: p.userData.title || '',
+      text: String(p.userData.body || '').slice(0, 800)
+    })).concat(stash.length ? [{ type: 'stash', text: stash.length + ' item(s) put away in the stash' }] : []));
+  }
+  if (name === 'show_message') {
+    hudMessage.lines = ['J.A.R.V.I.S.', ...(input.lines || []).slice(0, 3).map(String)]; hudMessage.t = 0; hud.visible = true;
+    return 'Shown.';
+  }
+  if (!CONNECTOR_TOOLS.has(name)) throw Error('Unknown world tool ' + name);
+  blip(1300, 0.08);
+  return runClaudeTool(name, input);
+}
+browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool });
 window.studyDebug.browserBridge = browserBridge;
 window.studyDebug.setMode = setMode;
 const clock = new THREE.Clock();

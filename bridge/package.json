@@ -2,6 +2,14 @@
   "name": "sunnyvale-browser-bridge",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.mjs", "test": "node --test test.mjs test-extension.mjs test-http.mjs test-media.mjs" },
-  "dependencies": { "playwright": "^1.56.0", "ws": "^8.18.3" }
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test.mjs test-extension.mjs test-http.mjs test-media.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "playwright": "^1.56.0",
+    "ws": "^8.18.3",
+    "zod": "4.6.5"
+  }
 }

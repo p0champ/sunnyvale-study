@@ -2,7 +2,7 @@ import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
 import { BrowserMedia } from './browser-media.js?v=20261021-media-1';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
-  makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status }) {
+  makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool }) {
   let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false;
   const tabs = new Map();
   const normalFoveation = renderer?.xr?.getFoveation?.() ?? 1;
@@ -147,6 +147,12 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       current.onmessage = async event => {
         if (socket !== current || failure) return;
         let m; try { m = JSON.parse(event.data); } catch { fail('The secure address returned an unexpected response. Check that you used the current PC bridge address.'); return; }
+        if (m.type === 'world-call') {                                    // a command from the user's Claude connector
+          Promise.resolve().then(() => worldTool(String(m.name), m.input || {}))
+            .then(result => send({ type: 'world-result', reqId: m.reqId, ok: true, result: String(result) }))
+            .catch(e => send({ type: 'world-result', reqId: m.reqId, ok: false, error: String(e?.message || e) }));
+          return;
+        }
         if (m.type === 'ready') { clearTimers(); ready = true; report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.')); }
         if (m.type === 'browser-status') { if (!m.connected) media.stopAll(); report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.'); }
         if (m.type === 'sharing-stopped') media.stop(m.id);

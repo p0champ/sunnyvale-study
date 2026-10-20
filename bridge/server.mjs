@@ -8,17 +8,28 @@ import { chromium } from 'playwright';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ExtensionBrowser, extensionId } from './extension-browser.mjs';
 import { createHttpTransport } from './http-transport.mjs';
+import { createConnector } from './connector.mjs';
 
 const root = process.env.BRIDGE_PRIVATE_DIR || fileURLToPath(new URL('./private/', import.meta.url));
 await mkdir(root, { recursive: true });
 let token;
 try { token = (await readFile(root + '/pairing.txt', 'utf8')).trim(); }
 catch { token = randomBytes(24).toString('base64url'); await writeFile(root + '/pairing.txt', token); }
+// A separate secret for the Claude connector (typed into Claude's connector settings by the user).
+let connectorSecret;
+try { connectorSecret = (await readFile(root + '/connector.txt', 'utf8')).trim(); }
+catch { connectorSecret = randomBytes(32).toString('base64url'); await writeFile(root + '/connector.txt', connectorSecret); }
+let activeConnection = null;   // the paired Sunnyvale page, used by the Claude connector
+const connector = createConnector({ secret: connectorSecret, getConnection: () => activeConnection });
 const port = Number(process.env.BRIDGE_PORT || 8130);
 const allowedOrigins = new Set(['https://p0champ.github.io', 'http://localhost:8123', 'http://127.0.0.1:8123', 'http://localhost:18123', 'http://127.0.0.1:18123']);
 const server = http.createServer((req, res) => {
   if (req.url?.startsWith('/bridge/http/')) {
     httpTransport.handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
+    return;
+  }
+  if (req.url === '/mcp' || req.url?.startsWith('/mcp?')) {
+    connector(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
     return;
   }
   if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, browser: useExtension ? 'chrome-extension' : 'test-chromium' })); }
@@ -62,6 +73,7 @@ function webURL(value) {
 }
 wss.on('connection', ws => {
   let paired = false, closed = false, pending = 0, tabs = new Map(), sequence = Promise.resolve();
+  const worldCalls = new Map();
   const send = data => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); };
   const timer = setTimeout(() => { if (!paired) ws.close(1008, 'Pairing required'); }, 5000);
   async function addTab(url) {
@@ -131,7 +143,23 @@ wss.on('connection', ws => {
     if (closed) return;
     if (!paired) {
       if (m.type !== 'pair' || !validToken(m.token) || (active && active !== ws)) { ws.close(1008, 'Pairing failed or already connected'); return; }
-      paired = true; active = ws; clearTimeout(timer); send({ type: 'ready', browserReady: !useExtension || extension.connected }); return;
+      paired = true; active = ws; clearTimeout(timer); send({ type: 'ready', browserReady: !useExtension || extension.connected });
+      activeConnection = {
+        tabs,
+        // Browser commands from Claude go through the same queue as the headset's own clicks.
+        run(m) { const job = sequence.then(() => command(m)); sequence = job.catch(() => {}); return job; },
+        openTab: url => { const job = sequence.then(() => addTab(webURL(url))); sequence = job.catch(() => {}); return job; },
+        // World tools run inside the Sunnyvale page; wait for its answer.
+        world(name, input) {
+          return new Promise((resolve, reject) => {
+            const reqId = randomBytes(8).toString('hex');
+            const t = setTimeout(() => { worldCalls.delete(reqId); reject(Error('Sunnyvale did not answer in time.')); }, 15000);
+            worldCalls.set(reqId, { resolve, reject, t });
+            send({ type: 'world-call', reqId, name, input });
+          });
+        }
+      };
+      return;
     }
     if (m.type === 'open') { await addTab(webURL(m.url)); return; }
     const tab = tabs.get(m.id); if (!tab) throw Error('Browser window is closed.');
@@ -178,6 +206,11 @@ wss.on('connection', ws => {
     if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.type !== 'string') { ws.close(1008); return; }
     // Frame acknowledgements must not wait behind slow website navigation.
     if (paired && m.type === 'ack') { const t = tabs.get(m.id); if (t) { t.waiting = false; t.flush(); } return; }
+    if (paired && m.type === 'world-result') {
+      const call = worldCalls.get(m.reqId);
+      if (call) { worldCalls.delete(m.reqId); clearTimeout(call.t); m.ok === false ? call.reject(Error(String(m.error || 'Failed'))) : call.resolve(String(m.result ?? 'Done.')); }
+      return;
+    }
     if (paired && m.type === 'mic-data') {
       const t = tabs.get(m.id);
       if (t?.micEnabled && t.page.sendMic && t.micPending < 20 && m.rate === 24000 && typeof m.data === 'string' && m.data.length <= 20000 && /^[A-Za-z0-9+/]*={0,2}$/.test(m.data)) {
@@ -190,7 +223,10 @@ wss.on('connection', ws => {
   });
   ws.on('error', () => {});
   ws.on('close', () => {
-    closed = true; clearTimeout(timer); if (active === ws) active = null;
+    closed = true; clearTimeout(timer);
+    if (active === ws) { active = null; activeConnection = null; }
+    for (const call of worldCalls.values()) { clearTimeout(call.t); call.reject(Error('Sunnyvale disconnected.')); }
+    worldCalls.clear();
     for (const t of tabs.values()) { clearTimeout(t.timer); clearTimeout(t.stillTimer); t.page.close().catch(() => {}); }
     tabs.clear();
   });
@@ -201,6 +237,7 @@ server.listen(port, '127.0.0.1', () => {
   console.log('PC test: ws://localhost:' + port + '/bridge');
   console.log('Quest: use a secure tunnel to this port, then wss://YOUR-TUNNEL/bridge');
   console.log(useExtension ? 'Browser: your regular Google Chrome, through the Sunnyvale extension.' : 'Browser: isolated test Chromium.');
+  console.log('Claude connector: https://YOUR-TUNNEL/mcp (its secret is in bridge/private/connector.txt)');
 });
 // Optional HTTPS relay. Only the authenticated WebSocket is exposed, never project files.
 let tunnel;
