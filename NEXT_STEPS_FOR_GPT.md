@@ -9,12 +9,12 @@ Read `HANDOVER.md` first, especially **Start here: current checkpoint**, then `b
 
 ## Immediate next step: test the connected normal Chrome bridge
 
-**User-confirmed:** in-world windows appeared in the original version; the Sunnyvale Browser Bridge extension is now installed in their ordinary Google Chrome and they have explicitly said it is connected. Do not repeat extension installation/pairing instructions unless troubleshooting requires them.
+**User-confirmed:** in-world windows appeared in the original version; the Sunnyvale Browser Bridge extension is now installed in their ordinary Google Chrome and they have explicitly said it is connected. They have also confirmed Claude is signed in on the PC in Chrome. Do not repeat extension installation/pairing or Claude PC sign-in instructions unless troubleshooting requires them.
 
 **Not yet confirmed:** real Claude/WhatsApp usability inside VR after replacing automated Chromium with normal Chrome. The old version had Claude bot-verification loops and a WhatsApp browser-update message; these motivated the replacement. Never claim that real sign-in or playback passed based only on fixture tests.
 
 Continue simply, one user step at a time:
-1. Have the user check Claude and WhatsApp are signed in on their PC's normal Chrome. They complete sign-ins/verification themselves; do not enter passwords, request credentials or handle verification for them.
+1. Claude PC sign-in is already user-confirmed. Continue with the Quest test below. WhatsApp sign-in remains unconfirmed; check it when testing the heart afterward. The user completes any sign-ins/verification themselves; do not enter passwords, request credentials or handle verification for them.
 2. Reconnect the Quest page to the current secure bridge address if needed. A bridge restart changed the temporary relay address, but the pairing code stayed the same. Current private link: `bridge/private/Open Sunnyvale.url`. Do not print its credential or put it in a public file. Only one Sunnyvale frontend can pair at once; disconnect the PC preview page, not the Chrome extension, before Quest connects.
 3. Enter Sunnyvale and test Claude first, then the WhatsApp heart: stay in-world, load the normal signed-in tab, click, scroll and type. Check both modes and confirm readable text and hand input. Reuse the existing account sessions; do not copy the Chrome profile or cookies.
 4. Check the right-wrist watch and Break menu on Quest. Right hand only; tracking loss hides the watch. Break has all six requested services, hides and closes its choices while `timer.running && timer.phase === 'focus'`, and returns when focus is paused or the timed break starts. Existing open media windows are not forcibly closed by focus mode.

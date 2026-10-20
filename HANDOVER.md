@@ -7,7 +7,8 @@ This section is the current state. The dated sections below include the earlier 
 ### Exactly where the conversation stopped
 - The user asked us to keep handover documents current so Claude can resume easily.
 - The user has **installed Sunnyvale Browser Bridge in their normal Google Chrome and now explicitly confirmed: "Its now connected"**. Installation and extension pairing are complete; do not ask them to repeat those steps unless the connection fails.
-- **Next user step:** check Claude and WhatsApp are signed in in that normal Chrome profile (the user handles any sign-in), then reconnect Quest to the current bridge address, enter Sunnyvale and test Claude first, then WhatsApp. The user has NOT yet confirmed that the replacement Chrome provider resolves the bot-verification loop / WhatsApp update message inside VR.
+- The user has now also confirmed Claude is signed in on their PC in normal Chrome. WhatsApp sign-in has not been separately confirmed.
+- **Next user step:** reconnect Quest to the current bridge address, enter Sunnyvale and tap Claude to check that the signed-in Chrome tab appears inside the world. Test WhatsApp afterward. The user has NOT yet confirmed that the replacement Chrome provider resolves the bot-verification loop / WhatsApp update message inside VR.
 - The first streamed-browser version did show windows inside VR according to the user. It was unusable for Claude/WhatsApp because automated Chromium triggered verification/compatibility problems. Normal Chrome through the extension replaced that engine in normal operation. Do not revert to headless Chromium, copy their cookies/profile, spoof their browser or claim account testing has passed.
 
 ### What is built and published
