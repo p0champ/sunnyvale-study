@@ -13,6 +13,12 @@
   #enter { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 22px; font: 600 14px system-ui, sans-serif;
     letter-spacing: .06em; color: #f2e6c8; background: rgba(20, 16, 10, .85); border: 1px solid #a8873a; border-radius: 8px; cursor: pointer; }
   #enter:disabled { opacity: .5; cursor: default; }
+  #claudeSettings { margin-top: 8px; }
+  #claudeSettings label { display: block; margin-top: 6px; font-size: 13px; }
+  #claudeSettings input { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; padding: 6px; font: 13px system-ui;
+    background: #120e08; color: #f2e6c8; border: 1px solid #5a4a2a; border-radius: 6px; }
+  #claudeSettings button { margin-top: 8px; padding: 6px 10px; font: 600 13px system-ui; color: #f2e6c8; background: #2a2014; border: 1px solid #a8873a; border-radius: 6px; cursor: pointer; }
+  #claudeStatus { margin-top: 6px; font-size: 13px; color: #f2c94c; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -27,7 +33,16 @@
   On the computer: drag the background to look around, and drag the cardboard window to move it.<br>
   On the Quest: press <b>Enter Sunnyvale</b>, then pinch the window (thumb + index finger) to grab it,
   or point at it from far away and pinch. Turn your palm up for Julian's glass and its menu.<br>
-  Testing on the computer: <b>M</b> shows the menu, <b>S</b> switches to Stark mode.
+  Testing on the computer: <b>M</b> shows the menu, <b>S</b> switches to Stark mode, <b>C</b> talks to Claude.
+  <details id="claudeSettings">
+    <summary><b>Claude settings</b></summary>
+    <label>Claude API key (from console.anthropic.com)<input id="claudeKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
+    <label>OpenAI key, optional (only for voice if this browser can't do speech-to-text)<input id="openaiKey" type="password" autocomplete="off" placeholder="sk-..."></label>
+    <button id="saveKeys">Save</button> <button id="micTest">Allow microphone</button>
+    <label>Or type to Claude<input id="typeToClaude" type="text" placeholder="Ask something, press Enter"></label>
+    <div id="claudeStatus"></div>
+    <small>Your keys stay in this browser only. They're never put in the code or on GitHub.</small>
+  </details>
 </div>
 
 <script type="module">
@@ -45,7 +60,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = false;                  // shadows were too costly on the Quest
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.shadowMap.autoUpdate = false;                 // the park doesn't move: draw shadows once, not every frame
 function refreshShadows() { renderer.shadowMap.needsUpdate = true; }
@@ -334,13 +349,16 @@ loadModel('pine_tree').then(gltf => {
       new THREE.Vector3(s, s, s)
     ).multiply(new THREE.Matrix4().makeTranslation(-c.x, -b.min.y, -c.z)));
   }
-  tree.children.forEach(piece => {
-    const batch = new THREE.InstancedMesh(piece.geometry, piece.material, COUNT);
-    matrices.forEach((m, k) => batch.setMatrixAt(k, m));
-    batch.computeBoundingSphere();
-    patchTree(batch);
-    park.add(batch);
-  });
+  for (let q = 0; q < 4; q++) {                                           // 4 batches: one per side of the park
+    const mine = matrices.filter((m, k) => Math.floor(k / (COUNT / 4)) === q);
+    tree.children.forEach(piece => {
+      const batch = new THREE.InstancedMesh(piece.geometry, piece.material, mine.length);
+      mine.forEach((m, k) => batch.setMatrixAt(k, m));
+      batch.computeBoundingSphere();
+      patchTree(batch);
+      park.add(batch);
+    });
+  }
 });
 
 // Red maple trees ("Maple tree" by atrodler, leaves recolored red)
@@ -670,14 +688,16 @@ function hologramTexture(title, body, W, H) {
     ctx.shadowBlur = 8;
     ctx.fillRect(60, 140, 260, 4);
     ctx.fillStyle = '#ffe9c4';
-    ctx.font = '40px "Segoe UI", system-ui, sans-serif';
-    wrapText(ctx, body, 60, 230, W - 120, 58);
+    const size = textSize(body) * 0.92;
+    ctx.font = `${size}px "Segoe UI", system-ui, sans-serif`;
+    wrapText(ctx, body, 60, 220, W - 120, size * 1.38);
   });
 }
 
-function makeCardboardWindow(title, body, position) {
-  const W = 1024, H = 700;
-  const texture = canvasTexture(W, H, (ctx) => {
+function textSize(body) { const n = body.length; return n < 160 ? 44 : n < 300 ? 36 : n < 480 ? 30 : n < 700 ? 25 : 21; }
+
+function cardboardTexture(title, body, W, H) {
+  return canvasTexture(W, H, (ctx) => {
     ctx.fillStyle = '#a5865a'; ctx.fillRect(0, 0, W, H);
     for (let i = 0; i < 3000; i++) {                                  // cardboard speckle
       ctx.fillStyle = `rgba(${90 + Math.random() * 60},${70 + Math.random() * 40},${40 + Math.random() * 30},0.35)`;
@@ -692,14 +712,30 @@ function makeCardboardWindow(title, body, position) {
     ctx.font = 'bold 72px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif';
     ctx.fillText(title, 60, 120);
     ctx.fillRect(60, 140, ctx.measureText(title).width, 6);
-    ctx.font = '44px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif';
-    wrapText(ctx, body, 60, 230, W - 120, 62);
+    const size = textSize(body);
+    ctx.font = `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`;
+    wrapText(ctx, body, 60, 220, W - 120, size * 1.38);
 
     ctx.fillStyle = 'rgba(176,176,176,0.92)';                         // duct tape on the corners
     for (const [x, y, r] of [[40, 30, -0.7], [W - 40, 30, 0.7], [40, H - 30, 0.7], [W - 40, H - 30, -0.7]]) {
       ctx.save(); ctx.translate(x, y); ctx.rotate(r); ctx.fillRect(-90, -24, 180, 48); ctx.restore();
     }
   });
+}
+
+// Change what a window says (redraws both its Sunnyvale and Stark looks)
+function setWindowContent(p, title, body) {
+  p.userData.cardboard.dispose(); p.userData.hologram.dispose();
+  p.userData.cardboard = cardboardTexture(title, body, 1024, 700);
+  p.userData.hologram = hologramTexture(title, body, 1024, 700);
+  p.material.map = mode === 'stark' ? p.userData.hologram : p.userData.cardboard;
+  p.material.needsUpdate = true;
+  p.userData.title = title; p.userData.body = body;
+}
+
+function makeCardboardWindow(title, body, position) {
+  const W = 1024, H = 700;
+  const texture = cardboardTexture(title, body, W, H);
   const w = 0.8, h = 0.55;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
     new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
@@ -707,6 +743,8 @@ function makeCardboardWindow(title, body, position) {
   mesh.userData.size = { w, h };
   mesh.userData.cardboard = texture;
   mesh.userData.hologram = hologramTexture(title, body, W, H);
+  mesh.userData.title = title;
+  mesh.userData.body = body;
   scene.add(mesh);
   panels.push(mesh);
   return mesh;
@@ -803,7 +841,7 @@ function grab(state) {
   if (menu.visible) {
     const { origin, dir } = rayFrom(state);
     raycaster.set(origin, dir);
-    const hit = raycaster.intersectObjects(menuButtons.filter(b => b.visible), false)[0];
+    const hit = raycaster.intersectObjects(menuButtons.filter(shown), false)[0];
     if (hit) { pressButton(hit.object); return; }
   }
   // Close grab: pinch right on a window.
@@ -861,7 +899,7 @@ glassWall.position.y = 0.05;
 const glassBase = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.012, 24), glassMat);
 glassBase.position.y = 0.006;
 const drink = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.031, 0.06, 24),
-  new THREE.MeshStandardMaterial({ color: 0x3a1608, transparent: true, opacity: 0.88, roughness: 0.1 }));
+  new THREE.MeshStandardMaterial({ color: 0x3a1608, emissive: 0x2a0e04, transparent: true, opacity: 0.88, roughness: 0.1 }));
 drink.position.y = 0.043;
 realGlass.add(glassWall, glassBase, drink);
 for (const [x, z, r] of [[0.01, 0.005, 0.4], [-0.012, -0.006, 1.1]]) {
@@ -953,6 +991,9 @@ const reactorButton = makeButton('STARK MODE', (ctx) => {
 }, () => startTransition('stark'));
 
 let pressCooldown = 0;
+// Is this part of the menu showing (it and everything it sits in)?
+function shown(o) { for (let x = o; x && x !== scene; x = x.parent) if (!x.visible) return false; return true; }
+
 function pressButton(b) {
   if (pressCooldown > 0) return;
   pressCooldown = 0.8;
@@ -1004,7 +1045,11 @@ function updateMenu(dt) {
         if (!tip) continue;
         const p = tip.getWorldPosition(new THREE.Vector3());
         for (const b of menuButtons) {
-          if (!b.visible) continue;
+          if (!shown(b)) continue;
+          if (b.userData.sphere) {
+            if (p.distanceTo(b.getWorldPosition(new THREE.Vector3())) < 0.06) pressButton(b);
+            continue;
+          }
           const local = b.worldToLocal(p.clone());
           if (Math.abs(local.z) < 0.02 && Math.hypot(local.x, local.y) < 0.045) pressButton(b);
         }
@@ -1017,34 +1062,422 @@ function updateMenu(dt) {
     buttonRow.lookAt(tmpVec);
     if (reactor.visible) { reactor.lookAt(tmpVec); coils.rotation.z += dt * 0.8; coreGlow.material.opacity = 0.8 + Math.sin(performance.now() / 180) * 0.2; }
     for (const b of menuButtons) {
+      if (b.userData.sphere) continue;
       b.userData.pulse = Math.max(0, b.userData.pulse - dt * 3);
       b.scale.setScalar(1 + b.userData.pulse * 0.25);
     }
   }
 }
 
+// ---------- Claude: your study buddy (the rum bottle in Sunnyvale, a glowing Claude orb in Stark mode) ----------
+// Tap to talk, tap again to stop (it also stops by itself when you pause). Claude answers out loud and can
+// open windows, update them, close them and take notes. Your Claude API key is typed into the settings box on the
+// page and stays in this browser only (it's never in the code or on GitHub).
+const CLAUDE_MODEL = 'claude-opus-5-5';
+const CLAUDE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.131.0/+esm';
+const CLAUDE_SYSTEM = `You are Claude, the user's study buddy inside their VR study space on a Meta Quest 3 (a Trailer Park Boys themed trailer park called "Sunnyvale", or "Stark mode", which shows their real room with holographic windows).
+The user talks to you by voice and your replies are read aloud. So keep spoken replies short and natural: one to three sentences, no lists, no markdown, no emoji.
+Put anything longer (explanations, key facts, summaries, quiz questions, timelines, examples) into floating windows with your tools. Each window holds about 120 words, so split bigger topics across several windows with clear titles. Open windows whenever it helps the user study, like Jarvis does for Tony Stark.
+When the user says "write that down", "note that" or similar, use add_note. When they ask to be quizzed, ask one question at a time out loud, wait for their answer, then tell them if they were right.
+Each user turn starts with a list of the windows that are currently open, so you can read and refer to them, update them, or close ones that are no longer needed.
+The user studies film and loves books and literature, especially Charles Bukowski. Be yourself: friendly, clear and honest.`;
+const CLAUDE_TOOLS = [
+  { name: 'open_window', description: 'Open a new floating window next to the user with a title and some text (about 120 words max).', strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: ['title', 'body'],
+      properties: { title: { type: 'string', description: 'Short title' }, body: { type: 'string', description: 'Plain text, no markdown. Use line breaks between points.' } } } },
+  { name: 'update_window', description: 'Replace the title and text of an open window.', strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: ['id', 'title', 'body'],
+      properties: { id: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' } } } },
+  { name: 'close_window', description: 'Close an open window.', strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string' } } } },
+  { name: 'add_note', description: "Add a line to the user's Notes window (it's created if it isn't open).", strict: true,
+    input_schema: { type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string' } } } }
+];
+
+const claude = { state: 'idle', chat: [], client: null, recognizer: null, recorder: null, heard: '', silenceTimer: null, windowCount: 0 };
+const store = {
+  get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked: key lasts until the page closes */ } }
+};
+const memoryKeys = {};
+function getKey(name) { return memoryKeys[name] || store.get(name); }
+
+// The Claude logo: a coral starburst
+function drawClaudeSpark(ctx, cx, cy, r, color = '#D97757') {
+  ctx.save(); ctx.translate(cx, cy); ctx.fillStyle = color;
+  for (let i = 0; i < 12; i++) {
+    const len = r * (i % 2 ? 0.78 : 1);
+    ctx.save(); ctx.rotate(i / 12 * Math.PI * 2);
+    ctx.beginPath(); ctx.moveTo(-r * 0.07, 0); ctx.lineTo(0, -len); ctx.lineTo(r * 0.07, 0); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.16, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// Sunnyvale: the rum bottle with the Claude label
+const claudeBottle = new THREE.Group();
+const bottleGlass = new THREE.MeshStandardMaterial({ color: 0x3a1a08, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.92 });
+const bottleBody = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.1, 24), bottleGlass);
+bottleBody.position.y = 0.05;
+const bottleShoulder = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.03, 0.025, 24), bottleGlass);
+bottleShoulder.position.y = 0.1125;
+const bottleNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.035, 16), bottleGlass);
+bottleNeck.position.y = 0.1425;
+const bottleCap = new THREE.Mesh(new THREE.CylinderGeometry(0.0125, 0.0125, 0.016, 16), new THREE.MeshStandardMaterial({ color: 0xb8892e, metalness: 0.7, roughness: 0.35 }));
+bottleCap.position.y = 0.168;
+const labelTex = canvasTexture(512, 256, (ctx) => {
+  ctx.fillStyle = '#efe4cc'; ctx.fillRect(0, 0, 512, 256);
+  ctx.strokeStyle = '#8a5a2a'; ctx.lineWidth = 6; ctx.strokeRect(10, 10, 492, 236);
+  drawClaudeSpark(ctx, 256, 92, 62);
+  ctx.fillStyle = '#2a1a10'; ctx.textAlign = 'center';
+  ctx.font = '700 46px Georgia, serif'; ctx.fillText('CLAUDE', 256, 196);
+  ctx.font = 'italic 22px Georgia, serif'; ctx.fillText('finest study rum', 256, 228);
+});
+const bottleLabel = new THREE.Mesh(new THREE.CylinderGeometry(0.0305, 0.0305, 0.055, 32, 1, true, -1.1, 2.2),
+  new THREE.MeshStandardMaterial({ map: labelTex, roughness: 0.8 }));
+bottleLabel.position.y = 0.05;
+claudeBottle.add(bottleBody, bottleShoulder, bottleNeck, bottleCap, bottleLabel);
+
+// Stark mode: a glowing Claude orb
+const claudeOrb = new THREE.Group();
+const orbSparkTex = canvasTexture(256, 256, (ctx) => { drawClaudeSpark(ctx, 128, 128, 110, '#ffb08a'); });
+const orbSpark = new THREE.Mesh(new THREE.CircleGeometry(0.045, 32),
+  new THREE.MeshBasicMaterial({ map: orbSparkTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+const orbRing = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.003, 8, 48),
+  new THREE.MeshBasicMaterial({ color: 0xff8a5c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+const orbGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSoft, color: 0xff7a4a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+orbGlow.scale.setScalar(0.16);
+claudeOrb.add(orbGlow, orbSpark, orbRing);
+claudeOrb.position.y = 0.06;
+claudeOrb.visible = false;
+
+// Both sit above the round buttons; an invisible ball around them catches your fingertip
+const claudeSpot = new THREE.Group();
+claudeSpot.position.y = 0.24;
+claudeSpot.add(claudeBottle, claudeOrb);
+menu.add(claudeSpot);
+const claudeHit = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
+claudeHit.position.y = 0.07;
+claudeHit.userData = { action: () => claudeTap(), pulse: 0, sphere: true };
+claudeSpot.add(claudeHit);
+menuButtons.push(claudeHit);
+
+function setClaudeLook(stark) { claudeBottle.visible = !stark; claudeOrb.visible = stark; }
+
+function updateClaudeButton(dt) {
+  const t = performance.now() / 1000;
+  const listening = claude.state === 'listening', busy = claude.state === 'thinking';
+  // the cap pops off while Claude is listening
+  const capUp = listening ? 0.03 : 0;
+  bottleCap.position.y += (0.168 + capUp - bottleCap.position.y) * Math.min(1, dt * 12);
+  bottleCap.rotation.z += ((listening ? 0.6 : 0) - bottleCap.rotation.z) * Math.min(1, dt * 12);
+  if (claudeOrb.visible) {
+    viewerPosition(tmpVec);
+    claudeOrb.lookAt(tmpVec);
+    orbSpark.rotation.z += dt * (busy ? 4 : listening ? 1.5 : 0.4);
+    const pulse = listening ? 1 + Math.sin(t * 8) * 0.12 : busy ? 1 + Math.sin(t * 14) * 0.06 : 1;
+    orbRing.scale.setScalar(pulse);
+    orbGlow.material.opacity = listening ? 1 : busy ? 0.7 + Math.sin(t * 10) * 0.3 : 0.6;
+  }
+  if (claudeBottle.visible) {
+    viewerPosition(tmpVec);
+    const p = claudeSpot.getWorldPosition(new THREE.Vector3());
+    claudeBottle.rotation.y = Math.atan2(tmpVec.x - p.x, tmpVec.z - p.z) - menu.rotation.y;  // label faces you
+    claudeBottle.position.y = busy ? Math.abs(Math.sin(t * 9)) * 0.01 : 0;                    // a little wobble while thinking
+  }
+}
+
+// ---------- Windows Claude can open ----------
+function claudeWindowPosition(slot) {
+  viewerPosition(tmpVec);
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const dir = cam.getWorldDirection(new THREE.Vector3()); dir.y = 0; dir.normalize();
+  const angles = [0, 0.6, -0.6, 1.15, -1.15, 1.65, -1.65];
+  const a = angles[slot % angles.length];
+  const d = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
+  return new THREE.Vector3(tmpVec.x + d.x * 1.05, tmpVec.y - 0.12 - Math.floor(slot / angles.length) * 0.6, tmpVec.z + d.z * 1.05);
+}
+function openWindow(title, body) {
+  const p = makeCardboardWindow(title, body, claudeWindowPosition(claude.windowCount++));
+  p.userData.id = 'w' + claude.windowCount;
+  faceViewer(p);
+  lookFor(p, mode === 'stark');
+  return p;
+}
+function findWindow(id) { return panels.find(p => p.userData.id === id); }
+function closeWindow(p) {
+  scene.remove(p);
+  panels.splice(panels.indexOf(p), 1);
+  for (const s of inputs) if (s.held === p) release(s);
+  p.userData.cardboard.dispose(); p.userData.hologram.dispose(); p.geometry.dispose(); p.material.dispose();
+}
+
+function runClaudeTool(name, input) {
+  if (name === 'open_window') {
+    const p = openWindow(String(input.title || 'Window'), String(input.body || ''));
+    return JSON.stringify({ ok: true, id: p.userData.id });
+  }
+  if (name === 'update_window') {
+    const p = findWindow(input.id);
+    if (!p) return JSON.stringify({ ok: false, error: 'No window with that id' });
+    setWindowContent(p, String(input.title), String(input.body));
+    return JSON.stringify({ ok: true });
+  }
+  if (name === 'close_window') {
+    const p = findWindow(input.id);
+    if (!p) return JSON.stringify({ ok: false, error: 'No window with that id' });
+    closeWindow(p);
+    return JSON.stringify({ ok: true });
+  }
+  if (name === 'add_note') {
+    let notes = findWindow('notes');
+    if (!notes) { notes = openWindow('Notes', ''); notes.userData.id = 'notes'; }
+    const body = (notes.userData.body ? notes.userData.body + '\n' : '') + '- ' + String(input.text);
+    setWindowContent(notes, 'Notes', body.split('\n').slice(-12).join('\n'));
+    return JSON.stringify({ ok: true });
+  }
+  return JSON.stringify({ ok: false, error: 'Unknown tool' });
+}
+
+// The "Claude" window shows what you said and what Claude said
+let claudePanel = null;
+function claudeSays(you, reply) {
+  const body = (you ? 'You: ' + you + '\n\n' : '') + (reply ? 'Claude: ' + reply : '');
+  if (!claudePanel || !panels.includes(claudePanel)) {
+    const spot = claudeWindowPosition(2); spot.y -= 0.35;                 // low and to the left, out of the way
+    claudePanel = makeCardboardWindow('Claude', body, spot);
+    claudePanel.userData.id = 'chat';
+    faceViewer(claudePanel);
+    lookFor(claudePanel, mode === 'stark');
+  } else setWindowContent(claudePanel, 'Claude', body);
+  const status = document.getElementById('claudeStatus');
+  if (status) status.textContent = (you ? 'You: ' + you + ' | ' : '') + (reply || '');
+}
+
+// ---------- Talking: listen, ask Claude, speak the answer ----------
+function claudeTap() {
+  if (claude.state === 'listening') return stopListening();
+  if (claude.state === 'thinking') return;
+  if (claude.state === 'speaking') { try { speechSynthesis.cancel(); } catch (e) { /* nothing to stop */ } if (claude.audio) claude.audio.pause(); }
+  startListening();
+}
+
+function startListening() {
+  if (!getKey('claudeKey')) {
+    claudeSays('', "I need your Claude API key first. Take the headset off, open Claude settings on the page, paste your key and press Save.");
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  claude.heard = '';
+  if (SR) {
+    const rec = new SR();
+    rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = e => {
+      let finalText = '', interim = '';
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
+      }
+      claude.heard = finalText;
+      claudeSays((finalText + ' ' + interim).trim() + ' ...', '');
+      clearTimeout(claude.silenceTimer);
+      claude.silenceTimer = setTimeout(stopListening, 2200);              // stops by itself when you pause
+    };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') claudeSays('', "I can't use the microphone. Allow it in the browser (Claude settings on the page has an Allow microphone button).");
+    };
+    rec.onend = () => { if (claude.state === 'listening') finishListening(claude.heard); };
+    try { rec.start(); } catch (e) { return voiceUnavailable(); }
+    claude.recognizer = rec;
+    setClaudeState('listening');
+    claudeSays('(listening...)', '');
+    return;
+  }
+  if (getKey('openaiKey') && navigator.mediaDevices && window.MediaRecorder) {   // this browser can't do speech-to-text itself
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      const chunks = [];
+      const rec = new MediaRecorder(stream);
+      rec.ondataavailable = e => chunks.push(e.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        setClaudeState('thinking');
+        try { finishListening(await transcribe(new Blob(chunks, { type: rec.mimeType }))); }
+        catch (e) { claudeSays('', "I couldn't turn your voice into text. Check the OpenAI key in Claude settings."); setClaudeState('idle'); }
+      };
+      rec.start();
+      claude.recorder = rec;
+      setClaudeState('listening');
+      claudeSays('(listening... tap again when you are done)', '');
+    }).catch(() => claudeSays('', "I can't use the microphone. Allow it in the browser settings."));
+    return;
+  }
+  voiceUnavailable();
+}
+function voiceUnavailable() {
+  claudeSays('', "This browser can't turn speech into text by itself. Add an OpenAI key in Claude settings for voice, or type your question on the computer.");
+  setClaudeState('idle');
+}
+function stopListening() {
+  clearTimeout(claude.silenceTimer);
+  if (claude.recognizer) { const r = claude.recognizer; claude.recognizer = null; try { r.stop(); } catch (e) { /* already stopped */ } finishListening(claude.heard); }
+  else if (claude.recorder) { const r = claude.recorder; claude.recorder = null; r.stop(); }
+  else setClaudeState('idle');
+}
+function finishListening(text) {
+  if (claude.state !== 'listening' && claude.state !== 'thinking') return;
+  text = (text || '').trim();
+  if (!text) { setClaudeState('idle'); claudeSays('', "I didn't catch that. Tap the bottle and try again."); return; }
+  askClaude(text);
+}
+
+async function transcribe(blob) {
+  const form = new FormData();
+  form.append('file', blob, 'speech.webm');
+  form.append('model', 'whisper-1');
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + getKey('openaiKey') }, body: form
+  });
+  if (!res.ok) throw new Error('transcription failed ' + res.status);
+  return (await res.json()).text;
+}
+
+function setClaudeState(s) { claude.state = s; }
+
+function windowsSummary() {
+  const open = panels.filter(p => p.userData.id && p !== claudePanel);
+  if (!open.length) return 'No windows are open.';
+  return open.map(p => `- id "${p.userData.id}", title "${p.userData.title}": ${String(p.userData.body || '').slice(0, 600)}`).join('\n');
+}
+
+async function getClaudeClient() {
+  if (!claude.client) {
+    const { default: Anthropic } = await import(CLAUDE_SDK_URL);
+    claude.client = new Anthropic({ apiKey: getKey('claudeKey'), dangerouslyAllowBrowser: true });  // your own key, on your own device
+  }
+  return claude.client;
+}
+
+async function askClaude(text) {
+  setClaudeState('thinking');
+  claudeSays(text, '(thinking...)');
+  if (claude.chat.length > 60) claude.chat = [];                          // very long chats start fresh
+  claude.chat.push({ role: 'user', content: `[Open windows]\n${windowsSummary()}\n\n[The user said]\n${text}` });
+  let reply = '';
+  try {
+    const client = await getClaudeClient();
+    for (let round = 0; round < 6; round++) {
+      const res = await client.beta.messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: 4000,
+        output_config: { effort: 'low' },                                // quick answers for a voice chat
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',                                            // if Claude declines, a fallback model tries
+        system: CLAUDE_SYSTEM,
+        tools: CLAUDE_TOOLS,
+        messages: claude.chat
+      });
+      claude.chat.push({ role: 'assistant', content: res.content });
+      reply += res.content.filter(b => b.type === 'text').map(b => b.text).join(' ');
+      if (res.stop_reason === 'refusal') { reply = reply || "Sorry, I can't help with that one."; break; }
+      if (res.stop_reason === 'pause_turn') continue;
+      if (res.stop_reason !== 'tool_use') break;
+      const results = res.content.filter(b => b.type === 'tool_use').map(b => {
+        let out;
+        try { out = runClaudeTool(b.name, b.input || {}); } catch (e) { out = JSON.stringify({ ok: false, error: String(e.message || e) }); }
+        return { type: 'tool_result', tool_use_id: b.id, content: out };
+      });
+      claude.chat.push({ role: 'user', content: results });
+    }
+  } catch (err) {
+    console.error('Claude error', err);
+    claude.chat = [];
+    reply = err && err.status === 401 ? "My API key didn't work. Check it in Claude settings on the page."
+      : err && err.status === 429 ? "I'm a bit busy right now. Try again in a moment."
+      : "I couldn't reach Claude. Check the internet connection and try again.";
+  }
+  reply = reply.trim() || 'Done.';
+  claudeSays(text, reply);
+  speak(reply);
+}
+
+// Claude's voice: the browser's own voice, or OpenAI's if the browser has none
+function speak(text) {
+  setClaudeState('speaking');
+  const done = () => { if (claude.state === 'speaking') setClaudeState('idle'); };
+  const voices = 'speechSynthesis' in window ? speechSynthesis.getVoices() : [];
+  if ('speechSynthesis' in window && (voices.length || !getKey('openaiKey'))) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.voice = voices.find(v => /en(-|_)GB/i.test(v.lang) && /male|daniel|george|arthur/i.test(v.name)) || voices.find(v => /^en/i.test(v.lang)) || null;
+    u.rate = 1.03;
+    u.onend = done; u.onerror = done;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+    setTimeout(done, 30000);
+    return;
+  }
+  if (getKey('openaiKey')) {
+    fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + getKey('openaiKey'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'tts-1', voice: 'onyx', input: text })
+    }).then(r => r.ok ? r.blob() : Promise.reject(r.status)).then(b => {
+      claude.audio = new Audio(URL.createObjectURL(b));
+      claude.audio.onended = done;
+      claude.audio.play().catch(done);
+    }).catch(done);
+    return;
+  }
+  done();
+}
+
+// ---------- The Claude settings box on the page (outside the headset view) ----------
+(function setupClaudeSettings() {
+  const keyBox = document.getElementById('claudeKey'), oaBox = document.getElementById('openaiKey');
+  const status = document.getElementById('claudeStatus');
+  if (!keyBox) return;
+  keyBox.value = getKey('claudeKey') ? '********' : '';
+  oaBox.value = getKey('openaiKey') ? '********' : '';
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  status.textContent = (getKey('claudeKey') ? 'Claude key saved. ' : 'No Claude key yet. ') +
+    (SR ? 'Voice: built in.' : 'Voice: this browser needs an OpenAI key for speech-to-text.');
+  document.getElementById('saveKeys').onclick = () => {
+    for (const [box, name] of [[keyBox, 'claudeKey'], [oaBox, 'openaiKey']]) {
+      if (box.value && box.value !== '********') { memoryKeys[name] = box.value.trim(); store.set(name, box.value.trim()); box.value = '********'; }
+    }
+    claude.client = null;
+    status.textContent = getKey('claudeKey') ? 'Saved. Tap the Claude bottle in the menu to talk.' : 'Paste your Claude API key first.';
+  };
+  document.getElementById('micTest').onclick = async () => {
+    try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(t => t.stop()); status.textContent = 'Microphone allowed.'; }
+    catch (e) { status.textContent = 'Microphone was blocked. Allow it in the browser settings.'; }
+  };
+  document.getElementById('typeToClaude').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.value.trim() && claude.state !== 'thinking') { askClaude(e.target.value.trim()); e.target.value = ''; }
+    e.stopPropagation();                                                // don't trigger the M / S / C test keys while typing
+  });
+  for (const box of [keyBox, oaBox]) box.addEventListener('keydown', e => e.stopPropagation());
+})();
+
 // ---------- Switching between Sunnyvale and Stark mode ----------
 // Final state of a mode (used at the end of the transition, and when leaving the headset)
 function setMode(next) {
   mode = next;
-  skySphere.material.transparent = false;
-  refreshShadows();
+
   const stark = mode === 'stark';
   park.visible = !stark;                                                  // the park disappears and your real room shows through
   skySphere.visible = !stark;
-  skySphere.material.opacity = 1;
-  scene.environment = stark ? null : skyTexture;
-  scene.fog = stark ? null : parkFog;
+
   handModels.forEach(h => { h.visible = !stark; });                       // you see your real hands instead
   realGlass.visible = !stark; reactor.visible = stark;
   reactorButton.visible = !stark; bubblesButton.visible = stark;
+  setClaudeLook(stark);
   dissolve.uOn.value = 0;
   if (panels[0] && (panels[0].material.map === panels[0].userData.hologram) !== stark) applyWindows(stark);
 }
 
 // Swap the windows between cardboard and hologram; holograms build up with a scan line
-function applyWindows(stark) {
-  for (const p of panels) {
+function applyWindows(stark) { for (const p of panels) lookFor(p, stark); }
+function lookFor(p, stark) {
+  {
     p.material.map = stark ? p.userData.hologram : p.userData.cardboard;
     p.material.transparent = stark;
     p.material.depthWrite = !stark;
@@ -1086,9 +1519,17 @@ const dissolve = {
   uRadius: { value: 0 },
   uOn: { value: 0 }
 };
-function patchMaterial(m) {
+function patchMaterial(m, reach = 1, sky = false) {
   if (!m || m.userData.dissolvePatched || m.isSpriteMaterial || m.isShaderMaterial) return;
   m.userData.dissolvePatched = true;
+  // How far a pixel is from the middle of the shockwave. For the sky: looking down at the photo's lower half, use
+  // the spot on the floor you're looking at (so the photo's landscape never shows through where the ground is gone);
+  // looking up, the sky opens from straight above you outward.
+  const distance = sky
+    ? '  vec3 dDir = normalize(vDWorld - cameraPosition);\n' +
+      '  float dD = dDir.y < -0.02 ? distance(cameraPosition.xz + dDir.xz * (cameraPosition.y / -dDir.y), uCenter.xz)\n' +
+      '                            : distance(vDWorld.xz, uCenter.xz) * ' + reach.toFixed(3) + ';\n'
+    : '  float dD = distance(vDWorld.xz, uCenter.xz) * ' + reach.toFixed(3) + ';\n';
   m.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, dissolve);
     shader.vertexShader = 'varying vec3 vDWorld;\n' + shader.vertexShader.replace('#include <project_vertex>',
@@ -1096,11 +1537,11 @@ function patchMaterial(m) {
     shader.fragmentShader = 'varying vec3 vDWorld;\nuniform vec3 uCenter;\nuniform float uRadius;\nuniform float uOn;\n' +
       shader.fragmentShader
         .replace('#include <clipping_planes_fragment>',
-          '#include <clipping_planes_fragment>\n  float dD = distance(vDWorld.xz, uCenter.xz);\n  if (uOn > 0.5 && dD < uRadius) discard;')
+          '#include <clipping_planes_fragment>\n' + distance + '  if (uOn > 0.5 && dD < uRadius) discard;')
         .replace('#include <dithering_fragment>',
           '#include <dithering_fragment>\n  if (uOn > 0.5) gl_FragColor.rgb += vec3(1.0, 0.62, 0.18) * 2.5 * (1.0 - smoothstep(0.0, 0.4, dD - uRadius));');
   };
-  m.customProgramCacheKey = () => 'dissolve';
+  m.customProgramCacheKey = () => 'dissolve' + reach + sky;
   m.needsUpdate = true;
 }
 function patchTree(root) {
@@ -1226,6 +1667,7 @@ function playBoom() {
 }
 
 const MAX_RADIUS = 40;
+patchMaterial(skySphere.material, 0.3, true);                       // the sky is 80m away: open it at half speed
 const trans = { active: false, to: null, t: 0, wave: false, windows: false };
 function startTransition(to) {
   if (trans.active || to === mode) return;
@@ -1238,12 +1680,12 @@ function startTransition(to) {
   try { playWhoosh(to === 'stark'); } catch (e) { /* no sound available */ }
   if (to === 'sunnyvale') {                       // bring the park back, fully hidden, then shrink the hole
     park.visible = true;
-    skySphere.visible = true; skySphere.material.opacity = 0; skySphere.material.transparent = true;
-    scene.environment = skyTexture; scene.fog = parkFog;
+    skySphere.visible = true;
     dissolve.uRadius.value = MAX_RADIUS; dissolve.uOn.value = 1;
     handModels.forEach(h => { h.visible = true; });
     realGlass.visible = true; reactor.visible = false;
     reactorButton.visible = true; bubblesButton.visible = false;
+    setClaudeLook(false);
   }
 }
 
@@ -1264,8 +1706,6 @@ function updateTransition(dt) {
     dissolve.uRadius.value = r;
     shockwave.scale.set(Math.max(0.01, r), 1, Math.max(0.01, r));
     shockwave.material.uniforms.uFade.value = (toStark ? 1 - k * 0.6 : 0.4 + k * 0.6) * THREE.MathUtils.smoothstep(r, 0.8, 3);   // fades in once it's clear of your head
-    skySphere.material.opacity = toStark ? 1 - k : k;
-    skySphere.material.transparent = true;
     if (!trans.windows && k > (toStark ? 0.12 : 0.75)) { trans.windows = true; applyWindows(toStark); }
   }
   // Fire in the barrel goes out when the shockwave passes it
@@ -1292,6 +1732,7 @@ window.addEventListener('keydown', e => {
     const dir = camera.getWorldDirection(new THREE.Vector3());
     menu.position.copy(camera.position).addScaledVector(dir, 0.45).add(new THREE.Vector3(0, -0.15, 0));
   }
+  if (e.key === 'c' || e.key === 'C') claudeTap();
   if (e.key === 's' || e.key === 'S') startTransition(mode === 'stark' ? 'sunnyvale' : 'stark');
 });
 
@@ -1308,7 +1749,7 @@ function setPointer(e) {
 renderer.domElement.addEventListener('pointerdown', e => {
   setPointer(e);
   if (menu.visible) {
-    const b = raycaster.intersectObjects(menuButtons.filter(b => b.visible), false)[0];
+    const b = raycaster.intersectObjects(menuButtons.filter(shown), false)[0];
     if (b) { pressButton(b.object); return; }
   }
   const hit = raycaster.intersectObjects(panels, false)[0];
@@ -1360,11 +1801,12 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
   if (!renderer.xr.isPresenting) controls.update();
-  updateRain(dt);
+  if (park.visible) updateRain(dt);
   fireLight.intensity = 9 + Math.sin(t * 13) * 1.5 + Math.sin(t * 7.3) * 1.5;
-  updateFire(dt);
+  if (park.visible) updateFire(dt);
   updateHeld();
   updateMenu(dt);
+  updateClaudeButton(dt);
   updatePanels(dt);
   updateTransition(dt);
   if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
