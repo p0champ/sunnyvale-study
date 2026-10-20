@@ -1,7 +1,7 @@
 // A WebSocket-shaped adapter using authenticated HTTPS requests. Nothing is
 // stored in cookies, URLs, browser history or server logs.
 export class HttpsBridgeSocket {
-  readyState = 0; session = null; outgoing = Promise.resolve(); controller = new AbortController();
+  readyState = 0; session = null; outgoing = []; flushing = false; controller = new AbortController();
   constructor(url, token) {
     this.base = new URL(url); this.base.protocol = this.base.protocol === 'wss:' ? 'https:' : 'http:';
     this.base.pathname = '/bridge/http/'; this.base.search = ''; this.base.hash = '';
@@ -36,9 +36,27 @@ export class HttpsBridgeSocket {
   send(data) {
     if (this.readyState !== 1) return;
     // Pairing was already authenticated during the HTTPS connection request.
-    if (JSON.parse(data).type === 'pair') return;
-    this.outgoing = this.outgoing.then(() => this.readyState === 1 && this.request('send', this.session, { data }))
-      .catch(error => { if (this.readyState === 1) this.fail(error); });
+    const message = JSON.parse(data);
+    if (message.type === 'pair') return;
+    if (message.type === 'mic-stop') this.outgoing = this.outgoing.filter(value => { const queued = JSON.parse(value); return queued.type !== 'mic-data' || queued.id !== message.id; });
+    if (this.outgoing.length >= 64) {
+      const old = this.outgoing.findIndex(value => JSON.parse(value).type === 'mic-data');
+      if (old >= 0) this.outgoing.splice(old, 1); else { this.fail(Error('The PC connection is too slow. Reconnect and try again.')); return; }
+    }
+    this.outgoing.push(data); this.flush();
+  }
+  async flush() {
+    if (this.flushing || this.readyState !== 1) return;
+    this.flushing = true;
+    try {
+      while (this.outgoing.length && this.readyState === 1) {
+        const messages = [];
+        while (this.outgoing.length && messages.length < 12 && new TextEncoder().encode(JSON.stringify({ messages: [...messages, this.outgoing[0]] })).length < 60000) messages.push(this.outgoing.shift());
+        if (!messages.length) throw Error('Browser input message is too large.');
+        await this.request('send', this.session, { messages });
+      }
+    } catch (error) { if (this.readyState === 1) this.fail(error); }
+    finally { this.flushing = false; }
   }
   fail(error) {
     if (this.readyState >= 2) return;

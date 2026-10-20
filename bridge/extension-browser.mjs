@@ -27,6 +27,8 @@ export class ExtensionBrowser extends EventEmitter {
           page.currentURL = m.params.frame.url; page.emit('framenavigated', page.frame);
         }
         if (m.method === 'detached') { page.emit('detached'); return; }
+        if (m.method === 'bridge.audio') { page.emit('audio', m.params); return; }
+        if (m.method === 'bridge.audio-status') { page.audioEnabled = !!m.params?.enabled; page.emit('audio-status', page.audioEnabled); return; }
         if (m.method === 'Page.screencastFrame') page.cdp.emit(m.method, m.params);
       }
     });
@@ -54,7 +56,7 @@ export class ExtensionBrowser extends EventEmitter {
     this.pages.set(id, page);
     const cdp = (method, params) => this.request('cdp', { id, method, params });
     page.attach = async url => {
-      try { const result = await this.request('open', { id, url }); page.currentURL = result.url; }
+      try { const result = await this.request('open', { id, url }); page.currentURL = result.url; page.audioEnabled = result.audioEnabled; }
       catch (error) { this.pages.delete(id); throw error; }
     };
     page.cdp.send = (method, params) => method === 'Page.screencastFrameAck' ? Promise.resolve() : cdp(method, params);
@@ -65,6 +67,11 @@ export class ExtensionBrowser extends EventEmitter {
     };
     page.close = async () => { this.pages.delete(id); await this.request('release', { id }); };
     page.reload = () => cdp('Page.reload');
+    page.startAudio = () => this.request('audio-start', { id });
+    page.stopAudio = () => this.request('audio-stop', { id });
+    page.startMic = () => this.request('mic-start', { id });
+    page.stopMic = () => this.request('mic-stop', { id });
+    page.sendMic = (data, rate) => this.request('mic-data', { id, data, rate });
     const history = async step => {
       const h = await cdp('Page.getNavigationHistory'); const entry = h.entries[h.currentIndex + step];
       if (entry) await cdp('Page.navigateToHistoryEntry', { entryId: entry.id });

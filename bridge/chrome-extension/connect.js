@@ -22,3 +22,7 @@ document.getElementById('disconnect').onclick = async () => {
 };
 chrome.storage.local.get('port').then(s => { document.getElementById('port').value = s.port || 8130; });
 refresh(); setInterval(refresh, 1000);
+for (const [id, type] of [['audio', 'audio-current'], ['audioStop', 'audio-stop-current']]) document.getElementById(id).onclick = async () => {
+  const result = await chrome.runtime.sendMessage({ type });
+  document.getElementById('audioStatus').textContent = result.error || (id === 'audio' ? 'Sound enabled for this tab. Keep Chrome open, then connect Sunnyvale on Quest.' : 'Tab sound stopped.');
+};

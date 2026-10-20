@@ -68,34 +68,57 @@ wss.on('connection', ws => {
     if (tabs.size >= 4) throw Error('Close a browser window first (maximum four).');
     if (!useExtension && !context) context = await chromium.launchPersistentContext(root + '/profile', {
       headless: process.env.BRIDGE_HEADLESS !== '0', viewport: { width: 1280, height: 800 },
-      args: ['--mute-audio'], acceptDownloads: false,
+      args: ['--mute-audio'], deviceScaleFactor: 2, acceptDownloads: false,
     });
     if (closed) return;
     if (useExtension && !extension.connected) throw Error('Connect the Sunnyvale extension in Google Chrome first.');
     const page = await (useExtension ? extension.newPage() : context.newPage()), id = randomBytes(8).toString('hex');
     if (useExtension) await page.attach(url);
     const cdp = useExtension ? page.cdp : await context.newCDPSession(page);
+    if (!useExtension) await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
     if (closed) { await page.close(); return; }
-    const tab = { page, cdp, waiting: false, sentAt: 0, latest: null, timer: null }; tabs.set(id, tab);
+    const tab = { page, cdp, waiting: false, sentAt: 0, latest: null, timer: null, stillTimer: null, zoom: 0, width: 1280, height: 800, micEnabled: false, micPending: 0 }; tabs.set(id, tab);
+    tab.still = async () => {
+      if (closed || !tabs.has(id) || tab.capturing) return;
+      tab.capturing = true;
+      tab.ignoreCastUntil = Date.now() + 250;
+      try {
+        let shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface: true });
+        if (shot.data.length > 3000000) shot = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 95, captureBeyondViewport: false, fromSurface: true });
+        if (tabs.has(id)) { tab.ignoreCastUntil = Date.now() + 250; tab.latest = shot.data; tab.flush(); }
+      } catch { /* Navigating tabs may not be ready for a still image yet. */ }
+      finally { tab.capturing = false; }
+    };
     tab.flush = () => {
       clearTimeout(tab.timer); tab.timer = null;
       if (closed || !tabs.has(id) || !tab.latest || tab.waiting) return;
       const delay = Math.max(0, 40 - (Date.now() - tab.sentAt));
-      if (delay || ws.bufferedAmount > 256000) { tab.timer = setTimeout(tab.flush, delay || 100); return; }
+      if (delay || ws.bufferedAmount > 1024000) { tab.timer = setTimeout(tab.flush, delay || 100); return; }
       tab.waiting = true; tab.sentAt = Date.now();
       send({ type: 'frame', id, data: tab.latest }); tab.latest = null;
     };
     page.on('popup', popup => { const u = popup.url(); popup.close().catch(() => {}); if (/^https?:/.test(u)) addTab(u).catch(e => send({ type: 'error', message: e.message })); });
     page.on('dialog', dialog => dialog.dismiss().catch(() => {}));
     page.on('framenavigated', frame => { if (frame === page.mainFrame()) send({ type: 'location', id, url: page.url() }); });
-    page.on('detached', () => send({ type: 'error', message: 'Chrome stopped sharing this tab. Reopen it from the menu. Your Chrome tab stays open.' }));
-    send({ type: 'tab', id, url });
+    page.on('detached', () => { tab.micEnabled = false; send({ type: 'sharing-stopped', id }); send({ type: 'error', id, message: 'Chrome stopped sharing this tab. Reopen it from the menu. Your Chrome tab stays open.' }); });
+    page.on('audio', packet => {
+      if (!closed && tabs.has(id) && packet?.rate === 24000 && typeof packet.data === 'string' && packet.data.length <= 20000) send({ type: 'audio', id, rate: packet.rate, data: packet.data });
+    });
+    page.on('audio-status', enabled => send({ type: 'audio-status', id, enabled }));
+    send({ type: 'tab', id, url, width: tab.width, height: tab.height, audioEnabled: !!page.audioEnabled });
     cdp.on('Page.screencastFrame', async frame => {
+      // Capturing a sharp still can itself cause a low-resolution cast frame.
+      // Keep that synthetic paint from immediately replacing the sharp image.
+      if (Date.now() < (tab.ignoreCastUntil || 0)) {
+        await cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {}); return;
+      }
       // Bound both network queues and headset decoding: never build up old frames.
       tab.latest = frame.data; tab.flush();
+      clearTimeout(tab.stillTimer); tab.stillTimer = setTimeout(tab.still, 650);
       await cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {});
     });
-    await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 65, maxWidth: 1280, maxHeight: 800, everyNthFrame: 1 });
+    await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: 2560, maxHeight: 1600, everyNthFrame: 2 });
+    tab.stillTimer = setTimeout(tab.still, 900);
     if (useExtension) send({ type: 'location', id, url: page.url() });
     else await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => send({ type: 'error', message: 'Page is still loading or could not be reached.' }));
     return id;
@@ -109,15 +132,33 @@ wss.on('connection', ws => {
     if (m.type === 'open') { await addTab(webURL(m.url)); return; }
     const tab = tabs.get(m.id); if (!tab) throw Error('Browser window is closed.');
     const { page, cdp } = tab;
+    if (!['ack', 'mic-data'].includes(m.type)) tab.ignoreCastUntil = 0;
     if (m.type === 'ack') { tab.waiting = false; return; }
-    if (m.type === 'close') { clearTimeout(tab.timer); tabs.delete(m.id); await page.close(); return; }
+    if (m.type === 'close') { clearTimeout(tab.timer); clearTimeout(tab.stillTimer); tabs.delete(m.id); await page.close(); return; }
+    if (m.type === 'audio-start') {
+        try { if (!page.startAudio) throw Error('Chrome extension required'); await page.startAudio(); send({ type: 'audio-status', id: m.id, enabled: true }); }
+      catch { send({ type: 'error', message: 'On the PC, open this website in Chrome, click the Sunnyvale extension, then Enable sound for this tab. Chrome needs that one-time click.' }); }
+      return;
+    }
+    if (m.type === 'audio-stop') { await page.stopAudio?.(); send({ type: 'audio-status', id: m.id, enabled: false }); return; }
+    if (m.type === 'mic-start') {
+      if (!page.startMic) throw Error('Headset voice needs the updated Chrome extension.');
+      await page.startMic(); tab.micEnabled = true; send({ type: 'mic-status', id: m.id, enabled: true }); return;
+    }
+    if (m.type === 'mic-stop') { tab.micEnabled = false; await page.stopMic?.(); send({ type: 'mic-status', id: m.id, enabled: false }); return; }
+    if (m.type === 'text-scale') {
+      tab.zoom = Math.max(0, Math.min(3, tab.zoom + (m.delta > 0 ? 1 : -1)));
+      tab.width = [1280, 1120, 960, 800][tab.zoom]; tab.height = Math.round(tab.width * .625);
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: tab.width, height: tab.height, deviceScaleFactor: 2, mobile: false });
+      send({ type: 'viewport', id: m.id, width: tab.width, height: tab.height }); await tab.still(); return;
+    }
     if (m.type === 'navigate') { await page.goto(webURL(m.url), { waitUntil: 'domcontentloaded' }); return; }
     if (m.type === 'back') { await page.goBack(); return; }
     if (m.type === 'forward') { await page.goForward(); return; }
     if (m.type === 'reload') { await page.reload(); return; }
     if (m.type === 'text') { await cdp.send('Input.insertText', { text: String(m.text).slice(0, 8000) }); return; }
     if (m.type === 'key' && ['Enter', 'Backspace', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight'].includes(m.key)) { await page.keyboard.press(m.key); return; }
-    const x = Math.max(0, Math.min(1279, Number(m.x))), y = Math.max(0, Math.min(799, Number(m.y)));
+    const x = Math.max(0, Math.min(tab.width - 1, Number(m.x))), y = Math.max(0, Math.min(tab.height - 1, Number(m.y)));
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw Error('Invalid pointer position.');
     if (m.type === 'click') {
       await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
@@ -130,13 +171,20 @@ wss.on('connection', ws => {
     if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.type !== 'string') { ws.close(1008); return; }
     // Frame acknowledgements must not wait behind slow website navigation.
     if (paired && m.type === 'ack') { const t = tabs.get(m.id); if (t) { t.waiting = false; t.flush(); } return; }
+    if (paired && m.type === 'mic-data') {
+      const t = tabs.get(m.id);
+      if (t?.micEnabled && t.page.sendMic && t.micPending < 20 && m.rate === 24000 && typeof m.data === 'string' && m.data.length <= 20000 && /^[A-Za-z0-9+/]*={0,2}$/.test(m.data)) {
+        t.micPending++; t.page.sendMic(m.data, m.rate).catch(() => {}).finally(() => t.micPending--);
+      }
+      return;
+    }
     if (++pending > 100) { ws.close(1008, 'Too many queued inputs'); return; }
-    sequence = sequence.then(() => command(m)).catch(e => send({ type: 'error', message: e.message })).finally(() => pending--);
+    sequence = sequence.then(() => command(m)).catch(e => send({ type: 'error', id: m.id, message: e.message })).finally(() => pending--);
   });
   ws.on('error', () => {});
   ws.on('close', () => {
     closed = true; clearTimeout(timer); if (active === ws) active = null;
-    for (const t of tabs.values()) { clearTimeout(t.timer); t.page.close().catch(() => {}); }
+    for (const t of tabs.values()) { clearTimeout(t.timer); clearTimeout(t.stillTimer); t.page.close().catch(() => {}); }
     tabs.clear();
   });
 });

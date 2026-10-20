@@ -19,6 +19,10 @@ class HttpSocket extends EventEmitter {
       const old = this.queue.findIndex(m => m.type === 'frame' && m.id === message.id);
       if (old >= 0) this.queue.splice(old, 1);
     }
+    if (message.type === 'audio') {
+      const packets = this.queue.filter(m => m.type === 'audio' && m.id === message.id);
+      if (packets.length >= 10) this.queue.splice(this.queue.indexOf(packets[0]), 1);
+    }
     this.queue.push(message);
     this.bytes = Buffer.byteLength(JSON.stringify(this.queue));
     if (this.bytes > 4 * 1024 * 1024 || this.queue.length > 200) { this.close(1009, 'Headset is not receiving updates'); return; }
@@ -94,8 +98,10 @@ export function createHttpTransport({ allowedOrigins, validToken, isBusy, onConn
         if (req.url === '/bridge/http/close') { socket.close(); response(res, 200, { ok: true }); return; }
         if (req.url === '/bridge/http/send') {
           const body = await readJSON(req);
-          if (typeof body.data !== 'string' || Buffer.byteLength(body.data) > 65536) throw Error('Invalid message');
-          socket.emit('message', body.data); response(res, 200, { ok: true }); return;
+          const messages = Array.isArray(body.messages) ? body.messages : [body.data];
+          if (!messages.length || messages.length > 12 || messages.some(data => typeof data !== 'string' || Buffer.byteLength(data) > 65536)) throw Error('Invalid message');
+          for (const data of messages) socket.emit('message', data);
+          response(res, 200, { ok: true }); return;
         }
         response(res, 404, { error: 'Unknown connection request.' });
       } catch (error) { response(res, 400, { error: error.message }); }

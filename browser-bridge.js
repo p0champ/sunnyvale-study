@@ -1,4 +1,5 @@
-import { HttpsBridgeSocket } from './bridge-https.js?v=20261020-https-fallback';
+import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
+import { BrowserMedia } from './browser-media.js?v=20261021-media-1';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status }) {
@@ -10,9 +11,22 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     <label>Secure bridge address<input id="bridgeURL" placeholder="wss://your-tunnel/bridge"></label>
     <label>Private pairing code<input id="bridgeToken" type="password" autocomplete="off"></label>
     <button id="bridgeConnect">Connect</button> <button id="bridgeDisconnect">Disconnect</button>
+    <button id="bridgeMicrophone">Allow headset microphone</button>
     <div id="bridgeStatus">Not connected. Your PC must stay on.</div>`;
   for (const name of ['bridgeURL', 'bridgeToken']) document.getElementById(name).value = localStorage.getItem(name) || '';
   const report = text => { document.getElementById('bridgeStatus').textContent = text; };
+  const media = new BrowserMedia(send, message => { report(message); status(message); });
+  media.changed = () => {
+    for (const [id, tab] of tabs) tab.micButton?.userData.label(media.microphone?.id === id ? (media.microphone.pending ? 'Mic …' : 'Mic ON') : 'Mic');
+  };
+  document.getElementById('bridgeMicrophone').onclick = async () => {
+    try {
+      await media.unlock();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      report('Microphone permission allowed. Inside VR, tap Mic on Claude’s window to share it.');
+    } catch { report('Microphone permission was not allowed. Use this page’s microphone permission in Quest Browser settings, then try again.'); }
+  };
   function button(parent, label, x, y, w, action) {
     const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 80;
     const ctx = canvas.getContext('2d'); ctx.fillStyle = '#20170e'; ctx.fillRect(0, 0, 256, 80);
@@ -21,6 +35,10 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     const texture = new THREE.CanvasTexture(canvas);
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, .055), new THREE.MeshBasicMaterial({ map: texture }));
     mesh.position.set(x, y, .008); parent.add(mesh);
+    mesh.userData.label = value => {
+      ctx.fillStyle = '#20170e'; ctx.fillRect(0, 0, 256, 80); ctx.strokeStyle = '#ffd27a'; ctx.strokeRect(2, 2, 252, 76);
+      ctx.fillStyle = '#ffd27a'; ctx.fillText(value, 128, 50); texture.needsUpdate = true;
+    };
     touchables.push({ mesh, w, h: .055, action }); return mesh;
   }
   function key(value) {
@@ -48,14 +66,14 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     const panel = makeWindow('', '', position(tabs.size));
     panel.userData.title = 'Browser - grab the frame'; panel.userData.kind = 'browser'; panel.userData.browserId = m.id;
     panel.userData.baseScale = 1.8; panel.scale.setScalar(1.8); faceViewer(panel); styleWindow(panel);
-    const canvas = document.createElement('canvas'); canvas.width = 1280; canvas.height = 800;
-    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#101010'; ctx.fillRect(0, 0, 1280, 800);
+    const canvas = document.createElement('canvas'); canvas.width = 2560; canvas.height = 1600;
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#101010'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#fff'; ctx.font = '32px sans-serif'; ctx.fillText('Loading browser…', 30, 70);
-    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
     texture.minFilter = THREE.LinearFilter; texture.generateMipmaps = false;
     const content = new THREE.Mesh(new THREE.PlaneGeometry(.72, .45), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
     content.position.set(0, -.025, .006); panel.add(content);
-    const tab = { panel, content, canvas, ctx, texture, url: m.url, decoding: false }; tabs.set(m.id, tab);
+    const tab = { panel, content, canvas, ctx, texture, url: m.url, decoding: false, width: m.width || 1280, height: m.height || 800, audioEnabled: !!m.audioEnabled }; tabs.set(m.id, tab);
     button(panel, 'Back', -.32, .235, .09, () => send({ type: 'back', id: m.id }));
     button(panel, 'Next', -.22, .235, .09, () => send({ type: 'forward', id: m.id }));
     button(panel, 'Reload', -.12, .235, .09, () => send({ type: 'reload', id: m.id }));
@@ -64,16 +82,25 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     button(panel, 'New', .18, .235, .09, () => send({ type: 'open', url: 'https://example.com' }));
     button(panel, 'Up', -.17, -.29, .16, () => send({ type: 'scroll', id: m.id, x: 640, y: 400, delta: -550 }));
     button(panel, 'Down', .02, -.29, .16, () => send({ type: 'scroll', id: m.id, x: 640, y: 400, delta: 550 }));
+    button(panel, 'Text +', -.28, -.36, .16, () => send({ type: 'text-scale', id: m.id, delta: 1 }));
+    button(panel, 'Text -', -.09, -.36, .16, () => send({ type: 'text-scale', id: m.id, delta: -1 }));
+    tab.micButton = button(panel, 'Mic', .1, -.36, .16, () => media.toggleMic(m.id));
+    tab.soundButton = button(panel, tab.audioEnabled ? 'Sound ON' : 'Sound', .29, -.36, .16, async () => {
+      try { await media.unlock(); send({ type: tab.audioEnabled ? 'audio-stop' : 'audio-start', id: m.id }); }
+      catch { status('Allow sound on the Sunnyvale page before entering VR.'); }
+    });
     focused = m.id;
   }
   function disconnect() {
+    media.stopAll();
     ready = false; const old = socket; socket = null; old?.close();
     for (const t of [...tabs.values()]) closeWindow(t.panel);
     tabs.clear(); report('Disconnected. Reconnect before using the browser buttons.');
   }
   document.getElementById('bridgeDisconnect').onclick = disconnect;
-  window.addEventListener('pagehide', () => { ready = false; socket?.close(); });
+  window.addEventListener('pagehide', () => { media.stopAll(); ready = false; socket?.close(); });
   document.getElementById('bridgeConnect').onclick = () => {
+    media.unlock().catch(() => {});
     disconnect();
     let url;
     try { url = new URL(document.getElementById('bridgeURL').value.trim());
@@ -118,18 +145,34 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (socket !== current || failure) return;
         let m; try { m = JSON.parse(event.data); } catch { fail('The secure address returned an unexpected response. Check that you used the current PC bridge address.'); return; }
         if (m.type === 'ready') { clearTimers(); ready = true; report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.')); }
-        if (m.type === 'browser-status') report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.');
+        if (m.type === 'browser-status') { if (!m.connected) media.stopAll(); report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.'); }
+        if (m.type === 'sharing-stopped') media.stop(m.id);
         if (m.type === 'tab') newPanel(m);
         if (m.type === 'location' && tabs.has(m.id)) tabs.get(m.id).url = m.url;
-        if (m.type === 'error') { report(m.message); status(m.message); }
+        if (m.type === 'viewport' && tabs.has(m.id)) { tabs.get(m.id).width = m.width; tabs.get(m.id).height = m.height; }
+        if (m.type === 'audio') media.play(m.id, m.data, m.rate);
+        if (m.type === 'audio-status' && tabs.has(m.id)) { const tab = tabs.get(m.id); tab.audioEnabled = m.enabled; tab.soundButton.userData.label(m.enabled ? 'Sound ON' : 'Sound'); if (!m.enabled) media.stopAudio(m.id); }
+        if (m.type === 'mic-status') media.micReady(m.id, m.enabled);
+        if (m.type === 'error') { if (media.microphone?.pending && (!m.id || m.id === media.microphone.id)) media.stopMic(); report(m.message); status(m.message); }
         if (m.type === 'frame') {
           const t = tabs.get(m.id);
           if (!t || t.decoding) { send({ type: 'ack', id: m.id }); return; }
           t.decoding = true;
           const img = new Image();
-          img.onload = () => { if (tabs.has(m.id)) { t.ctx.drawImage(img, 0, 0, 1280, 800); t.texture.needsUpdate = true; } t.decoding = false; send({ type: 'ack', id: m.id }); };
+          img.onload = () => {
+            if (tabs.has(m.id)) {
+              if (t.canvas.width !== img.naturalWidth || t.canvas.height !== img.naturalHeight) {
+                t.canvas.width = img.naturalWidth; t.canvas.height = img.naturalHeight;
+                t.content.material.map.dispose(); t.texture = new THREE.CanvasTexture(t.canvas); t.texture.colorSpace = THREE.SRGBColorSpace;
+                t.texture.minFilter = THREE.LinearFilter; t.texture.generateMipmaps = false; t.texture.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
+                t.content.material.map = t.texture; t.content.material.needsUpdate = true;
+              }
+              t.ctx.drawImage(img, 0, 0); t.texture.needsUpdate = true;
+            }
+            t.decoding = false; send({ type: 'ack', id: m.id });
+          };
           img.onerror = () => { t.decoding = false; send({ type: 'ack', id: m.id }); };
-          img.src = 'data:image/jpeg;base64,' + m.data;
+          img.src = (m.data.startsWith('iVBOR') ? 'data:image/png;base64,' : 'data:image/jpeg;base64,') + m.data;
         }
       };
       current.onclose = event => {
@@ -137,6 +180,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (socket !== current) return;
         if (!https && !ready && !failure && event.code !== 1008) { fallback(); return; }
         ready = false;
+        media.stopAll();
         report(failure || (event.code === 1008
           ? 'The PC rejected pairing. Check the full pairing code and disconnect any other Sunnyvale page. Keep the Chrome extension connected.'
           : 'Bridge disconnected. Start it on the PC and reconnect.'));
@@ -173,7 +217,8 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       if (!hit) return false;
       const panel = hit.object.parent, id = panel.userData.browserId;
       focused = id; addressMode = false;
-      send({ type: scroll ? 'scroll' : 'click', id, x: Math.round(hit.uv.x * 1279), y: Math.round((1 - hit.uv.y) * 799), delta: scroll });
+      const tab = tabs.get(id);
+      send({ type: scroll ? 'scroll' : 'click', id, x: Math.round(hit.uv.x * (tab.width - 1)), y: Math.round((1 - hit.uv.y) * (tab.height - 1)), delta: scroll });
       return true;
     },
     touch(point, state) {
@@ -181,13 +226,14 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (!shown(t.content)) continue;
         const p = t.content.worldToLocal(point.clone());
         if (Math.abs(p.z) < .018 && Math.abs(p.x) < .36 && Math.abs(p.y) < .225) {
-          if (state.bridgeTouch !== id) { state.bridgeTouch = id; focused = id; send({ type: 'click', id, x: (p.x / .72 + .5) * 1279, y: (.5 - p.y / .45) * 799 }); }
+          if (state.bridgeTouch !== id) { state.bridgeTouch = id; focused = id; send({ type: 'click', id, x: (p.x / .72 + .5) * (t.width - 1), y: (.5 - p.y / .45) * (t.height - 1) }); }
           return;
         }
       }
       state.bridgeTouch = null;
     },
     closed(panel) {
+      media.stop(panel.userData.browserId);
       if (panel === keyboard) keyboard = null;
       if (['browser', 'browser-keyboard'].includes(panel.userData.kind)) for (const child of panel.children) {
         if (child === panel.userData.closeButton) continue;

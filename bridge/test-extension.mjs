@@ -30,8 +30,10 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     const bad = new WebSocket('ws://127.0.0.1:18140/browser', { origin: 'chrome-extension://' + extensionId });
     await new Promise(r => bad.once('open', r)); bad.send(JSON.stringify({ type: 'pair-browser', token: 'wrong' }));
     assert.equal(await new Promise(r => bad.once('close', r)), 1008, 'Browser connection requires private pairing');
-    context = await chromium.launchPersistentContext(dir + '/chrome-' + Date.now(), { channel: 'chromium', headless: true,
-      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    context = await chromium.launchPersistentContext(dir + '/chrome-' + Date.now(), { channel: 'chromium', headless: true, ignoreDefaultArgs: ['--mute-audio'],
+      // Only this disposable Chromium test permits capture without a toolbar click.
+      // Real Chrome requires the user's extension action; production never uses this flag.
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`, `--allowlisted-extension-id=${extensionId}`] });
     const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
     const existing = await context.newPage(); await existing.goto('http://127.0.0.1:18141/already-open');
     await existing.evaluate(() => { localStorage.setItem('remember-me', 'yes'); window.retainedTab = true; });
@@ -56,6 +58,39 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     await until(() => events.find(e => e.url.includes('Remembered Chrome')));
     send({ type: 'scroll', id: tab.id, x: 640, y: 400, delta: 600 }); await until(() => events.find(e => e.url.includes('scroll=600')));
     assert.ok(events.every(e => e.cookie?.includes('test_session=remembered')));
+    const still = await until(() => messages.find(m => m.type === 'frame' && m.data.startsWith('iVBOR')));
+    const png = Buffer.from(still.data, 'base64');
+    assert.equal(png.readUInt32BE(16), 2560, 'Idle text is sent losslessly at double resolution');
+    assert.equal(png.readUInt32BE(20), 1600);
+    send({ type: 'text-scale', id: tab.id, delta: 1 });
+    await until(() => messages.find(m => m.type === 'viewport' && m.width === 1120));
+    send({ type: 'mic-start', id: tab.id });
+    await until(() => messages.find(m => m.type === 'mic-status' && m.enabled));
+    await existing.evaluate(async () => {
+      window.originalMedia = navigator.mediaDevices.getUserMedia;
+      window.voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      window.voiceContext = new AudioContext(); await voiceContext.resume();
+      window.voiceMeter = voiceContext.createAnalyser(); voiceContext.createMediaStreamSource(voiceStream).connect(voiceMeter);
+    });
+    const samples = Buffer.alloc(4800);
+    for (let i = 0; i < 2400; i++) samples.writeInt16LE(Math.round(Math.sin(i * Math.PI * 2 * 440 / 24000) * 16000), i * 2);
+    let peak = 0;
+    for (let i = 0; i < 12; i++) {
+      send({ type: 'mic-data', id: tab.id, rate: 24000, data: samples.toString('base64') });
+      await pause(100);
+      peak = Math.max(peak, await existing.evaluate(() => { const values = new Float32Array(voiceMeter.fftSize); voiceMeter.getFloatTimeDomainData(values); return Math.max(...values.map(Math.abs)); }));
+    }
+    assert.ok(peak > .1, 'Remote microphone reaches the website as a live audio track');
+    send({ type: 'mic-stop', id: tab.id }); await until(() => messages.find(m => m.type === 'mic-status' && !m.enabled));
+    assert.equal(await existing.evaluate(() => voiceStream.getTracks()[0].readyState), 'ended', 'Stopping sharing ends website microphone tracks');
+    assert.equal(await existing.evaluate(() => !!window.__sunnyvaleMicrophone), false);
+    await worker.evaluate(async () => { const item = [...tabs.values()][0]; await startAudio(item.tabId); });
+    await existing.evaluate(async () => { window.toneContext = new AudioContext(); await toneContext.resume(); window.tone = toneContext.createOscillator(); tone.connect(toneContext.destination); tone.start(); });
+    const audio = await until(() => messages.find(m => m.type === 'audio' && Buffer.from(m.data, 'base64').some(x => x !== 0))).catch(async error => {
+      throw Error(error.message + ': audio packets=' + messages.filter(m => m.type === 'audio').length + ' capture=' + JSON.stringify(await worker.evaluate(async () => ({ captures: await chrome.tabCapture.getCapturedTabs(), tabs: (await chrome.tabs.query({})).map(t => ({ muted: t.mutedInfo, audible: t.audible })), contexts: (await chrome.runtime.getContexts({contextTypes:['OFFSCREEN_DOCUMENT']})).length }))));
+    });
+    assert.equal(audio.rate, 24000, 'Real captured tab sound reaches the authenticated headset connection');
+    await existing.evaluate(() => { tone.stop(); toneContext.close(); voiceContext.close(); });
     send({ type: 'close', id: tab.id });
     await until(() => worker.evaluate(() => tabs.size === 0));
     assert.equal(existing.isClosed(), false); assert.equal(await existing.evaluate(() => localStorage.getItem('remember-me')), 'yes');
@@ -63,6 +98,37 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     send({ type: 'open', url: 'http://127.0.0.1:18141/reopen' });
     await until(() => messages.filter(m => m.type === 'tab').length === 2);
     assert.equal(await existing.evaluate(() => window.retainedTab), true);
+    send({ type: 'close', id: messages.filter(m => m.type === 'tab')[1].id }); await until(() => worker.evaluate(() => tabs.size === 0));
+    await new Promise(resolve => { ws.once('close', resolve); ws.close(); }); await pause(100);
+    // Exercise the same media over the HTTPS-fallback protocol used on Quest.
+    let session;
+    const request = async (path, body = {}) => {
+      const response = await fetch('http://127.0.0.1:18140/bridge/http/' + path, { method: 'POST', headers: { Origin: 'http://localhost:8123', Authorization: 'Bearer ' + (session || token), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      assert.equal(response.status, 200); return response.json();
+    };
+    session = (await request('connect')).session;
+    const received = [];
+    const httpSend = (...items) => request('send', { messages: items.map(item => JSON.stringify(item)) });
+    const receive = async check => {
+      for (let i = 0; i < 20; i++) {
+        const result = await request('poll'); received.push(...result.messages);
+        const acks = result.messages.filter(m => m.type === 'frame').map(m => ({ type: 'ack', id: m.id })); if (acks.length) await httpSend(...acks);
+        if (check()) return check();
+      }
+      throw Error('Expected media over HTTPS fallback');
+    };
+    await request('poll'); await httpSend({ type: 'open', url: 'http://127.0.0.1:18141' });
+    const httpTab = await receive(() => received.find(m => m.type === 'tab'));
+    await httpSend({ type: 'mic-start', id: httpTab.id }); await receive(() => received.find(m => m.type === 'mic-status' && m.enabled));
+    await existing.evaluate(async () => { window.httpVoice = await navigator.mediaDevices.getUserMedia({audio:true}); window.httpContext = new AudioContext(); await httpContext.resume(); window.httpMeter = httpContext.createAnalyser(); httpContext.createMediaStreamSource(httpVoice).connect(httpMeter); });
+    await httpSend(...Array.from({length:3}, () => ({ type: 'mic-data', id: httpTab.id, rate: 24000, data: samples.toString('base64') })));
+    await existing.waitForFunction(() => { const a = new Float32Array(httpMeter.fftSize); httpMeter.getFloatTimeDomainData(a); return a.some(v => Math.abs(v) > .1); });
+    await httpSend({ type: 'audio-start', id: httpTab.id }); await receive(() => received.find(m => m.type === 'audio-status' && m.enabled));
+    await existing.evaluate(async () => { window.httpToneContext = new AudioContext(); await httpToneContext.resume(); window.httpTone = httpToneContext.createOscillator(); httpTone.connect(httpToneContext.destination); httpTone.start(); });
+    await receive(() => received.find(m => m.type === 'audio' && Buffer.from(m.data, 'base64').some(x => x !== 0)));
+    await existing.evaluate(() => { httpTone.stop(); httpToneContext.close(); httpContext.close(); });
+    await request('close'); await until(() => worker.evaluate(() => tabs.size === 0));
+    assert.equal(await existing.evaluate(() => httpVoice.getTracks()[0].readyState), 'ended', 'HTTPS disconnection stops the remote microphone');
   } finally {
     ws?.close(); await context?.close(); child.kill(); fixture.close();
   }
