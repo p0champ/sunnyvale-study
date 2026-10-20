@@ -5,6 +5,9 @@ You're taking over a project from Claude. Read **`HANDOVER.md`** in this repo fi
 - Repo: https://github.com/p0champ/sunnyvale-study (the live app is at https://p0champ.github.io/sunnyvale-study/)
 - Main code: `index.html` (a single-file three.js WebXR app). Local copy: `F:\QuestStudySpace`.
 
+## ⚠️ TOP PRIORITY (the user's words): "Just a browser window inside the world"
+The user tested it again: the **Claude button and the WhatsApp heart button still close the VR world and open the normal browser**. That makes the app useless for studying. **Fix this before anything else.** Both claude.ai and WhatsApp (web.whatsapp.com) must open as **browser windows inside the 3D world** (in both Stark and Sunnyvale mode), so the user never has to leave. Use the "browser bridge" approach in Task 1 below. Building it is already approved by the user, so start Task 1 right away (just explain each step simply as you go). Until the bridge is running, keep the current fallback (leave the world and open the page) so the buttons still do something.
+
 ## Ground rules
 1. The user has **never coded**. Explain everything in plain language, one step at a time, and do all the technical work yourself.
 2. **Discuss design before you build.** Propose, ask one question at a time, and wait for a clear "yes". Bug fixes they've asked for can just be done.
