@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunnyvale Study</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d14; color: #e8dcc0;
+    font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+  #hint { position: fixed; left: 16px; top: 16px; max-width: 360px; font-size: 14px; line-height: 1.45;
+    background: rgba(20, 16, 10, .8); padding: 12px 14px; border-radius: 10px; border: 1px solid #5a4a2a; }
+  #hint b { color: #f2c94c; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hint">
+  <b>Sunnyvale Study</b> (step 1: outside park)<br>
+  On the computer: drag the background to look around, and drag the cardboard window to move it.<br>
+  On the Quest: press <b>Enter VR</b>, then pinch the window (thumb + index finger) to grab it,
+  or point at it from far away and pinch.
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+
+// ---------- Basic setup ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer, {
+  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+}));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d14);
+scene.fog = new THREE.Fog(0x0b0d14, 10, 32);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 120);
+camera.position.set(0, 1.6, 1.6);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.4, -0.9);
+controls.enableDamping = true;
+controls.update();
+
+// ---------- Small helpers for building things ----------
+const mats = {};
+function mat(color, opts = {}) {
+  const key = color + JSON.stringify(opts);
+  return mats[key] ??= new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...opts });
+}
+function box(w, h, d, color, x, y, z, parent = scene, opts) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color, opts));
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+function cyl(rt, rb, h, color, x, y, z, parent = scene, opts) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 16), mat(color, opts));
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+function canvasTexture(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function picture(texture, w, h, x, y, z, parent = scene) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9 }));
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+
+// ---------- Light ----------
+scene.add(new THREE.HemisphereLight(0x5a6a8a, 0x1a140c, 0.7));
+const moon = new THREE.DirectionalLight(0x9fb0d0, 0.5);
+moon.position.set(-6, 12, -4);
+scene.add(moon);
+const stringGlow = new THREE.PointLight(0xffc070, 4, 10);
+stringGlow.position.set(0.5, 2.4, -3);
+scene.add(stringGlow);
+
+// Moon in the sky
+const moonDisc = new THREE.Mesh(new THREE.CircleGeometry(1.4, 32), new THREE.MeshBasicMaterial({ color: 0xcfcabb, fog: false }));
+moonDisc.position.set(-14, 16, -30);
+moonDisc.lookAt(0, 1.6, 0);
+scene.add(moonDisc);
+
+// ---------- Ground ----------
+const gravel = canvasTexture(512, 512, (ctx, w, h) => {
+  ctx.fillStyle = '#2a251d'; ctx.fillRect(0, 0, w, h);
+  for (let i = 0; i < 6000; i++) {
+    const g = 30 + Math.random() * 40;
+    ctx.fillStyle = `rgb(${g + 8},${g + 4},${g})`;
+    ctx.fillRect(Math.random() * w, Math.random() * h, 2 + Math.random() * 3, 2 + Math.random() * 3);
+  }
+});
+gravel.wrapS = gravel.wrapT = THREE.RepeatWrapping;
+gravel.repeat.set(14, 14);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48), new THREE.MeshStandardMaterial({ map: gravel, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// Puddles
+for (const [x, z, r] of [[1.2, 1.8, 0.6], [3.5, -2.6, 0.9], [-0.5, -5, 0.7], [6, 0.5, 1.1]]) {
+  const p = new THREE.Mesh(new THREE.CircleGeometry(r, 24), mat(0x10161e, { roughness: 0.15, metalness: 0.6 }));
+  p.rotation.x = -Math.PI / 2;
+  p.scale.y = 0.7;
+  p.position.set(x, 0.005, z);
+  scene.add(p);
+}
+
+// Dark tree line around the park
+for (let i = 0; i < 46; i++) {
+  const a = (i / 46) * Math.PI * 2 + Math.random() * 0.1;
+  const r = 17 + Math.random() * 6;
+  const h = 5 + Math.random() * 5;
+  const tree = new THREE.Mesh(new THREE.ConeGeometry(1.4 + Math.random(), h, 7), mat(0x0f1d14));
+  tree.position.set(Math.cos(a) * r, h / 2, Math.sin(a) * r);
+  scene.add(tree);
+}
+
+// Red maple trees
+function maple(x, z, s = 1) {
+  const g = new THREE.Group();
+  cyl(0.12 * s, 0.18 * s, 2.4 * s, 0x3a2416, 0, 1.2 * s, 0, g);
+  const reds = [0x8a1f1f, 0xa52a22, 0x7a1a1a, 0x6b1616];
+  for (let i = 0; i < 7; i++) {
+    const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry((0.7 + Math.random() * 0.4) * s, 0),
+      mat(reds[i % reds.length], { flatShading: true }));
+    leaf.position.set((Math.random() - 0.5) * 1.6 * s, (2.5 + Math.random() * 1.1) * s, (Math.random() - 0.5) * 1.6 * s);
+    g.add(leaf);
+  }
+  g.position.set(x, 0, z);
+  scene.add(g);
+}
+maple(6.5, 3.5, 1.2);
+maple(-2, -9, 1);
+maple(9, -7, 1.1);
+
+// ---------- Trailers ----------
+function trailer(color, x, z, rotY) {
+  const g = new THREE.Group();
+  box(7, 2.4, 2.4, color, 0, 1.6, 0, g, { metalness: 0.3, roughness: 0.7 });
+  box(7.02, 0.18, 2.42, 0x7a5a2a, 0, 1.5, 0, g);                  // faded stripe
+  box(7.1, 0.08, 2.5, 0x5a5850, 0, 2.84, 0, g);                    // roof edge
+  box(0.8, 1.9, 0.04, 0x5a5448, 1.2, 1.35, 1.21, g);               // door
+  box(1.1, 0.7, 0.04, 0x15130f, -1.8, 1.9, 1.21, g);               // window
+  box(1.0, 0.6, 0.05, 0xb8b8b8, 2.6, 1.9, 1.21, g, { metalness: 0.8, roughness: 0.4 }); // tinfoil window
+  for (const [rx, ry, rw, rh] of [[-3, 2.4, 0.6, 0.5], [0.2, 0.7, 0.9, 0.3], [3.1, 1.1, 0.4, 0.8]]) {
+    box(rw, rh, 0.03, 0x6b3a1e, rx, ry, 1.215, g);                 // rust patches
+  }
+  for (const wx of [-1.5, 1.5]) {
+    const wheel = cyl(0.33, 0.33, 0.22, 0x141210, wx, 0.33, 1.1, g);
+    wheel.rotation.x = Math.PI / 2;
+  }
+  for (const bx of [-3, 3]) box(0.4, 0.4, 0.4, 0x6a6660, bx, 0.2, 0, g); // cinder blocks
+  g.position.set(x, 0, z);
+  g.rotation.y = rotY;
+  scene.add(g);
+  return g;
+}
+const trailerA = trailer(0x9a9483, -4, -0.5, Math.PI / 2);   // your trailer, long side facing you
+trailer(0x8a8574, 5.5, -6.5, -0.5);
+trailer(0x8f8a7a, -8, -9, 0.3);
+
+// Velvet Elvis painting on your trailer
+const velvetElvis = canvasTexture(256, 320, (ctx, w, h) => {
+  ctx.fillStyle = '#060406'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#1f1a3e';
+  ctx.beginPath(); ctx.ellipse(128, 105, 62, 48, 0, Math.PI, 0); ctx.fill();          // the hair
+  ctx.beginPath(); ctx.ellipse(150, 72, 40, 22, -0.3, 0, Math.PI * 2); ctx.fill();    // the quiff
+  ctx.fillStyle = '#d4a070';
+  ctx.beginPath(); ctx.ellipse(128, 135, 42, 54, 0, 0, Math.PI * 2); ctx.fill();      // face
+  ctx.fillStyle = '#1f1a3e';
+  ctx.fillRect(84, 110, 10, 50); ctx.fillRect(162, 110, 10, 50);                    // sideburns
+  ctx.fillStyle = '#efe8dc';
+  ctx.beginPath(); ctx.moveTo(40, 320); ctx.lineTo(60, 220); ctx.lineTo(128, 196); ctx.lineTo(196, 220); ctx.lineTo(216, 320); ctx.fill();
+  ctx.fillStyle = '#d4a24c';
+  ctx.beginPath(); ctx.moveTo(78, 210); ctx.lineTo(128, 250); ctx.lineTo(178, 210); ctx.lineTo(160, 200); ctx.lineTo(128, 225); ctx.lineTo(96, 200); ctx.fill(); // big collar
+});
+box(0.62, 0.76, 0.03, 0xa8873a, 0, 1.9, 1.225, trailerA, { metalness: 0.6, roughness: 0.4 });
+picture(velvetElvis, 0.54, 0.68, 0, 1.9, 1.245, trailerA);
+
+// Bukowski page taped to the trailer
+const bukowski = canvasTexture(256, 320, (ctx, w, h) => {
+  ctx.fillStyle = '#e4ded0'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#3a3632';
+  ctx.beginPath(); ctx.ellipse(128, 120, 46, 60, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1816';
+  ctx.beginPath(); ctx.moveTo(40, 320); ctx.lineTo(56, 230); ctx.lineTo(128, 200); ctx.lineTo(200, 230); ctx.lineTo(216, 320); ctx.fill();
+  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(150, 150); ctx.lineTo(196, 140); ctx.stroke();        // cigarette
+});
+picture(bukowski, 0.42, 0.52, -0.75, 1.9, 1.225, trailerA);
+for (const [tx, ty, r] of [[-0.95, 2.14, 0.6], [-0.55, 1.66, 0.6]]) {
+  const tape = box(0.14, 0.04, 0.005, 0xb0b0b0, tx, ty, 1.232, trailerA);
+  tape.rotation.z = r;
+}
+
+// ---------- Blue tarp over your study corner ----------
+const tarpGeo = new THREE.PlaneGeometry(4.6, 5.4, 8, 8);
+const tp = tarpGeo.attributes.position;
+for (let i = 0; i < tp.count; i++) {
+  const u = tp.getX(i) / 4.6 + 0.5, v = tp.getY(i) / 5.4 + 0.5;
+  tp.setZ(i, -Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * 0.18);  // a little sag
+}
+tarpGeo.computeVertexNormals();
+const tarp = new THREE.Mesh(tarpGeo, mat(0x2a4a7a, { side: THREE.DoubleSide, roughness: 0.6, emissive: 0x0c1a30 }));
+tarp.position.set(-0.6, 2.55, -0.5);
+tarp.rotation.x = -Math.PI / 2;
+tarp.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -0.13);   // high on the trailer side, low by the poles
+scene.add(tarp);
+for (const z of [-3.1, 2.1]) cyl(0.03, 0.03, 2.3, 0x6a6a6a, 1.65, 1.15, z, scene, { metalness: 0.7 });
+
+// Milk-crate bookshelf (the cream books on top are the Bukowski crate)
+const crateColors = [0x2a5aa0, 0xc4302a, 0x2a5aa0];
+const bookColors = [[0xe6dccb, 0xd9cdb8, 0xe6dccb, 0xd9cdb8, 0xe6dccb], [0x6b1d1d, 0x2f4a2a, 0x6b4a2a, 0x1f2e22, 0x8a2a22], [0x4a3a20, 0x2a3b2a, 0x5a1a1a, 0x6b4a2a, 0x3a2a1a]];
+for (let level = 0; level < 3; level++) {
+  const y = 0.18 + (2 - level) * 0.36;
+  box(0.36, 0.34, 0.5, crateColors[level], -2.55, y, -1.7);
+  box(0.02, 0.3, 0.46, 0x0a0806, -2.36, y, -1.7);
+  bookColors[level].forEach((c, i) => box(0.2, 0.22 + (i % 2) * 0.04, 0.06, c, -2.42, y, -1.88 + i * 0.09));
+}
+
+// Duct-taped red recliner
+const chair = new THREE.Group();
+box(0.85, 0.45, 0.8, 0x7a1e1e, 0, 0.3, 0, chair);
+const back = box(0.85, 0.85, 0.22, 0x7a1e1e, 0, 0.85, -0.38, chair);
+back.rotation.x = -0.25;
+box(0.18, 0.3, 0.8, 0x621818, -0.5, 0.6, 0, chair);
+box(0.18, 0.3, 0.8, 0x621818, 0.5, 0.6, 0, chair);
+for (const r of [0.6, -0.6]) {
+  const t = box(0.5, 0.07, 0.01, 0x9a9a9a, 0, 0.95, -0.25, chair);
+  t.rotation.set(-0.25, 0, r);
+}
+chair.position.set(-1.9, 0, 0.7);
+chair.rotation.y = Math.PI / 2 - 0.3;
+scene.add(chair);
+
+// Card table with typewriter and a bottle in a paper bag
+box(0.8, 0.03, 0.8, 0x3a5a3a, -1.0, 0.72, -2.2);
+for (const [lx, lz] of [[-0.37, -0.37], [0.37, -0.37], [-0.37, 0.37], [0.37, 0.37]]) {
+  cyl(0.012, 0.012, 0.72, 0x7a7a7a, -1.0 + lx, 0.36, -2.2 + lz, scene, { metalness: 0.7 });
+}
+box(0.36, 0.12, 0.28, 0x141110, -1.05, 0.8, -2.2);
+const paper = box(0.22, 0.2, 0.005, 0xe6dccb, -1.05, 0.95, -2.3);
+paper.rotation.x = -0.25;
+box(0.11, 0.24, 0.09, 0x8a6a3a, -0.72, 0.86, -2.0);
+cyl(0.018, 0.03, 0.12, 0x2a4a22, -0.72, 1.04, -2.0, scene, { roughness: 0.2 });
+
+// Record player on cinder blocks
+box(0.38, 0.2, 0.2, 0x6a6660, 0.75, 0.1, -2.4);
+box(0.38, 0.2, 0.2, 0x6a6660, 0.75, 0.1, -2.15);
+box(0.44, 0.12, 0.38, 0x3a2a1a, 0.75, 0.26, -2.28);
+cyl(0.15, 0.15, 0.01, 0x0a0808, 0.71, 0.33, -2.28);
+box(0.02, 0.02, 0.18, 0xc0c0c0, 0.9, 0.34, -2.28, scene, { metalness: 0.8 });
+
+// ---------- Burn barrel ----------
+const barrel = cyl(0.3, 0.3, 0.9, 0x5a3a22, 2.7, 0.45, -1.2, scene, { metalness: 0.4 });
+for (const y of [0.25, 0.65]) cyl(0.305, 0.305, 0.04, 0x3a2416, 2.7, y, -1.2);
+const flames = [];
+for (const [fx, fz, c, s] of [[0, 0, 0xc4302a, 1], [0.08, 0.05, 0xf29a3a, 0.7], [-0.07, -0.04, 0xf2c94c, 0.5]]) {
+  const f = new THREE.Mesh(new THREE.ConeGeometry(0.14 * s + 0.05, 0.6 * s, 8),
+    new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.85 }));
+  f.position.set(2.7 + fx, 0.9 + 0.3 * s, -1.2 + fz);
+  f.userData.base = s;
+  scene.add(f);
+  flames.push(f);
+}
+const fireLight = new THREE.PointLight(0xff7a30, 10, 9);
+fireLight.position.set(2.7, 1.4, -1.2);
+scene.add(fireLight);
+
+// ---------- String lights from your trailer to the next one ----------
+const bulbColors = [0xe0453a, 0xf2c94c, 0x4ab36a, 0x4a8ae0];
+const a = new THREE.Vector3(-2.8, 2.75, -3.2), b = new THREE.Vector3(3.6, 2.8, -5.6);
+for (let i = 0; i <= 22; i++) {
+  const t = i / 22;
+  const p = a.clone().lerp(b, t);
+  p.y -= Math.sin(t * Math.PI) * 0.6;
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), new THREE.MeshBasicMaterial({ color: bulbColors[i % 4] }));
+  bulb.position.copy(p);
+  scene.add(bulb);
+}
+
+// ---------- Drive-in: bedsheet on a clothesline + projector on a lawn chair ----------
+cyl(0.03, 0.03, 2.8, 0x6a6a6a, -0.4, 1.4, -7, scene, { metalness: 0.7 });
+cyl(0.03, 0.03, 2.8, 0x6a6a6a, 3.2, 1.4, -7.4, scene, { metalness: 0.7 });
+const sheet = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.9, 10, 4), mat(0xddd6c6, { side: THREE.DoubleSide }));
+const sp = sheet.geometry.attributes.position;
+for (let i = 0; i < sp.count; i++) sp.setZ(i, Math.sin(sp.getX(i) * 3) * 0.04);
+sheet.geometry.computeVertexNormals();
+sheet.position.set(1.4, 1.75, -7.2);
+sheet.rotation.y = -0.11;
+scene.add(sheet);
+
+const lawnChair = new THREE.Group();
+box(0.5, 0.04, 0.45, 0x4ab3a0, 0, 0.4, 0, lawnChair);
+const lcBack = box(0.5, 0.5, 0.04, 0x4ab3a0, 0, 0.65, -0.22, lawnChair);
+lcBack.rotation.x = -0.2;
+for (const lx of [-0.24, 0.24]) box(0.03, 0.4, 0.03, 0xbfbfbf, lx, 0.2, 0, lawnChair, { metalness: 0.8 });
+box(0.3, 0.16, 0.22, 0x2a2a2a, 0, 0.5, 0.02, lawnChair);
+for (const rx of [-0.07, 0.07]) {
+  const reel = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.012, 6, 16), mat(0x7a7a7a, { metalness: 0.8 }));
+  reel.position.set(rx, 0.66, 0.02);
+  lawnChair.add(reel);
+}
+lawnChair.position.set(1.6, 0, -3.8);
+lawnChair.rotation.y = Math.PI;
+scene.add(lawnChair);
+
+// ---------- Picnic table ----------
+const table = new THREE.Group();
+const woodTop = canvasTexture(512, 256, (ctx, w, h) => {
+  ctx.fillStyle = '#6b4a2a'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(40,24,12,0.5)'; ctx.lineWidth = 2;
+  for (let y = 10; y < h; y += 12) { ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(w / 3, y + 4, 2 * w / 3, y - 4, w, y); ctx.stroke(); }
+  ctx.fillStyle = '#2a1a0c'; for (const y of [64, 128, 192]) ctx.fillRect(0, y - 2, w, 4);
+  // a little something carved into the wood
+  ctx.save(); ctx.translate(400, 200); ctx.rotate(-0.08);
+  ctx.font = 'italic bold 34px Georgia, serif';
+  ctx.fillStyle = '#c8a070'; ctx.fillText('Brenda', -52, 9);
+  ctx.fillStyle = '#2a1608'; ctx.fillText('Brenda', -54, 7);
+  ctx.strokeStyle = '#2a1608'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, -6); ctx.bezierCurveTo(-90, -70, -90, 50, 0, 40); ctx.bezierCurveTo(90, 50, 90, -70, 0, -6); ctx.stroke();
+  ctx.restore();
+});
+const tabletop = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.06, 0.8),
+  [mat(0x6b4a2a), mat(0x6b4a2a), new THREE.MeshStandardMaterial({ map: woodTop, roughness: 0.9 }), mat(0x6b4a2a), mat(0x6b4a2a), mat(0x6b4a2a)]);
+tabletop.position.y = 0.76;
+table.add(tabletop);
+for (const bz of [-0.6, 0.6]) box(1.8, 0.05, 0.28, 0x5a3e22, 0, 0.45, bz, table);
+for (const lx of [-0.7, 0.7]) {
+  for (const r of [0.55, -0.55]) {
+    const leg = box(0.08, 0.95, 0.08, 0x4a3018, lx, 0.42, 0, table);
+    leg.rotation.x = r;
+  }
+}
+table.position.set(3.4, 0, 2.2);
+table.rotation.y = 0.4;
+scene.add(table);
+
+// ---------- Cats ----------
+function cat(x, y, z, rotY, color = 0x050404) {
+  const g = new THREE.Group();
+  const m = mat(color);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), m);
+  body.scale.set(1.5, 0.75, 0.9); body.position.y = 0.1; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 10), m);
+  head.position.set(0.2, 0.16, 0); g.add(head);
+  for (const ez of [-0.04, 0.04]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.06, 4), m);
+    ear.position.set(0.2, 0.25, ez); g.add(ear);
+  }
+  const tail = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.018, 6, 12, Math.PI), m);
+  tail.position.set(-0.18, 0.04, 0.05); tail.rotation.x = Math.PI / 2; g.add(tail);
+  g.position.set(x, y, z); g.rotation.y = rotY;
+  scene.add(g);
+}
+cat(2.0, 0, -0.5, 2.4);
+cat(-1.85, 0.52, 0.75, 1.2);
+cat(2.2, 0, -1.9, -0.6, 0x2a2420);
+
+// ---------- Rain ----------
+const DROPS = 2500;
+const rainPos = new Float32Array(DROPS * 6);
+function underTarp(x, z) { return x > -3 && x < 1.8 && z > -3.3 && z < 2.3; }
+function resetDrop(i, randomY) {
+  let x, z;
+  do { x = (Math.random() - 0.5) * 30; z = (Math.random() - 0.5) * 30; } while (underTarp(x, z));
+  const y = randomY ? Math.random() * 12 : 12;
+  rainPos.set([x, y, z, x, y + 0.25, z], i * 6);
+}
+for (let i = 0; i < DROPS; i++) resetDrop(i, true);
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0x8aa0b0, transparent: true, opacity: 0.4 }));
+rain.frustumCulled = false;
+scene.add(rain);
+
+function updateRain(dt) {
+  const fall = 9 * dt;
+  for (let i = 0; i < DROPS; i++) {
+    const o = i * 6;
+    rainPos[o + 1] -= fall; rainPos[o + 4] -= fall;
+    if (rainPos[o + 1] < 0) resetDrop(i, false);
+  }
+  rainGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------- The cardboard window ----------
+const panels = [];
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  for (const paragraph of text.split('\n')) {
+    let line = '';
+    for (const word of paragraph.split(' ')) {
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        ctx.fillText(line, x, y); line = word; y += lineHeight;
+      } else line = test;
+    }
+    ctx.fillText(line, x, y); y += lineHeight;
+  }
+}
+
+function makeCardboardWindow(title, body, position) {
+  const W = 1024, H = 700;
+  const texture = canvasTexture(W, H, (ctx) => {
+    ctx.fillStyle = '#a5865a'; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < 3000; i++) {                                  // cardboard speckle
+      ctx.fillStyle = `rgba(${90 + Math.random() * 60},${70 + Math.random() * 40},${40 + Math.random() * 30},0.35)`;
+      ctx.fillRect(Math.random() * W, Math.random() * H, 3, 3);
+    }
+    ctx.strokeStyle = 'rgba(80,60,35,0.25)'; ctx.lineWidth = 3;      // corrugation lines
+    for (let x = 0; x < W; x += 22) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    ctx.fillStyle = 'rgba(70,50,25,0.35)';                            // a coffee ring
+    ctx.beginPath(); ctx.arc(860, 560, 70, 0, Math.PI * 2); ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(70,45,20,0.35)'; ctx.stroke();
+
+    ctx.fillStyle = '#1a1410';
+    ctx.font = 'bold 72px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif';
+    ctx.fillText(title, 60, 120);
+    ctx.fillRect(60, 140, ctx.measureText(title).width, 6);
+    ctx.font = '44px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif';
+    wrapText(ctx, body, 60, 230, W - 120, 62);
+
+    ctx.fillStyle = 'rgba(176,176,176,0.92)';                         // duct tape on the corners
+    for (const [x, y, r] of [[40, 30, -0.7], [W - 40, 30, 0.7], [40, H - 30, 0.7], [W - 40, H - 30, -0.7]]) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(r); ctx.fillRect(-90, -24, 180, 48); ctx.restore();
+    }
+  });
+  const w = 0.8, h = 0.55;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
+  mesh.position.copy(position);
+  mesh.userData.size = { w, h };
+  scene.add(mesh);
+  panels.push(mesh);
+  return mesh;
+}
+
+makeCardboardWindow('Sunnyvale Study',
+  'Welcome to the park.\nPinch me with your thumb and finger to grab me, then move your hand to put me anywhere. You can also point at me from far away and pinch.',
+  new THREE.Vector3(0, 1.45, -0.9));
+
+// ---------- Grabbing helpers ----------
+const tmpVec = new THREE.Vector3();
+const raycaster = new THREE.Raycaster();
+
+function viewerPosition(out) {
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  return cam.getWorldPosition(out);
+}
+
+// Turn a window so it faces you, staying upright.
+function faceViewer(panel) {
+  viewerPosition(tmpVec);
+  tmpVec.y = panel.position.y;
+  panel.lookAt(tmpVec);
+}
+
+function setHeld(panel, held) {
+  panel.scale.setScalar(held ? 1.05 : 1);
+}
+
+// Is a point close enough to a window to grab it by pinching?
+function panelNear(point) {
+  let best = null, bestDist = Infinity;
+  for (const p of panels) {
+    const local = p.worldToLocal(point.clone());
+    const { w, h } = p.userData.size;
+    if (Math.abs(local.x) < w / 2 + 0.05 && Math.abs(local.y) < h / 2 + 0.05 && Math.abs(local.z) < 0.1) {
+      if (Math.abs(local.z) < bestDist) { best = p; bestDist = Math.abs(local.z); }
+    }
+  }
+  return best;
+}
+
+// ---------- Hands and controllers (VR) ----------
+const handFactory = new XRHandModelFactory();
+const controllerFactory = new XRControllerModelFactory();
+const inputs = [];
+
+for (let i = 0; i < 2; i++) {
+  const hand = renderer.xr.getHand(i);
+  hand.add(handFactory.createHandModel(hand, 'mesh'));
+  scene.add(hand);
+
+  const grip = renderer.xr.getControllerGrip(i);
+  grip.add(controllerFactory.createControllerModel(grip));
+  scene.add(grip);
+
+  const ray = renderer.xr.getController(i);
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
+    new THREE.LineBasicMaterial({ color: 0xf2c94c, transparent: true, opacity: 0.5 })
+  );
+  line.scale.z = 3;
+  ray.add(line);
+  scene.add(ray);
+
+  const state = { hand, ray, held: null, mode: null, offset: new THREE.Vector3(), dist: 0, isHand: false };
+  inputs.push(state);
+
+  ray.addEventListener('connected', e => { state.isHand = !!e.data.hand; });
+  ray.addEventListener('selectstart', () => grab(state));
+  ray.addEventListener('selectend', () => release(state));
+}
+
+function pinchPoint(state, out) {
+  const tip = state.hand.joints['index-finger-tip'];
+  const thumb = state.hand.joints['thumb-tip'];
+  if (!tip || !thumb) return null;
+  const a = tip.getWorldPosition(new THREE.Vector3());
+  const b = thumb.getWorldPosition(new THREE.Vector3());
+  return out.copy(a).add(b).multiplyScalar(0.5);
+}
+
+function rayFrom(state) {
+  const origin = new THREE.Vector3().setFromMatrixPosition(state.ray.matrixWorld);
+  const dir = new THREE.Vector3(0, 0, -1).transformDirection(state.ray.matrixWorld);
+  return { origin, dir };
+}
+
+function grab(state) {
+  // Close grab: pinch right on a window.
+  if (state.isHand) {
+    const p = pinchPoint(state, new THREE.Vector3());
+    const panel = p && panelNear(p);
+    if (panel) {
+      state.held = panel; state.mode = 'near';
+      state.offset.copy(panel.position).sub(p);
+      setHeld(panel, true);
+      return;
+    }
+  }
+  // Far grab: point at a window and pinch / pull the trigger.
+  const { origin, dir } = rayFrom(state);
+  raycaster.set(origin, dir);
+  const hit = raycaster.intersectObjects(panels, false)[0];
+  if (hit) {
+    state.held = hit.object; state.mode = 'ray';
+    state.dist = hit.distance;
+    state.offset.copy(hit.object.position).sub(hit.point);
+    setHeld(hit.object, true);
+  }
+}
+
+function release(state) {
+  if (state.held) setHeld(state.held, false);
+  state.held = null; state.mode = null;
+}
+
+function updateHeld() {
+  for (const s of inputs) {
+    if (!s.held) continue;
+    if (s.mode === 'near') {
+      const p = pinchPoint(s, new THREE.Vector3());
+      if (p) s.held.position.copy(p).add(s.offset);
+    } else {
+      const { origin, dir } = rayFrom(s);
+      s.held.position.copy(origin).addScaledVector(dir, s.dist).add(s.offset);
+    }
+    faceViewer(s.held);
+  }
+}
+
+// ---------- Mouse dragging (computer preview) ----------
+const pointer = new THREE.Vector2();
+const dragPlane = new THREE.Plane();
+const drag = { panel: null, offset: new THREE.Vector3() };
+
+function setPointer(e) {
+  pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+}
+
+renderer.domElement.addEventListener('pointerdown', e => {
+  setPointer(e);
+  const hit = raycaster.intersectObjects(panels, false)[0];
+  if (!hit) return;
+  drag.panel = hit.object;
+  dragPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).negate(), hit.point);
+  drag.offset.copy(hit.object.position).sub(hit.point);
+  controls.enabled = false;
+  setHeld(drag.panel, true);
+});
+
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!drag.panel) return;
+  setPointer(e);
+  const p = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
+  if (p) { drag.panel.position.copy(p).add(drag.offset); faceViewer(drag.panel); }
+});
+
+window.addEventListener('pointerup', () => {
+  if (drag.panel) setHeld(drag.panel, false);
+  drag.panel = null;
+  controls.enabled = true;
+});
+
+// ---------- Loop ----------
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; });
+renderer.xr.addEventListener('sessionend', () => { document.getElementById('hint').style.display = ''; });
+
+panels.forEach(faceViewer);
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+  if (!renderer.xr.isPresenting) controls.update();
+  updateRain(dt);
+  fireLight.intensity = 9 + Math.sin(t * 13) * 1.5 + Math.sin(t * 7.3) * 1.5;
+  flames.forEach((f, i) => { f.scale.y = 1 + Math.sin(t * (9 + i * 3)) * 0.15; f.rotation.y = t * (1 + i); });
+  updateHeld();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
