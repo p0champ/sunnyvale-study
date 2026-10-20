@@ -70,6 +70,12 @@ Discuss the design with the user first. A suggested plan:
 19. **Holo whiteboard:** shapes, arrows and connectors snapped to a board, with saving.
 20. **Break buddy:** Jarvis check-ins during long sessions (stretch, water, posture), plus a lo-fi or rain "focus radio" on the record player.
 
+## The girlfriend's WhatsApp button (must keep working)
+- The user's girlfriend is **Brenda**. The heart button is currently labelled "BARBERA", so ask the user whether it should say "BRENDA".
+- Her number must **never** go in the repo, the code or any file that gets pushed, because the repo and site are public. The user has her number and will give it to you directly if needed.
+- It works today if the user types her number (with country code, digits only) into **Claude settings → WhatsApp number** on the page, on the Quest itself, and presses Save. It stays saved in that browser.
+- When you build the PC bridge (Task 1), you can also keep her number in a **gitignored** local config file on the PC (e.g. `bridge/private.json`, added to `.gitignore`) that the bridge serves to the headset over its authenticated connection, so it's set up automatically without being public.
+
 ## Do this first
 1. Read `HANDOVER.md` and skim `index.html`.
 2. Ask the user how the latest version runs on the Quest (lag, gestures).
