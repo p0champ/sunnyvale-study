@@ -1,3 +1,4 @@
+import { HttpsBridgeSocket } from './bridge-https.js?v=20261020-https-fallback';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status }) {
@@ -71,6 +72,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     tabs.clear(); report('Disconnected. Reconnect before using the browser buttons.');
   }
   document.getElementById('bridgeDisconnect').onclick = disconnect;
+  window.addEventListener('pagehide', () => { ready = false; socket?.close(); });
   document.getElementById('bridgeConnect').onclick = () => {
     disconnect();
     let url;
@@ -85,55 +87,70 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     if (url.pathname === '/' || url.pathname === '/bridge/') url.pathname = '/bridge';
     if (url.pathname !== '/bridge') { report('The bridge address must end with /bridge.'); return; }
     localStorage.setItem('bridgeURL', url.href); localStorage.setItem('bridgeToken', token);
-    report('Connecting to the secure PC address…'); const current = new WebSocket(url.href); socket = current;
-    let failure = '', pairingTimer;
-    const clearTimers = () => { clearTimeout(connectionTimer); clearTimeout(pairingTimer); };
-    const fail = message => {
-      if (socket !== current || ready) return;
-      failure = message; clearTimers(); report(message);
-      try { current.close(); } catch { /* connection already closed */ }
-    };
-    const connectionTimer = setTimeout(() => fail('The Quest could not reach the secure PC address within 15 seconds. Check your internet connection and the current bridge address, then try Connect again.'), 15000);
-    current.onopen = () => {
-      if (socket !== current) { current.close(); return; }
-      clearTimeout(connectionTimer);
-      report('PC reached. Checking the private pairing code…');
-      pairingTimer = setTimeout(() => fail('The PC was reached, but pairing did not finish. Disconnect other Sunnyvale pages (keep the Chrome extension connected), then try again.'), 8000);
-      current.send(JSON.stringify({ type: 'pair', token }));
-    };
-    current.onmessage = async event => {
-      if (socket !== current || failure) return;
-      let m; try { m = JSON.parse(event.data); } catch { fail('The secure address returned an unexpected response. Check that you used the current PC bridge address.'); return; }
-      if (m.type === 'ready') { clearTimers(); ready = true; report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : 'Connected. Claude and the heart use your PC browser.'); }
-      if (m.type === 'browser-status') report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.');
-      if (m.type === 'tab') newPanel(m);
-      if (m.type === 'location' && tabs.has(m.id)) tabs.get(m.id).url = m.url;
-      if (m.type === 'error') { report(m.message); status(m.message); }
-      if (m.type === 'frame') {
-        const t = tabs.get(m.id);
-        if (!t || t.decoding) { send({ type: 'ack', id: m.id }); return; }
-        t.decoding = true;
-        const img = new Image();
-        img.onload = () => { if (tabs.has(m.id)) { t.ctx.drawImage(img, 0, 0, 1280, 800); t.texture.needsUpdate = true; } t.decoding = false; send({ type: 'ack', id: m.id }); };
-        img.onerror = () => { t.decoding = false; send({ type: 'ack', id: m.id }); };
-        img.src = 'data:image/jpeg;base64,' + m.data;
-      }
-    };
-    current.onclose = event => {
-      clearTimers();
-      if (socket !== current) return;
-      ready = false;
-      report(failure || (event.code === 1008
-        ? 'The PC rejected pairing. Check the full pairing code and disconnect any other Sunnyvale page. Keep the Chrome extension connected.'
-        : 'Bridge disconnected. Start it on the PC and reconnect.'));
-      status('Browser bridge disconnected');
-    };
-    current.onerror = () => {
-      if (socket !== current) return;
-      clearTimers();
-      failure = failure || (ready ? 'Lost the secure PC bridge connection. Try Connect again.' : 'Could not reach the secure PC bridge. Check the current address and whether the Quest can open its connection-check page.');
-      report(failure);
-    };
+    function connectTransport(https = false) {
+      report(https ? 'Trying the secure HTTPS backup connection…' : 'Connecting to the secure PC address…');
+      const current = https ? new HttpsBridgeSocket(url.href, token) : new WebSocket(url.href); socket = current;
+      let failure = '', pairingTimer;
+      const clearTimers = () => { clearTimeout(connectionTimer); clearTimeout(pairingTimer); };
+      const fail = message => {
+        if (socket !== current || ready) return;
+        failure = message; clearTimers(); report(message);
+        try { current.close(); } catch { /* connection already closed */ }
+      };
+      const fallback = () => {
+        if (socket !== current || ready) return;
+        clearTimers(); socket = null;
+        try { current.close(); } catch { /* previous connection already closed */ }
+        connectTransport(true);
+      };
+      const connectionTimer = setTimeout(() => {
+        if (!https) fallback();
+        else fail('The secure HTTPS backup could not connect within 15 seconds. Check the current PC bridge address and try again.');
+      }, https ? 15000 : 5000);
+      current.onopen = () => {
+        if (socket !== current) { current.close(); return; }
+        clearTimeout(connectionTimer);
+        report('PC reached. Checking the private pairing code…');
+        pairingTimer = setTimeout(() => fail('The PC was reached, but pairing did not finish. Disconnect other Sunnyvale pages (keep the Chrome extension connected), then try again.'), 8000);
+        current.send(JSON.stringify({ type: 'pair', token }));
+      };
+      current.onmessage = async event => {
+        if (socket !== current || failure) return;
+        let m; try { m = JSON.parse(event.data); } catch { fail('The secure address returned an unexpected response. Check that you used the current PC bridge address.'); return; }
+        if (m.type === 'ready') { clearTimers(); ready = true; report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.')); }
+        if (m.type === 'browser-status') report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.');
+        if (m.type === 'tab') newPanel(m);
+        if (m.type === 'location' && tabs.has(m.id)) tabs.get(m.id).url = m.url;
+        if (m.type === 'error') { report(m.message); status(m.message); }
+        if (m.type === 'frame') {
+          const t = tabs.get(m.id);
+          if (!t || t.decoding) { send({ type: 'ack', id: m.id }); return; }
+          t.decoding = true;
+          const img = new Image();
+          img.onload = () => { if (tabs.has(m.id)) { t.ctx.drawImage(img, 0, 0, 1280, 800); t.texture.needsUpdate = true; } t.decoding = false; send({ type: 'ack', id: m.id }); };
+          img.onerror = () => { t.decoding = false; send({ type: 'ack', id: m.id }); };
+          img.src = 'data:image/jpeg;base64,' + m.data;
+        }
+      };
+      current.onclose = event => {
+        clearTimers();
+        if (socket !== current) return;
+        if (!https && !ready && !failure && event.code !== 1008) { fallback(); return; }
+        ready = false;
+        report(failure || (event.code === 1008
+          ? 'The PC rejected pairing. Check the full pairing code and disconnect any other Sunnyvale page. Keep the Chrome extension connected.'
+          : 'Bridge disconnected. Start it on the PC and reconnect.'));
+        status('Browser bridge disconnected');
+      };
+      current.onerror = event => {
+        if (socket !== current) return;
+        if (!https && !ready) { fallback(); return; }
+        clearTimers();
+        failure = failure || (https && event?.message ? event.message : (ready ? 'Lost the secure PC bridge connection. Try Connect again.' : 'Could not reach the secure HTTPS backup. Check the current bridge address and try again.'));
+        report(failure);
+      };
+    }
+    connectTransport();
   };
   window.addEventListener('keydown', e => {
     if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || !ready || !focused || !tabs.has(focused) || !keyboard?.visible) return;

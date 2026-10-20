@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ExtensionBrowser, extensionId } from './extension-browser.mjs';
+import { createHttpTransport } from './http-transport.mjs';
 
 const root = process.env.BRIDGE_PRIVATE_DIR || fileURLToPath(new URL('./private/', import.meta.url));
 await mkdir(root, { recursive: true });
@@ -16,6 +17,10 @@ catch { token = randomBytes(24).toString('base64url'); await writeFile(root + '/
 const port = Number(process.env.BRIDGE_PORT || 8130);
 const allowedOrigins = new Set(['https://p0champ.github.io', 'http://localhost:8123', 'http://127.0.0.1:8123', 'http://localhost:18123', 'http://127.0.0.1:18123']);
 const server = http.createServer((req, res) => {
+  if (req.url?.startsWith('/bridge/http/')) {
+    httpTransport.handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
+    return;
+  }
   if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, browser: useExtension ? 'chrome-extension' : 'test-chromium' })); }
   else { res.writeHead(404); res.end(); }
 });
@@ -24,6 +29,7 @@ const browserWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 
 const extension = new ExtensionBrowser();
 const useExtension = process.env.BRIDGE_BROWSER !== 'playwright';
 let active = null, context = null;
+const httpTransport = createHttpTransport({ allowedOrigins, validToken, isBusy: () => !!active, onConnection: socket => wss.emit('connection', socket) });
 server.on('upgrade', (req, socket, head) => {
   if (req.url === '/browser') {
     if (req.headers.origin !== 'chrome-extension://' + extensionId || req.headers.host !== '127.0.0.1:' + port) { socket.destroy(); return; }
@@ -156,5 +162,5 @@ if (process.env.BRIDGE_TUNNEL === '1' && existsSync(tunnelExe)) {
   });
   tunnel.on('error', () => console.log('Secure relay could not start. Restart the bridge.'));
 }
-async function shutdown() { tunnel?.kill(); for (const ws of wss.clients) ws.close(); for (const ws of browserWss.clients) ws.close(); await context?.close(); server.close(); }
+async function shutdown() { tunnel?.kill(); httpTransport.close(); for (const ws of wss.clients) ws.close(); for (const ws of browserWss.clients) ws.close(); await context?.close(); server.close(); }
 process.on('SIGINT', () => shutdown().finally(() => process.exit()));

@@ -41,8 +41,12 @@ References: [Playwright persistent contexts](https://playwright.dev/docs/api/cla
 
 Chrome references: [Debugger extension API](https://developer.chrome.com/docs/extensions/reference/api/debugger), [WebSocket service worker lifetime](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets), [Default-profile debugging restrictions](https://developer.chrome.com/blog/remote-debugging-port).
 
-## If Quest stays on Connecting
+## If Quest cannot establish the live socket
 
-Refresh the live app so the latest version of the connection module loads. The page now distinguishes connecting to the secure address (15-second limit) from checking pairing after the socket opens (8-second limit). It reports pairing rejection separately from a network failure and validates that the pairing code is complete. It never prints the code.
+The app first tries a WebSocket for five seconds. If opening it fails, it automatically uses ordinary secure HTTPS POST requests and long polling. The same address, pairing code, Chrome session, input and panels are used. Successful backup status says **Connected through secure HTTPS**. This path can be slower for moving video; it is intended to keep browser pages usable on networks/devices where HTTPS works but WebSocket opening fails.
 
-Opening the relay's HTTPS /health page on Quest is a useful reachability check, but does not prove that the WebSocket handshake/pairing succeeds. Ask for the exact connection status before changing settings. Check the current address against the private shortcut, preserve the existing pairing code, and disconnect other Sunnyvale frontend pages while keeping the Chrome extension connected. Do not restart the relay or regenerate credentials just to clear the status message.
+Both transports authenticate. HTTPS sends the pairing credential in an Authorization header, receives a random short-lived session credential, and uses restricted CORS with the approved app origins. Credentials are never placed in request URLs. Other pages cannot read/control sessions without authorization. Only one Sunnyvale frontend connects at once; keep Chrome's extension connected, but disconnect other PC/Quest Sunnyvale pages. Idle HTTPS sessions expire after 45 seconds; explicit Disconnect releases them immediately.
+
+A bridge restart for this update regenerates the temporary relay address, so use the current private Open Sunnyvale shortcut or its bridge address. The pairing code is unchanged. Refresh the app to load the new versioned browser modules. The setup stays within the current design and does not change your Chrome profile or sign-ins.
+
+HTTPS /health reaching the PC does not prove a WebSocket works. The user confirmed health works on Quest and the address was correct, but the Quest socket-open timed out. The fallback was added for that observed failure. Exact network/browser root cause and real Quest success still need confirmation. Do not claim that account/video playback works based only on a fixture test.
