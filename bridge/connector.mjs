@@ -13,11 +13,14 @@ import { z } from 'zod';
 const text = value => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }] });
 const failure = message => ({ content: [{ type: 'text', text: message }], isError: true });
 
-export function createConnector({ secret, getConnection }) {
+export function createConnector({ secret, getConnection, log }) {
   const failures = [];
+  // The secret can come in the Authorization header, or as part of the link: /mcp/<secret>
+  // (simpler for the user: one link to paste into Claude's connector settings).
   function authorized(req) {
     const header = String(req.headers.authorization || '');
-    const given = Buffer.from(header.startsWith('Bearer ') ? header.slice(7).trim() : '');
+    const fromPath = String(req.url || '').split('?')[0].match(/^\/mcp\/([A-Za-z0-9_-]+)$/)?.[1];
+    const given = Buffer.from(header.startsWith('Bearer ') ? header.slice(7).trim() : fromPath || '');
     const expected = Buffer.from(secret);
     return given.length === expected.length && timingSafeEqual(given, expected);
   }
@@ -146,8 +149,12 @@ export function createConnector({ secret, getConnection }) {
   }
 
   return async function handle(req, res) {
+    // A small visit log (never the secret itself) to troubleshoot Claude's connection.
+    const hasAuth = !!req.headers.authorization, ok = authorized(req);
+    res.on('finish', () => log?.(`${new Date().toISOString()} ${req.method} ${String(req.url).replace(/^\/mcp\/[^?]+/, '/mcp/<secret>')} auth:${hasAuth ? (ok ? 'correct' : 'WRONG') : 'missing'} -> ${res.statusCode}` +
+      ` | version:${req.headers['mcp-protocol-version'] || '-'} | accept:${req.headers.accept || '-'} | rpc:${res.rpcMethod || '-'} | agent:${String(req.headers['user-agent'] || '-').slice(0, 60)}`));
     if (tooManyFailures()) { res.writeHead(429); res.end(); return; }
-    if (!authorized(req)) {
+    if (!ok) {
       failures.push(Date.now());
       res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' });
       res.end(JSON.stringify({ error: 'unauthorized' }));
@@ -155,7 +162,7 @@ export function createConnector({ secret, getConnection }) {
     }
     if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); res.end(); return; }
     let body;
-    try { body = JSON.parse(await readBody(req, 1024 * 1024)); }
+    try { body = JSON.parse(await readBody(req, 1024 * 1024)); res.rpcMethod = Array.isArray(body) ? body.map(b => b.method).join(',') : body?.method; }
     catch { res.writeHead(400); res.end(); return; }
     const server = buildServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });   // stateless

@@ -15,14 +15,10 @@ In Claude (claude.ai): Settings / Customize > Connectors > + Add > Add custom co
 Name:
 Sunnyvale Study
 
-Remote MCP server URL:
-https://${host}/mcp
+Remote MCP server URL (the password is built into this link, so keep it secret):
+https://${host}/mcp/${secret}
 
-Sign in: choose "No sign in" (no account login needed).
-
-Request header (the connector's password):
-  Header name:   Authorization
-  Header value:  Bearer ${secret}
+Sign in: choose "No sign in" (no account login needed). No request header needed.
 
 Then press Add. In a chat, turn it on from the "+" button (Connectors) and say
 something like: "Make me flashcards about Kubrick in my study space".

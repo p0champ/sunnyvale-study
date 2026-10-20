@@ -18,3 +18,8 @@ await client.connect(new StreamableHTTPClientTransport(url, { requestInit: { hea
 const { tools } = await client.listTools();
 console.log('With the secret: connected,', tools.length, 'tools available');
 await client.close();
+
+const linkClient = new Client({ name: 'connector-check', version: '1.0.0' });
+await linkClient.connect(new StreamableHTTPClientTransport(new URL(`https://${host}/mcp/${secret}`)));
+console.log('One-link version: connected,', (await linkClient.listTools()).tools.length, 'tools available');
+await linkClient.close();

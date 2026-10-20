@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -20,7 +20,8 @@ let connectorSecret;
 try { connectorSecret = (await readFile(root + '/connector.txt', 'utf8')).trim(); }
 catch { connectorSecret = randomBytes(32).toString('base64url'); await writeFile(root + '/connector.txt', connectorSecret); }
 let activeConnection = null;   // the paired Sunnyvale page, used by the Claude connector
-const connector = createConnector({ secret: connectorSecret, getConnection: () => activeConnection });
+const connectorLog = line => appendFile(root + '/connector.log', line + '\n').catch(() => {});
+const connector = createConnector({ secret: connectorSecret, getConnection: () => activeConnection, log: connectorLog });
 const port = Number(process.env.BRIDGE_PORT || 8130);
 const allowedOrigins = new Set(['https://p0champ.github.io', 'http://localhost:8123', 'http://127.0.0.1:8123', 'http://localhost:18123', 'http://127.0.0.1:18123']);
 const server = http.createServer((req, res) => {
@@ -28,12 +29,15 @@ const server = http.createServer((req, res) => {
     httpTransport.handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
     return;
   }
-  if (req.url === '/mcp' || req.url?.startsWith('/mcp?')) {
+  if (req.url === '/mcp' || req.url?.startsWith('/mcp?') || req.url?.startsWith('/mcp/')) {
     connector(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
     return;
   }
   if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, browser: useExtension ? 'chrome-extension' : 'test-chromium' })); }
-  else { res.writeHead(404); res.end(); }
+  else {
+    if (/^\/(\.well-known|mcp|register|authorize|token|sse)/.test(req.url || '')) connectorLog(`${new Date().toISOString()} ${req.method} ${req.url} -> 404 (not handled)`);
+    res.writeHead(404); res.end();
+  }
 });
 const wss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
 const browserWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
