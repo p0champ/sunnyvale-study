@@ -148,6 +148,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       restoredPanels.push({ url: t.url, locked: !!u.locked, pose: { p: t.panel.position.toArray(), q: t.panel.quaternion.toArray(), s: t.panel.scale.toArray(), baseScale: u.baseScale || 1 } });
     }
     const reopen = automatic ? restoredPanels.slice() : [];
+    for (const r of reopen) delete r.requested;          // ask again for windows that didn't make it back last time
     disconnect();
     restoredPanels.push(...reopen);
     let url;

@@ -33,13 +33,8 @@ export function installBackup({ bridge, jarvisSay }) {
   const db = () => new Promise((resolve, reject) => { const r = indexedDB.open('sunnyvale-library', 1); r.onupgradeneeded = () => { r.result.createObjectStore('files', { keyPath: 'id' }); r.result.createObjectStore('frames', { keyPath: 'id' }); }; r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
   const dbDo = async (store, mode, fn) => { const d = await db(); return new Promise((resolve, reject) => { const t = d.transaction(store, mode), q = fn(t.objectStore(store)); t.oncomplete = () => resolve(q?.result); t.onerror = () => reject(t.error); }); };
 
-  // Send one item in pieces (each message must stay small)
-  async function upload(kind, id, text, meta) {
-    const b = bridge();
-    const { transfer } = await b.call('backup-begin', { kind, id, meta, size: meta?.size });
-    for (let n = 0, i = 0; i < text.length || n === 0; n++, i += 45000) await b.call('backup-part', { transfer, n, data: text.slice(i, i + 45000) });
-    return b.call('backup-end', { transfer });
-  }
+  // Send text as UTF-8 bytes in pieces (so no character is ever cut in half between pieces)
+  const upload = (kind, id, text) => blobPieces(new Blob([text]), { kind, id });
   async function blobPieces(blob, transferInfo) {
     const b = bridge(), bytes = 33750;           // 33750 bytes = 45000 characters of base64
     const { transfer } = await b.call('backup-begin', transferInfo);
@@ -90,16 +85,16 @@ export function installBackup({ bridge, jarvisSay }) {
     } finally { busy = false; }
   }
 
-  // Fetch a backed-up item piece by piece (library files come back as binary pieces, the rest as text)
+  // Fetch a backed-up item piece by piece (as bytes; text is decoded once at the end)
   async function download(kind, id) {
-    const b = bridge(), parts = []; let out = '', meta, n = 0, total = 1;
+    const b = bridge(), parts = []; let meta, n = 0, total = 1;
     do {
       const r = await b.call('restore-part', { kind, id, n });
-      if (kind === 'library') { const bin = atob(r.data), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); parts.push(bytes); }
-      else out += r.data;
+      const bin = atob(r.data), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      parts.push(bytes);
       total = r.total; meta = r.meta ?? meta; n++; show(`Restoring… ${Math.round(n / total * 100)}%`);
     } while (n < total);
-    return { out, parts, meta };
+    return { out: kind === 'library' ? '' : await new Blob(parts).text(), parts, meta };
   }
   async function restore() {
     const b = bridge();

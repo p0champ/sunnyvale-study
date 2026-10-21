@@ -26,7 +26,7 @@ export function findGoogleDrive() {
   return null;
 }
 
-const safeId = id => String(id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+const safeId = id => (/^[A-Za-z0-9_-]{1,64}$/.test(String(id)) ? String(id) : '');
 const stamp = (d = new Date()) => d.toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
 
 export function createBackup({ root }) {
@@ -35,7 +35,8 @@ export function createBackup({ root }) {
   const folder = process.env.BRIDGE_BACKUP_DIR || (drive ? join(drive, 'Sunnyvale Backup') : join(root, 'backups'));
   const where = drive ? 'Google Drive' : process.env.BRIDGE_BACKUP_DIR || process.env.BRIDGE_PRIVATE_DIR ? 'test folder' : 'this PC only (install Google Drive for desktop to back up to the cloud)';
   const dirs = ['study', 'library', 'frames', 'bridge-keys', 'incoming'].map(d => join(folder, d));
-  const ready = Promise.all(dirs.map(d => mkdir(d, { recursive: true })));
+  const ready = Promise.all(dirs.map(d => mkdir(d, { recursive: true })))
+    .then(() => readdir(join(folder, 'incoming'))).then(files => Promise.all(files.map(f => rm(join(folder, 'incoming', f)).catch(() => {}))));
 
   // The bridge's own private codes, so a new PC can be paired the same way (they stay in your own Google Drive)
   async function saveKeys() {
@@ -59,9 +60,17 @@ export function createBackup({ root }) {
     }
   }
 
-  const uploads = new Map();   // transfer id -> { kind, id, meta, temp, next }
+  const uploads = new Map();   // transfer id -> { kind, id, meta, temp, next, bytes, limit, seen }
+  // Uploads that stop half way (the headset went to sleep) are removed after 10 minutes
+  setInterval(() => {
+    for (const [t, u] of uploads) if (Date.now() - u.seen > 10 * 60000) { uploads.delete(t); rm(u.temp).catch(() => {}); }
+  }, 60000).unref();
   async function handle(m, reply) {
     await ready;
+    try { return await answer(m, reply); }
+    catch (e) { throw Error(e.code === 'ENOENT' ? 'That is not in the backup.' : e.message); }   // no local paths in replies
+  }
+  async function answer(m, reply) {
     if (m.type === 'backup-info') {
       const library = (await readdir(join(folder, 'library'))).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
       const frames = (await readdir(join(folder, 'frames'))).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
@@ -71,20 +80,23 @@ export function createBackup({ root }) {
     if (m.type === 'backup-begin') {
       const kind = ['study', 'library', 'frame'].includes(m.kind) ? m.kind : null;
       if (!kind) throw Error('Unknown backup kind.');
-      if (kind !== 'study' && !safeId(m.id)) throw Error('Missing id.');
-      if (kind === 'library' && !(m.size <= MAX_FILE)) throw Error('That file is too big to back up.');
+      if (kind !== 'study' && !safeId(m.id)) throw Error('Missing or unusual id.');
+      const limit = kind === 'library' ? Number(m.size) : 50 * 1024 * 1024;     // study data and frames: at most 50 MB
+      if (!(limit >= 0 && limit <= MAX_FILE)) throw Error('That file is too big to back up.');
       const transfer = Math.random().toString(36).slice(2, 10);
       const temp = join(folder, 'incoming', transfer + '.part');
       await writeFile(temp, '');
-      uploads.set(transfer, { kind, id: safeId(m.id), meta: m.meta || {}, temp, next: 0 });
+      uploads.set(transfer, { kind, id: safeId(m.id), meta: m.meta || {}, temp, next: 0, bytes: 0, limit, seen: Date.now() });
       return reply({ transfer });
     }
     if (m.type === 'backup-part') {
       const u = uploads.get(m.transfer);
       if (!u || m.n !== u.next || typeof m.data !== 'string' || m.data.length > PIECE) throw Error('Backup piece out of order.');
-      // Study data and frames come as text; library files as base64 (written as binary)
-      await appendFile(u.temp, u.kind === 'library' ? Buffer.from(m.data, 'base64') : m.data);
-      u.next++;
+      // Every piece is base64 of the item's bytes (text is sent as UTF-8 bytes, so no character is ever split)
+      const bytes = Buffer.from(m.data, 'base64');
+      if (u.bytes + bytes.length > u.limit) { uploads.delete(m.transfer); await rm(u.temp).catch(() => {}); throw Error('Backup is bigger than announced.'); }
+      u.next++; u.bytes += bytes.length; u.seen = Date.now();
+      await appendFile(u.temp, bytes);
       return reply({});
     }
     if (m.type === 'backup-end') {
@@ -109,14 +121,12 @@ export function createBackup({ root }) {
       const kind = m.kind, id = safeId(m.id);
       const file = kind === 'study' ? join(folder, 'study', 'latest.json') : kind === 'library' ? join(folder, 'library', id + '.bin') : join(folder, 'frames', id + '.json');
       const meta = kind === 'library' ? JSON.parse(await readFile(join(folder, 'library', id + '.json'), 'utf8').catch(() => '{}')) : undefined;
+      if (kind !== 'study' && !id) throw Error('Missing or unusual id.');
       const n = Math.max(0, m.n | 0);
-      if (kind === 'library') {                     // read just this piece of the file (videos can be big)
-        const bytes = PIECE / 4 * 3, size = (await stat(file)).size, buf = Buffer.alloc(Math.max(0, Math.min(bytes, size - n * bytes)));
-        const fh = await open(file, 'r'); try { await fh.read(buf, 0, buf.length, n * bytes); } finally { await fh.close(); }
-        return reply({ data: buf.toString('base64'), n, total: Math.ceil(size / bytes) || 1, meta });
-      }
-      const all = await readFile(file, 'utf8');
-      return reply({ data: all.slice(n * PIECE, (n + 1) * PIECE), n, total: Math.ceil(all.length / PIECE) || 1 });
+      // Read just this piece of the stored bytes (videos can be big)
+      const bytes = PIECE / 4 * 3, size = (await stat(file)).size, buf = Buffer.alloc(Math.max(0, Math.min(bytes, size - n * bytes)));
+      const fh = await open(file, 'r'); try { await fh.read(buf, 0, buf.length, n * bytes); } finally { await fh.close(); }
+      return reply({ data: buf.toString('base64'), n, total: Math.ceil(size / bytes) || 1, meta });
     }
     throw Error('Unknown backup request.');
   }
