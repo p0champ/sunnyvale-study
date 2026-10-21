@@ -5,8 +5,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 const shortcut = await readFile(new URL('./private/Open Sunnyvale.url', import.meta.url), 'utf8');
-const host = decodeURIComponent(shortcut).match(/wss:\/\/([a-z0-9-]+\.trycloudflare\.com)/)?.[1];
-if (!host) { console.log('No tunnel address found yet. Is the bridge window open?'); process.exit(1); }
+const host = decodeURIComponent(shortcut).match(/wss:\/\/([a-z0-9.-]+)\/bridge/)?.[1];
+if (!host) { console.log('No public address found yet. Is the bridge window open?'); process.exit(1); }
 const secret = (await readFile(new URL('./private/connector.txt', import.meta.url), 'utf8')).trim();
 const url = new URL(`https://${host}/mcp`);
 

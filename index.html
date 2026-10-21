@@ -52,9 +52,9 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=crisp-1';
+import { installBrowserBridge } from './browser-bridge.js?v=stay-1';
 import { flickVelocity, speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=crisp-1';
+import { installThesisTools } from './thesis-tools.js?v=stay-1';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -3223,7 +3223,9 @@ function runWorldTool(name, input) {
 function flyOrbTo(result) {
   try { const id = JSON.parse(result)?.id; if (id && thesisTools) thesisTools.tools.point_at({ id }); } catch { /* not every answer names a window */ }
 }
-browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool, restorePanel: applySavedWindowState });
+browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool, restorePanel: applySavedWindowState,
+  // Losing or getting back the PC connection (Claude's tools go through it): say so on the HUD
+  onConnection: connected => jarvisSay('', connected ? ['CLAUDE', 'CONNECTED', 'YOUR PC BRIDGE IS BACK'] : ['CLAUDE', 'DISCONNECTED', 'RECONNECTING TO YOUR PC…']) });
 window.studyDebug.browserBridge = browserBridge;
 const outsideClaudeButton = document.createElement('button');
 outsideClaudeButton.textContent = 'Open Claude outside VR…';
@@ -3240,7 +3242,8 @@ thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touch
   // What Claude is doing, for the avatar: listening (mic on), speaking (Claude's voice playing), working (using tools in the world)
   claudeState: () => {
     const voice = browserBridge?.claudeVoice?.() || {};
-    return { listening: voice.listening || claude.state === 'listening', speaking: voice.speaking || claude.state === 'speaking' || !!window.speechSynthesis?.speaking,
+    return { offline: !!browserBridge?.wanted && !browserBridge.isReady(),
+      listening: voice.listening || claude.state === 'listening', speaking: voice.speaking || claude.state === 'speaking' || !!window.speechSynthesis?.speaking,
       working: claude.state === 'thinking' || performance.now() - claudeWorkingAt < 2500 };
   },
 });

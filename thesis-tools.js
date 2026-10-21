@@ -956,8 +956,8 @@ export function installThesisTools(ctx) {
   // Twelve coral rays round a bright centre, always turned towards you. The rays show what Claude is doing:
   // waiting (a slow turn, gently breathing), listening (rays stretch out and pulse, with a ring round them),
   // working (spins faster, with a light running round the rays), speaking (rays pulse with the voice) and
-  // pointing (the ray nearest the target stretches towards it, with a beam).
-  const CORAL = new THREE.Color(0xd97757), BRIGHT = new THREE.Color(0xffd9c2);
+  // pointing (the ray nearest the target stretches towards it, with a beam). Grey and still when offline.
+  const CORAL = new THREE.Color(0xd97757), BRIGHT = new THREE.Color(0xffd9c2), GREY = new THREE.Color(0x8a8580);
   const orb = new THREE.Group();
   const glowTex = canvasTexture(64, 64, g => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.3, 'rgba(255,160,110,0.8)'); r.addColorStop(1, 'rgba(255,90,40,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); });
   const orbGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffb08a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
@@ -1038,9 +1038,10 @@ export function installThesisTools(ctx) {
     viewerPosition(tmp); orb.lookAt(tmp);                       // the spark always faces you, like the logo
     // What Claude is doing right now
     const st = orbState.force || ctx.claudeState?.() || {};      // force: for testing a mood on the PC
-    const mood = st.speaking ? 'speaking' : st.listening ? 'listening' : st.working ? 'working' : 'waiting';
+    // Offline (the PC bridge is unreachable, so Claude's tools can't reach the world): grey and still
+    const mood = st.offline ? 'offline' : st.speaking ? 'speaking' : st.listening ? 'listening' : st.working ? 'working' : 'waiting';
     orbState.mood = mood;
-    const spin = { waiting: 0.25, listening: 0.35, speaking: 0.5, working: 2.4 }[mood];
+    const spin = { offline: 0, waiting: 0.25, listening: 0.35, speaking: 0.5, working: 2.4 }[mood];
     spark.rotation.z -= dt * spin;
     const pointing = !!orbState.anchor;
     let nearest = -1;
@@ -1057,16 +1058,18 @@ export function installThesisTools(ctx) {
       else if (mood === 'listening') k = 1.15 + 0.13 * Math.sin(t * 6 - i * 0.52);
       else if (mood === 'speaking') k = 1 + 0.3 * Math.abs(Math.sin(t * 9 + i * 1.7)) * voice;
       else if (mood === 'working') k = 1 + 0.08 * Math.sin(t * 4 + i);
+      else if (mood === 'offline') k = 0.7;
       if (i === nearest) k = Math.max(k, 1.8);
       r.now += (k - r.now) * Math.min(1, dt * 10);
       r.mesh.scale.y = r.now;
       // Working: a light runs round the rays
       const glow = mood === 'working' ? Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 7)) ** 4 : i === nearest ? 0.6 : 0;
-      r.mesh.material.color.copy(CORAL).lerp(BRIGHT, glow);
+      if (mood === 'offline') r.mesh.material.color.copy(GREY); else r.mesh.material.color.copy(CORAL).lerp(BRIGHT, glow);
     });
+    sparkCore.material.color.copy(mood === 'offline' ? GREY : CORAL);
     listenRing.visible = mood === 'listening';
     if (listenRing.visible) { const s = 1 + 0.08 * Math.sin(t * 6); listenRing.scale.setScalar(s); listenRing.material.opacity = 0.5 + 0.4 * Math.sin(t * 6); }
-    orbGlow.material.opacity = (mood === 'waiting' ? 0.25 : 0.45) + Math.sin(t * 2.2) * 0.08;
+    orbGlow.material.opacity = mood === 'offline' ? 0 : (mood === 'waiting' ? 0.25 : 0.45) + Math.sin(t * 2.2) * 0.08;
     orbGlow.scale.setScalar(mood === 'speaking' ? 0.13 + 0.02 * voice : 0.13);
     beam.visible = pointing;
     if (pointing) { const a = beamGeo.attributes.position; a.setXYZ(0, orb.position.x, orb.position.y, orb.position.z); a.setXYZ(1, orbState.pointAt.x, orbState.pointAt.y, orbState.pointAt.z); a.needsUpdate = true; beam.material.opacity = 0.5 + Math.sin(t * 10) * 0.3; }

@@ -80,6 +80,14 @@ wss.on('connection', ws => {
   const worldCalls = new Map();
   const send = data => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); };
   const timer = setTimeout(() => { if (!paired) ws.close(1008, 'Pairing required'); }, 5000);
+  // Heartbeat: a headset that vanished (Wi-Fi dropped, headset asleep) is let go within about 30 seconds,
+  // so the headset can reconnect instead of being refused as "already connected".
+  let alive = true;
+  const heartbeat = typeof ws.ping === 'function' ? setInterval(() => {
+    if (!alive) { ws.terminate(); return; }
+    alive = false; try { ws.ping(); } catch { /* closing */ }
+  }, 15000) : null;
+  ws.on?.('pong', () => { alive = true; });
   async function addTab(url) {
     if (tabs.size >= 4) throw Error('Close a browser window first (maximum four).');
     if (!useExtension && !context) context = await chromium.launchPersistentContext(root + '/profile', {
@@ -243,7 +251,7 @@ wss.on('connection', ws => {
   });
   ws.on('error', () => {});
   ws.on('close', () => {
-    closed = true; clearTimeout(timer);
+    closed = true; clearTimeout(timer); clearInterval(heartbeat);
     if (active === ws) { active = null; activeConnection = null; }
     for (const call of worldCalls.values()) { clearTimeout(call.t); call.reject(Error('Sunnyvale disconnected.')); }
     worldCalls.clear();
@@ -259,18 +267,33 @@ server.listen(port, '127.0.0.1', () => {
   console.log(useExtension ? 'Browser: your regular Google Chrome, through the Sunnyvale extension.' : 'Browser: isolated test Chromium.');
   console.log('Claude connector: https://YOUR-TUNNEL/mcp (its secret is in bridge/private/connector.txt)');
 });
-// Optional HTTPS relay. Only the authenticated WebSocket is exposed, never project files.
+// The public address the Quest and Claude use. Only the authenticated WebSocket and connector are exposed, never project files.
+// A permanent address (Tailscale Funnel) is used when bridge/private/public-address.txt holds it, for example
+// https://sunnyvale.example.ts.net: it never changes, so a restart breaks nothing. Without one, a temporary
+// cloudflared quick tunnel is used (its address changes on every restart).
+async function writeQuestLink(base) {
+  const link = 'https://p0champ.github.io/sunnyvale-study/#' + new URLSearchParams({ bridge: base.replace(/^https:/, 'wss:') + '/bridge', pair: token });
+  await writeFile(root + '/Open Sunnyvale.url', '[InternetShortcut]\r\nURL=' + link + '\r\n');
+  console.log('Your private Quest link is ready: bridge/private/Open Sunnyvale.url');
+  console.log('Keep this link private. It pairs the headset without typing the code.');
+}
 let tunnel;
+const permanent = (await readFile(root + '/public-address.txt', 'utf8').catch(() => '')).trim().replace(/\/+$/, '');
+const tailscaleExe = (process.env.ProgramFiles || 'C:\\Program Files') + '\\Tailscale\\tailscale.exe';
 const tunnelExe = fileURLToPath(new URL('./bin/cloudflared.exe', import.meta.url));
-if (process.env.BRIDGE_TUNNEL === '1' && existsSync(tunnelExe)) {
+if (/^https:\/\/[a-z0-9.-]+$/i.test(permanent)) {
+  // Make sure Tailscale Funnel still points at this bridge (it normally stays on by itself)
+  if (process.env.BRIDGE_TUNNEL !== '0' && existsSync(tailscaleExe)) {
+    const funnel = spawn(tailscaleExe, ['funnel', '--bg', String(port)], { windowsHide: true });
+    funnel.on('error', () => console.log('Could not check Tailscale Funnel. Is Tailscale running and signed in?'));
+    funnel.on('exit', code => console.log(code === 0 ? 'Permanent address: ' + permanent : 'Tailscale Funnel did not start. Open Tailscale and check it is connected.'));
+  }
+  await writeQuestLink(permanent);
+} else if (process.env.BRIDGE_TUNNEL === '1' && existsSync(tunnelExe)) {
   tunnel = spawn(tunnelExe, ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], { windowsHide: true });
   tunnel.stderr.on('data', async data => {
     const match = String(data).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-    if (!match) return;
-    const link = 'https://p0champ.github.io/sunnyvale-study/#' + new URLSearchParams({ bridge: match[0].replace('https:', 'wss:') + '/bridge', pair: token });
-    await writeFile(root + '/Open Sunnyvale.url', '[InternetShortcut]\r\nURL=' + link + '\r\n');
-    console.log('Your private Quest link is ready: bridge/private/Open Sunnyvale.url');
-    console.log('Keep this link private. It pairs the headset without typing the code.');
+    if (match) await writeQuestLink(match[0]);
   });
   tunnel.on('error', () => console.log('Secure relay could not start. Restart the bridge.'));
 }

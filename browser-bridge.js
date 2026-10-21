@@ -2,7 +2,7 @@ import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
 import { BrowserMedia } from './browser-media.js?v=round2-voice-3';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
-  makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel }) {
+  makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel, onConnection }) {
   let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false;
   const tabs = new Map();
   const restoredPanels = [];
@@ -118,11 +118,31 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     tabs.clear(); restoredPanels.length = 0; updateReadingQuality(); report('Disconnected. Reconnect before using the browser buttons.');
     for (const job of descriptions.values()) { clearTimeout(job.timer); job.resolve(null); } descriptions.clear();
   }
-  document.getElementById('bridgeDisconnect').onclick = disconnect;
-  window.addEventListener('pagehide', () => { media.stopAll(); ready = false; socket?.close(); });
-  document.getElementById('bridgeConnect').onclick = () => {
+  // Staying connected: after pressing Connect (or opening the private link), a dropped connection is retried
+  // by itself, after 2, 4, 8 ... up to 30 seconds, until it's back or you press Disconnect. Browser windows that
+  // were open come back in the same places once it reconnects.
+  let wanted = false, retryTimer = null, retryDelay = 2000, wasReady = false;
+  const setReady = value => { if (ready !== value) ready = value; if (value !== wasReady) { wasReady = value; onConnection?.(value); } };
+  function scheduleRetry(reason) {
+    if (!wanted) return;
+    clearTimeout(retryTimer);
+    const wait = retryDelay; retryDelay = Math.min(30000, retryDelay * 2);
+    report(`${reason} Trying again in ${Math.round(wait / 1000)} s…`);
+    retryTimer = setTimeout(() => { retryTimer = null; connect(true); }, wait);
+  }
+  document.getElementById('bridgeDisconnect').onclick = () => { wanted = false; clearTimeout(retryTimer); disconnect(); setReady(false); };
+  window.addEventListener('pagehide', () => { wanted = false; clearTimeout(retryTimer); media.stopAll(); ready = false; socket?.close(); });
+  document.getElementById('bridgeConnect').onclick = () => { wanted = true; retryDelay = 2000; clearTimeout(retryTimer); connect(false); };
+  function connect(automatic) {
     media.unlock().catch(() => {});
+    // Remember the browser windows (address, place, size, lock) so they reopen after reconnecting
+    if (automatic) for (const t of tabs.values()) if (t.url && !restoredPanels.some(r => r.url === t.url)) {
+      const u = t.panel.userData;
+      restoredPanels.push({ url: t.url, locked: !!u.locked, pose: { p: t.panel.position.toArray(), q: t.panel.quaternion.toArray(), s: t.panel.scale.toArray(), baseScale: u.baseScale || 1 } });
+    }
+    const reopen = automatic ? restoredPanels.slice() : [];
     disconnect();
+    restoredPanels.push(...reopen);
     let url;
     try { url = new URL(document.getElementById('bridgeURL').value.trim());
       if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && ['localhost', '127.0.0.1'].includes(url.hostname) && ['localhost', '127.0.0.1'].includes(location.hostname))) throw Error();
@@ -144,6 +164,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (socket !== current || ready) return;
         failure = message; clearTimers(); report(message);
         try { current.close(); } catch { /* connection already closed */ }
+        scheduleRetry(message);
       };
       const fallback = () => {
         if (socket !== current || ready) return;
@@ -172,7 +193,11 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
             .catch(e => send({ type: 'world-result', reqId: m.reqId, ok: false, error: String(e?.message || e) }));
           return;
         }
-        if (m.type === 'ready') { clearTimers(); ready = true; report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.')); }
+        if (m.type === 'ready') {
+          clearTimers(); setReady(true); retryDelay = 2000;
+          for (const saved of restoredPanels) send({ type: 'open', url: saved.url });
+          report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.'));
+        }
         if (m.type === 'browser-status') { if (!m.connected) media.stopAll(); report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.'); }
         if (m.type === 'sharing-stopped') media.stop(m.id);
         if (m.type === 'tab') {
@@ -226,12 +251,15 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         clearTimers();
         if (socket !== current) return;
         if (!https && !ready && !failure && event.code !== 1008) { fallback(); return; }
-        ready = false;
+        const lost = ready;
+        setReady(false);
         media.stopAll();
-        report(failure || (event.code === 1008
+        const why = failure || (event.code === 1008
           ? 'The PC rejected pairing. Check the full pairing code and disconnect any other Sunnyvale page. Keep the Chrome extension connected.'
-          : 'Bridge disconnected. Start it on the PC and reconnect.'));
-        status('Browser bridge disconnected');
+          : 'Bridge disconnected.');
+        report(why);
+        if (lost) status('Browser bridge disconnected');
+        scheduleRetry(why);
       };
       current.onerror = event => {
         if (socket !== current) return;
@@ -242,7 +270,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       };
     }
     connectTransport();
-  };
+  }
   window.addEventListener('keydown', e => {
     if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || !ready || !focused || !tabs.has(focused) || !keyboard?.visible) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -280,6 +308,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     open(url, saved) { if (!ready) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },
+    get wanted() { return wanted; },
     clearHover() { for (const tab of tabs.values()) { tab.cursor.visible = false; tab.lens.visible = false; } },
     hover(raycaster) {
       for (const tab of tabs.values()) { tab.cursor.visible = false; tab.lens.visible = false; }
