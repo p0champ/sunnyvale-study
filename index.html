@@ -50,7 +50,9 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=20261022-desk-1';
+import { installBrowserBridge } from './browser-bridge.js?v=20261022-thesis-1';
+import { installThesisTools } from './thesis-tools.js?v=20261022-thesis-1';
+let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
@@ -317,9 +319,9 @@ function wornPath(points, width = 1.1) {
   path.receiveShadow = true;
   park.add(path);
 }
-wornPath([[-1.2, 0.5], [0.6, -0.3], [2.2, -1.0], [3.4, 0.6], [3.6, 2.2]]);   // tarp â†’ barrel â†’ picnic table
-wornPath([[0.2, -1.2], [0.9, -3.0], [1.4, -5.6]]);                          // tarp â†’ the drive-in
-wornPath([[2.2, -1.0], [4.0, -3.4], [5.2, -5.0]], 0.9);                     // barrel â†’ the next trailer
+wornPath([[-1.2, 0.5], [0.6, -0.3], [2.2, -1.0], [3.4, 0.6], [3.6, 2.2]]);   // tarp → barrel → picnic table
+wornPath([[0.2, -1.2], [0.9, -3.0], [1.4, -5.6]]);                          // tarp → the drive-in
+wornPath([[2.2, -1.0], [4.0, -3.4], [5.2, -5.0]], 0.9);                     // barrel → the next trailer
 
 // A gravel patch where the cars park by the next trailer
 const gravelPatch = new THREE.Mesh(new THREE.CircleGeometry(3, 32),
@@ -853,6 +855,25 @@ function toggleLock(panel, value = !panel.userData.locked) {
   blip(value ? 500 : 800, 0.06);
   markDirty();
 }
+// Surfaces you can pinch-and-drag on: { mesh, down(uv) -> true if it takes the pinch, move(uv), up(uv) }
+const surfaces = [];
+function surfaceHit(ray) {
+  const meshes = surfaces.map(x => x.mesh).filter(m => shown(m) && !isLocked(m));
+  const hit = ray.intersectObjects(meshes, false)[0];
+  return hit ? { surface: surfaces.find(x => x.mesh === hit.object), uv: hit.uv } : null;
+}
+// Where a pinch (near) or a pointing ray (far) touches a surface
+function surfaceUV(state, surface) {
+  const { origin, dir } = rayFrom(state);
+  if (state.isHand) {
+    const p = pinchPoint(state, new THREE.Vector3());
+    if (p) { const n = new THREE.Vector3(0, 0, 1).applyQuaternion(surface.mesh.getWorldQuaternion(new THREE.Quaternion())); origin.copy(p).addScaledVector(n, 0.1); dir.copy(n).negate(); }
+  }
+  raycaster.set(origin, dir);
+  const hit = raycaster.intersectObject(surface.mesh, false)[0];
+  return hit ? hit.uv : null;
+}
+
 // Is this part of a locked window? (Locked windows can still be moved, but not clicked.)
 function isLocked(o) { for (let x = o; x && x !== scene; x = x.parent) if (x.userData?.locked) return true; return false; }
 function pressWindowButton(b) { if (pressCooldown > 0) return; pressCooldown = 0.5; blip(1100, 0.05); b.userData.action(); }
@@ -992,6 +1013,20 @@ function grab(state) {
     if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
   }
   { const { origin, dir } = rayFrom(state); raycaster.set(origin, dir); if (browserBridge?.hit(raycaster)) return; }
+  // Pinching on a surface (a document page while highlighting, a frame while drawing, a video bar)
+  {
+    let found = null;
+    if (state.isHand) {
+      const p = pinchPoint(state, new THREE.Vector3());
+      if (p) for (const sf of surfaces) {
+        if (!shown(sf.mesh) || isLocked(sf.mesh)) continue;
+        const local = sf.mesh.worldToLocal(p.clone()), g = sf.mesh.geometry.parameters;
+        if (Math.abs(local.z) < 0.05 && Math.abs(local.x) < g.width / 2 && Math.abs(local.y) < g.height / 2) { found = { surface: sf, uv: new THREE.Vector2(local.x / g.width + 0.5, local.y / g.height + 0.5) }; break; }
+      }
+    }
+    if (!found) { const { origin, dir } = rayFrom(state); raycaster.set(origin, dir); found = surfaceHit(raycaster); }
+    if (found && found.surface.down(found.uv, state)) { state.surface = found.surface; return; }
+  }
   // Close grab: pinch right on a window.
   if (state.isHand) {
     const p = pinchPoint(state, new THREE.Vector3());
@@ -1020,6 +1055,7 @@ function grab(state) {
 
 function release(state) {
   markDirty();
+  if (state.surface) { const sf = state.surface; state.surface = null; sf.up(surfaceUV(state, sf), state); return; }
   if (state.stroke) { state.stroke = null; return; }
   if (state.held) { setHeld(state.held, false); checkFlick(state, state.held); }
   state.held = null; state.mode = null;
@@ -1027,6 +1063,7 @@ function release(state) {
 
 function updateHeld() {
   for (const s of inputs) {
+    if (s.surface) { const uv = surfaceUV(s, s.surface); if (uv) s.surface.move(uv, s); continue; }
     if (s.stroke) { const p = drawPoint(s); if (p) addStrokePoint(s, p); }
     trackHeld(s);
     if (!s.held || !panels.includes(s.held)) continue;
@@ -1436,7 +1473,7 @@ function runClaudeTool(name, input) {
   }
   if (name === 'close_window') {
     const p = findWindow(input.id);
-    if (!p) return JSON.stringify({ ok: false, error: 'No window with that id' });
+    if (!p) return JSON.stringify({ ok: false, error: 'No window with that id. Use list_windows to see the ids.' });
     closeWindow(p);
     return JSON.stringify({ ok: true });
   }
@@ -1797,28 +1834,45 @@ function wrapCentered(ctx, text, x, y, maxW, lineH) {
 const holoLineMat = new THREE.LineBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
 
 // ---------- Mind maps: a glowing 3D web of ideas ----------
+// Each branch starts folded up (showing "+3"); pinch or tap a branch to expand or fold it.
 function createMindMap(title, branches) {
   const group = new THREE.Group();
   const center = holoLabel(title, { w: 0.26, h: 0.08, fill: 'rgba(110,10,10,0.75)' });
   group.add(center);
-  const pts = [];
+  const pts = [], nodes = { [title]: center }, folds = {};
   branches.slice(0, 8).forEach((b, i, all) => {
     const a = (i / all.length) * Math.PI * 2 + Math.PI / 2;
     const bp = new THREE.Vector3(Math.cos(a) * 0.36, Math.sin(a) * 0.24, (i % 2 ? 0.06 : -0.06));
-    const node = holoLabel(b.label, { w: 0.19, h: 0.055 });
+    const kids = (b.children || []).slice(0, 4);
+    const labelFor = open => kids.length ? `${b.label}  ${open ? '−' : '+' + kids.length}` : b.label;
+    const node = holoLabel(labelFor(false), { w: 0.19, h: 0.055 });
     node.position.copy(bp); group.add(node);
+    nodes[b.label] = node;
     pts.push(new THREE.Vector3(), bp.clone());
-    (b.children || []).slice(0, 4).forEach((c, j, kids) => {
+    const branch = new THREE.Group(); branch.visible = false; group.add(branch);
+    const cpts = [];
+    kids.forEach((c, j) => {
       const ca = a + (j - (kids.length - 1) / 2) * 0.42;
       const cp = bp.clone().add(new THREE.Vector3(Math.cos(ca) * 0.2, Math.sin(ca) * 0.14, (j % 2 ? 0.08 : -0.04)));
       const leaf = holoLabel(c, { w: 0.15, h: 0.045, fill: 'rgba(40,4,4,0.55)', color: '#ffe9c4' });
-      leaf.position.copy(cp); group.add(leaf);
-      pts.push(bp.clone(), cp.clone());
+      leaf.position.copy(cp); branch.add(leaf);
+      nodes[c] = leaf;
+      cpts.push(bp.clone(), cp.clone());
     });
+    if (cpts.length) branch.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(cpts), holoLineMat));
+    const toggle = (open = !branch.visible) => {
+      branch.visible = open;
+      const fresh = holoLabel(labelFor(open), { w: 0.19, h: 0.055 });
+      node.material.map.dispose(); node.material.map = fresh.material.map; node.material.needsUpdate = true; fresh.geometry.dispose();
+    };
+    folds[b.label] = toggle;
+    if (kids.length) touchables.push({ mesh: node, w: 0.19, h: 0.055, action: () => { blip(900, 0.06); toggle(); } });
   });
   group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), holoLineMat));
   const obj = makeHoloObject(group, 1.15, 0.85, title, 'map');
   obj.userData.build = ['map', title, branches];
+  obj.userData.nodes = nodes;
+  obj.userData.expand = label => { const f = folds[label] || Object.entries(folds).find(([k]) => k.toLowerCase().includes(String(label).toLowerCase()))?.[1]; f?.(true); };
   obj.userData.body = branches.map(b => b.label + ': ' + (b.children || []).join(', ')).join('; ');
   placeInFront(obj, 1.0, -0.05);
   blip(660, 0.12);
@@ -1835,6 +1889,7 @@ function createTimeline(title, events) {
   group.add(rail);
   const head = holoLabel(title, { w: 0.4, h: 0.08, fill: 'rgba(110,10,10,0.75)' });
   head.position.set(-span / 2 + 0.2, 0.42, 0); group.add(head);
+  const dots = [];
   evs.forEach((e, i) => {
     const x = -span / 2 + 0.15 + i * ((span - 0.3) / Math.max(1, evs.length - 1));
     const up = i % 2 ? 0.14 : 0.27;
@@ -1845,8 +1900,10 @@ function createTimeline(title, events) {
     dot.position.set(x, 0, 0); group.add(dot);
     const label = holoLabel(e.label, { w: 0.3, h: 0.11, big: String(e.year) });
     label.position.set(x, up + 0.06, 0); group.add(label);
+    dots.push(label);
   });
   const obj = makeHoloObject(group, span + 0.2, 0.6, title, 'timeline');
+  obj.userData.eventDots = dots;                                   // so Claude's orb can point at event number N
   obj.userData.build = ['timeline', title, events];
   obj.userData.body = evs.map(e => e.year + ': ' + e.label).join('; ');
   placeInFront(obj, 1.4, -0.35);
@@ -1866,7 +1923,7 @@ function cardTexture(text, back, n, total, title) {
     ctx.font = `600 ${size}px "Segoe UI", system-ui, sans-serif`;
     wrapCentered(ctx, text, 384, 250, 680, size * 1.3);
     ctx.font = '24px "Segoe UI", system-ui, sans-serif'; ctx.globalAlpha = 0.7;
-    ctx.fillText(`${title}  Â·  ${n}/${total}  Â·  ${back ? 'tap for next card' : 'tap to flip'}`, 384, 470);
+    ctx.fillText(`${title}  ·  ${n}/${total}  ·  ${back ? 'tap for next card' : 'tap to flip'}`, 384, 470);
   });
 }
 function createFlashcards(title, cards) {
@@ -1916,8 +1973,8 @@ const DEMO_MAP = { title: 'Film language', branches: [
   { label: 'Lighting', children: ['High-key', 'Low-key', 'Chiaroscuro'] },
   { label: 'Sound', children: ['Diegetic', 'Non-diegetic', 'Foley'] } ] };
 const DEMO_TIMELINE = { title: 'Film history', events: [
-  { year: 1895, label: 'LumiÃ¨re brothers hold the first public film screening' },
-  { year: 1902, label: 'A Trip to the Moon (MÃ©liÃ¨s)' },
+  { year: 1895, label: 'Lumière brothers hold the first public film screening' },
+  { year: 1902, label: 'A Trip to the Moon (Méliès)' },
   { year: 1920, label: 'The Cabinet of Dr. Caligari: German Expressionism' },
   { year: 1927, label: 'The Jazz Singer: synchronized dialogue arrives' },
   { year: 1939, label: 'Technicolor takes off: The Wizard of Oz' },
@@ -1928,7 +1985,7 @@ const DEMO_TIMELINE = { title: 'Film history', events: [
   { year: 1995, label: 'Toy Story: first fully computer-animated feature' },
   { year: 2009, label: 'Avatar pushes 3D and motion capture' } ] };
 const DEMO_CARDS = { title: 'Film terms', cards: [
-  { front: 'Mise-en-scÃ¨ne', back: 'Everything placed in front of the camera: set, props, actors, costume, lighting.' },
+  { front: 'Mise-en-scène', back: 'Everything placed in front of the camera: set, props, actors, costume, lighting.' },
   { front: 'Diegetic sound', back: 'Sound that exists inside the story world, which the characters can hear.' },
   { front: 'Match cut', back: 'A cut between two shots linked by a matching shape, action or sound.' },
   { front: 'Dolly zoom', back: 'The camera moves while zooming the opposite way, so the background warps (Vertigo).' },
@@ -2161,7 +2218,7 @@ function toggleTimer() {
 function fmt(sec) { sec = Math.max(0, Math.ceil(sec)); return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'); }
 function drawWrist() {
   const now = new Date();
-  const key = now.getHours() + ':' + now.getMinutes() + '|' + fmt(timer.left) + timer.running + timer.phase;
+  const key = now.getHours() + ':' + now.getMinutes() + '|' + fmt(timer.left) + timer.running + timer.phase + (thesisTools?.wordCount() ?? '');
   if (key === timer.lastDrawn) return;
   timer.lastDrawn = key;
   const ctx = wristCanvas.getContext('2d');
@@ -2173,6 +2230,7 @@ function drawWrist() {
   ctx.fillText(now.toTimeString().slice(0, 5), 34, 100);
   ctx.font = '26px "Segoe UI", system-ui, sans-serif';
   ctx.fillText(now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }).toUpperCase(), 36, 170);
+  if (thesisTools) { ctx.font = '22px "Segoe UI", system-ui, sans-serif'; ctx.fillText('✎ ' + thesisTools.wordCount().toLocaleString() + ' WORDS', 36, 215); }
   const total = timer.phase === 'focus' ? 25 * 60 : 5 * 60;           // timer ring
   ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(255,200,120,0.25)';
   ctx.beginPath(); ctx.arc(400, 120, 70, 0, Math.PI * 2); ctx.stroke();
@@ -2192,6 +2250,7 @@ function updateTimer(dt) {
   timer.left -= dt;
   if (timer.left > 0) return;
   if (timer.phase === 'focus') {
+    thesisTools?.onFocusComplete();
     timer.phase = 'break'; timer.left = 5 * 60;
     blip(880, 0.3, 0.2); setTimeout(() => blip(1100, 0.3, 0.2), 250);
     jarvisSay('Focus session complete. Time for a five minute break.', ['J.A.R.V.I.S.', 'FOCUS SESSION COMPLETE', 'TAKE A 5 MINUTE BREAK']);
@@ -2406,19 +2465,48 @@ for (const [i, [label, icon, url]] of breakServices.entries()) {
   });
   breakRows[Math.floor(i / 3)].add(b);
 }
+// Thesis tools: one button in the main row opens two rows of research / writing tools
+let thesisMenuOpen = false;
+const thesisRows = [0.27, 0.36].map(y => {
+  const row = new THREE.Group(); row.position.y = y; row.scale.setScalar(0.8);
+  row.visible = false; menu.add(row); return row;
+});
+const thesisButton = makeButton('THESIS', ctx => {
+  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 7;
+  ctx.strokeRect(84, 60, 70, 92); ctx.beginPath(); ctx.moveTo(98, 86); ctx.lineTo(140, 86); ctx.moveTo(98, 106); ctx.lineTo(140, 106); ctx.moveTo(98, 126); ctx.lineTo(126, 126); ctx.stroke();
+  ctx.strokeStyle = '#ffc861'; ctx.beginPath(); ctx.moveTo(150, 150); ctx.lineTo(186, 76); ctx.stroke();
+}, () => { thesisMenuOpen = !thesisMenuOpen; if (thesisMenuOpen) breakMenuOpen = false; syncBreakMenu(); layoutRows(); });
+const textIcon = t => ctx => { ctx.fillStyle = '#f4f0e8'; ctx.font = '700 52px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(t, 128, 128, 170); };
+const thesisItems = [
+  ['LIBRARY', '📚', 'library'], ['THESIS', '✎', 'thesis'], ['QUOTES', '❝', 'quotes'], ['SOURCES', 'BIB', 'sources'], ['DEADLINES', '⚑', 'deadlines'],
+  ['SPACES', '▦', 'spaces'], ['BRIEFING', '☀', 'briefing'], ['SCAN', '⌗', 'scan'], ['WAKE WORD', '“J”', 'wake'], ['LOG OFF', '⏻', 'logoff']
+];
+for (const [i, [label, icon, key]] of thesisItems.entries()) {
+  const b = makeButton(label, textIcon(icon), () => {
+    thesisMenuOpen = false; syncBreakMenu(); layoutRows();
+    if (key === 'spaces') return openSpacesPicker();
+    if (key === 'logoff') return thesisTools.menu.logOff();
+    ({ library: thesisTools.menu.library, thesis: thesisTools.menu.thesis, quotes: thesisTools.menu.quotes, sources: thesisTools.menu.sources,
+       deadlines: thesisTools.menu.deadlines, briefing: thesisTools.menu.briefing, scan: thesisTools.menu.scan, wake: thesisTools.menu.wake })[key]?.();
+  });
+  buttonRow.remove(b); thesisRows[Math.floor(i / 5)].add(b);
+}
+
 function isFocusActive() { return timer.running && timer.phase === 'focus'; }
 function syncBreakMenu() {
   const allowed = !isFocusActive();
   if (!allowed) breakMenuOpen = false;
   breakButton.visible = allowed;
   for (const row of breakRows) row.visible = allowed && breakMenuOpen;
-  toolRow.visible = !breakMenuOpen;
+  if (breakMenuOpen) thesisMenuOpen = false;
+  for (const row of thesisRows) row.visible = thesisMenuOpen;
+  toolRow.visible = !breakMenuOpen && !thesisMenuOpen;
 }
 syncBreakMenu();
 
 // Lay the buttons out in rows, and turn the whole menu to face you
 function layoutRows() {
-  for (const row of [buttonRow, toolRow, ...breakRows]) {
+  for (const row of [buttonRow, toolRow, ...breakRows, ...thesisRows]) {
     const vis = row.children.filter(b => b.visible);
     vis.forEach((b, i) => { b.position.x = (i - (vis.length - 1) / 2) * 0.092; });
   }
@@ -2588,6 +2676,7 @@ function setMode(next) {
   realGlass.visible = !stark; reactor.visible = stark;
   reactorButton.visible = !stark; bubblesButton.visible = stark;
   setClaudeLook(stark);
+  thesisTools?.repaint();
   starkFX.visible = stark;
   if (stark) placeBench();
   dissolve.uOn.value = 0;
@@ -2896,6 +2985,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
   const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(m => shown(m) && !isLocked(m)), false)[0];
   if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
   if (browserBridge?.hit(raycaster)) { e.preventDefault(); return; }
+  const sf = surfaceHit(raycaster);
+  if (sf && sf.surface.down(sf.uv, null)) { drag.surface = sf.surface; controls.enabled = false; return; }
   const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
   if (!hit) return;
   drag.panel = hit.object;
@@ -2906,13 +2997,15 @@ renderer.domElement.addEventListener('pointerdown', e => {
 });
 
 renderer.domElement.addEventListener('pointermove', e => {
+  if (drag.surface) { setPointer(e); const h = raycaster.intersectObject(drag.surface.mesh, false)[0]; if (h) drag.surface.move(h.uv, null); return; }
   if (!drag.panel) return;
   setPointer(e);
   const p = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
   if (p) { drag.panel.position.copy(p).add(drag.offset); faceViewer(drag.panel); }
 });
 
-window.addEventListener('pointerup', () => {
+window.addEventListener('pointerup', e => {
+  if (drag.surface) { setPointer(e); const h = raycaster.intersectObject(drag.surface.mesh, false)[0]; drag.surface.up(h?.uv || null, null); drag.surface = null; controls.enabled = true; return; }
   if (drag.panel) { setHeld(drag.panel, false); markDirty(); }
   drag.panel = null;
   controls.enabled = true;
@@ -2932,9 +3025,10 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; });
+renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; thesisTools?.onSessionStart(); });
 renderer.xr.addEventListener('sessionend', () => {
   document.getElementById('hint').style.display = '';
+  thesisTools?.onSessionEnd();
   menu.visible = false;
   trans.active = false; hud.visible = false; shockwave.visible = false; scanGrid.visible = false;
   flames.forEach(f => { f.visible = true; });
@@ -2964,13 +3058,33 @@ function runWorldTool(name, input) {
     hudMessage.lines = ['J.A.R.V.I.S.', ...(input.lines || []).slice(0, 3).map(String)]; hudMessage.t = 0; hud.visible = true;
     return 'Shown.';
   }
+  if (name === 'list_study_tools') return JSON.stringify([...CONNECTOR_TOOLS, ...Object.keys(thesisTools.tools)]);
+  if (thesisTools?.tools[name]) {
+    blip(1300, 0.08);
+    return Promise.resolve(thesisTools.tools[name](input || {})).then(result => {
+      if (result && typeof result === 'object' && result.image) return JSON.stringify({ __image: result.image, text: result.text || '' });
+      flyOrbTo(result);
+      return result;
+    });
+  }
   if (!CONNECTOR_TOOLS.has(name)) throw Error('Unknown world tool ' + name);
   blip(1300, 0.08);
-  return runClaudeTool(name, input);
+  const result = runClaudeTool(name, input);
+  flyOrbTo(result);
+  return result;
+}
+// Claude's orb flies over to whatever Claude just made or changed
+function flyOrbTo(result) {
+  try { const id = JSON.parse(result)?.id; if (id && thesisTools) thesisTools.tools.point_at({ id }); } catch { /* not every answer names a window */ }
 }
 browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool });
 window.studyDebug.browserBridge = browserBridge;
 window.studyDebug.setMode = setMode;
+thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touchables, surfaces, makeHoloObject, placeInFront, faceViewer, holoLabel,
+  canvasTexture, blip, jarvisSay, closeWindow, restorers, markDirty, getMode: () => mode, bridge: () => browserBridge, viewerPosition,
+  openWindow, setWindowContent, findWindow, readJSON, writeJSON, timerInfo: () => ({ running: timer.running, phase: timer.phase, left: timer.left }),
+  draw, stashWindow });
+window.studyDebug.thesis = thesisTools;
 {
   const saved = readJSON(DESK_KEY, null);
   if (saved?.items?.length) {
@@ -2999,6 +3113,7 @@ renderer.setAnimationLoop(window.studyDebug.animate = () => {
   updateWrist(dt);
   updateStarkFX(dt);
   updateHudMessage(dt);
+  thesisTools?.update(dt);
   updatePanels(dt);
   updateTransition(dt);
   if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);

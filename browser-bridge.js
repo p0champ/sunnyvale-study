@@ -3,7 +3,7 @@ import { BrowserMedia } from './browser-media.js?v=20261021-media-1';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool }) {
-  let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false;
+  let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false;
   const tabs = new Map();
   const normalFoveation = renderer?.xr?.getFoveation?.() ?? 1;
   const updateReadingQuality = () => renderer?.xr?.setFoveation?.(tabs.size ? 0 : normalFoveation);
@@ -156,7 +156,19 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (m.type === 'ready') { clearTimers(); ready = true; report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.')); }
         if (m.type === 'browser-status') { if (!m.connected) media.stopAll(); report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.'); }
         if (m.type === 'sharing-stopped') media.stop(m.id);
-        if (m.type === 'tab') newPanel(m);
+        if (m.type === 'tab') {
+          newPanel(m);
+          if (pendingType) {                                            // type the waiting text once the page has had time to load
+            const job = pendingType, id = m.id; pendingType = null;
+            setTimeout(() => {
+              send({ type: 'click', id, x: 640, y: 360 });
+              const parts = job.text.match(/[\s\S]{1,1500}/g) || [];
+              parts.forEach((part, i) => setTimeout(() => send({ type: 'text', id, text: part }), 600 + i * 450));
+              status(`Typing ${parts.length} part${parts.length === 1 ? '' : 's'} into the new document…`);
+            }, 8000);
+          }
+          if (pendingMic && /claude\.ai/.test(m.url || '')) { pendingMic = false; setTimeout(() => media.toggleMic(m.id), 4000); }
+        }
         if (m.type === 'location' && tabs.has(m.id)) tabs.get(m.id).url = m.url;
         if (m.type === 'viewport' && tabs.has(m.id)) { tabs.get(m.id).width = m.width; tabs.get(m.id).height = m.height; }
         if (m.type === 'audio') media.play(m.id, m.data, m.rate);
@@ -223,6 +235,19 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     open(url) { if (!ready) return false; send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },
+    // Open a page (e.g. docs.new) and type text into it once it has loaded (used to export the thesis)
+    openAndType(url, text) {
+      if (!ready) return false;
+      pendingType = { text: String(text) };
+      send({ type: 'open', url });
+      return true;
+    },
+    // Start sharing the headset microphone with the Claude tab (opens Claude first if needed)
+    claudeMic() {
+      const entry = [...tabs].find(([, t]) => /claude\.ai/.test(t.url || ''));
+      if (!entry) { if (ready) { pendingMic = true; send({ type: 'open', url: 'https://claude.ai/new' }); } return; }
+      if (media.microphone?.id !== entry[0]) media.toggleMic(entry[0]);
+    },
     hit(raycaster, scroll = 0) {
       const hit = raycaster.intersectObjects([...tabs.values()].map(t => t.content).filter(shown), false)[0];
       if (!hit) return false;
