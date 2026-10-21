@@ -65,6 +65,7 @@ test('HTTPS transport: auth, CORS, pairing, streaming, input, close, and actual 
     const client = await readFile(new URL('../browser-bridge.js', import.meta.url), 'utf8');
     const https = await readFile(new URL('../bridge-https.js', import.meta.url), 'utf8');
     const media = await readFile(new URL('../browser-media.js', import.meta.url), 'utf8');
+    const input = await readFile(new URL('../browser-click-input.js', import.meta.url), 'utf8');
     // Model the public HTTPS relay. Direct cross-origin loopback fetches are
     // deliberately restricted by newer Chrome and aren't our production route.
     await page.route('https://bridge.test/bridge/http/**', async route => {
@@ -76,6 +77,7 @@ test('HTTPS transport: auth, CORS, pairing, streaming, input, close, and actual 
       const body = await response.text();
       if (!page.isClosed()) await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body });
     });
+    await page.route('http://localhost:18123/browser-click-input.js', r => r.fulfill({ body: input, contentType: 'application/javascript' }));
     await page.route('http://localhost:18123/browser-bridge.js', r => r.fulfill({ body: client, contentType: 'application/javascript' }));
     await page.route('http://localhost:18123/bridge-https.js*', r => r.fulfill({ body: https, contentType: 'application/javascript' }));
     await page.route('http://localhost:18123/browser-media.js*', r => r.fulfill({ body: media, contentType: 'application/javascript' }));

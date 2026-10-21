@@ -17,3 +17,9 @@ Installed the approved per-user Startup shortcut. It runs a hidden supervisor fr
 The isolated Windows integration test covered an occupied port (no Node launch), crash recovery, repeated launcher, and shortcut install/remove. The actual installed guard was invoked while the real bridge was up: its process ID stayed unchanged. Eleven current test cases passed.
 
 To disable future automatic startup, double-click bridge/Disable Automatic Startup.bat in this branch, or delete Sunnyvale Browser Bridge from the Windows Startup folder. This deliberately leaves the current bridge running so the headset test is not interrupted. A shortcut entry is already installed even though source changes are not merged.
+
+## 3. One browser click per pinch
+
+Browser input now shares one per-hand latch between native select and fingertip contact, ignores repeated selectstart events, retains contact through small depth/edge jitter, and waits for a physically opened hand before re-arming after a noisy release. Controllers re-arm on release. Mirrored DOM pointer events are ignored during immersive XR. Lost/disconnected inputs and reconnects clear browser latches. A fresh pinch still works while a fingertip remains near the page.
+
+Fourteen tests passed, including the full actual app with synthetic controller events, an isolated bridge and a click-reporting browser fixture. Multiple starts/contact jitter/mirrored pointer produced one click; separate actions produced separate clicks. Three.js is a pinned test-only dependency for offline testing. The Jarvis gesture block and studyDebug.gestures are identical to 3d76373; index.html edits are limited to browser event routing and its cache version outside that block. Nothing is deployed to main.

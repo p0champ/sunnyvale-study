@@ -1,10 +1,16 @@
 import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
 import { BrowserMedia } from './browser-media.js?v=round2-voice-3';
+import { BrowserClickInput } from './browser-click-input.js';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel, onConnection }) {
   let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false;
   const tabs = new Map();
+  const browserInput = new BrowserClickInput();
+  const pinchClosed = state => {
+    const tip=state.isHand&&state.hand?.joints?.['index-finger-tip'], thumb=state.hand?.joints?.['thumb-tip'];
+    return !!(tip&&thumb&&state.hand.visible&&tip.getWorldPosition(tip.position.clone()).distanceTo(thumb.getWorldPosition(thumb.position.clone()))<.028);
+  };
   const restoredPanels = [];
   const descriptions = new Map(); let descriptionCount = 0;
   const calls = new Map(); let callCount = 0;          // requests that wait for an answer from the PC (backups)
@@ -114,6 +120,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     if (savedIndex >= 0) restorePanel?.(panel, restoredPanels.splice(savedIndex, 1)[0]);
   }
   function disconnect() {
+    browserInput.reset();
     media.stopAll();
     ready = false; const old = socket; socket = null; old?.close();
     for (const t of [...tabs.values()]) closeWindow(t.panel);
@@ -362,26 +369,39 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       if (!entry) { if (ready) { pendingMic = true; send({ type: 'open', url: 'https://claude.ai/new' }); } return; }
       if (media.microphone?.id !== entry[0]) media.toggleMic(entry[0]);
     },
-    hit(raycaster, scroll = 0) {
+    beginSelect(state) { return browserInput.begin(state); },
+    endSelect(state) { browserInput.end(state, pinchClosed(state)); },
+    cancelSelect(state) { browserInput.cancel(state); },
+    hit(raycaster, scroll = 0, source) {
       const hit = raycaster.intersectObjects([...tabs.values()].map(t => t.content).filter(shown), false)[0];
       if (!hit) return false;
       const panel = hit.object.parent, id = panel.userData.browserId;
       if (panel.userData.locked) return false;          // locked windows can be moved, but not clicked
+      if (!scroll && source && !browserInput.select(source)) return true;
       focused = id; addressMode = false;
       const tab = tabs.get(id);
       send({ type: scroll ? 'scroll' : 'click', id, x: Math.min(tab.width-1,hit.uv.x*tab.width), y: Math.min(tab.height-1,(1-hit.uv.y)*tab.height), delta: scroll });
       return true;
     },
     touch(point, state) {
+      browserInput.observe(state,pinchClosed(state));
+      if (state.hand?.visible === false) { browserInput.cancel(state); return; }
+      // Do not re-arm on tiny depth/edge tracking jitter. A fingertip must
+      // leave the wider contact area before another direct tap can click.
+      const contact=tabs.get(browserInput.contactOf(state));
+      if(contact && shown(contact.content) && !contact.panel.userData.locked) {
+        const p=contact.content.worldToLocal(point.clone());
+        if(Math.abs(p.z)<.035&&Math.abs(p.x)<.38&&Math.abs(p.y)<.245)return;
+      }
+      browserInput.leave(state);
       for (const [id, t] of tabs) {
         if (!shown(t.content) || t.panel.userData.locked) continue;
         const p = t.content.worldToLocal(point.clone());
         if (Math.abs(p.z) < .018 && Math.abs(p.x) < .36 && Math.abs(p.y) < .225) {
-          if (state.bridgeTouch !== id) { state.bridgeTouch = id; focused = id; send({ type: 'click', id, x: Math.min(t.width-1,(p.x / .72 + .5) * t.width), y: Math.min(t.height-1,(.5 - p.y / .45) * t.height) }); }
+          if (browserInput.contact(state,id)) { focused = id; send({ type: 'click', id, x: Math.min(t.width-1,(p.x / .72 + .5) * t.width), y: Math.min(t.height-1,(.5 - p.y / .45) * t.height) }); }
           return;
         }
       }
-      state.bridgeTouch = null;
     },
     closed(panel) {
       media.stop(panel.userData.browserId);
