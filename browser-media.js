@@ -12,28 +12,37 @@ function encodePCM(buffer) {
   let text = ''; for (const byte of new Uint8Array(buffer)) text += String.fromCharCode(byte); return btoa(text);
 }
 export class BrowserMedia {
-  context = null; microphone = null; workletReady = null; micGeneration = 0; nextAudio = new Map(); sources = new Map();
+  context = null; microphone = null; workletReady = null; micGeneration = 0; nextAudio = new Map(); sources = new Map(); leads = new Map();
+  voiceStats = { packets: 0, underruns: 0, dropped: 0, maxGap: 0, lastAt: 0, lead: .3 };
   constructor(send, report) { this.send = send; this.report = report; }
   async unlock() {
     this.context ||= new AudioContext();
     await this.context.resume();
   }
+  // Claude's voice arrives in 0.1 s pieces. Network and headset hiccups make pieces arrive in bursts, so the
+  // player keeps a small lead. Each time it runs dry (a gap you'd hear), it keeps a bit more lead for the
+  // rest of the conversation (0.3 s up to 1.2 s), so a choppy link becomes slightly later but smooth speech.
   play(id, data, rate) {
     if (!this.context || this.context.state !== 'running' || rate !== 24000 || typeof data !== 'string' || data.length > 20000) return;
     try {
       const samples = decodePCM(data), buffer = this.context.createBuffer(1, samples.length, rate);
       buffer.copyToChannel(samples, 0);
+      const now = this.context.currentTime, st = this.voiceStats;
+      st.packets++; const at = performance.now(); if (st.lastAt) st.maxGap = Math.max(st.maxGap, at - st.lastAt); st.lastAt = at;
+      let lead = this.leads.get(id) || .3, next = this.nextAudio.get(id) || 0;
+      if (next > now + lead + 2) { this.stopAudio(id); next = 0; st.dropped++; }
+      if (next < now) {
+        if (next) { st.underruns++; lead = Math.min(1.2, lead + .15); this.leads.set(id, lead); }
+        next = now + lead;
+      }
+      st.lead = lead;
       const source = this.context.createBufferSource(); source.buffer = buffer; source.connect(this.context.destination);
-      let next = this.nextAudio.get(id) || 0;
-      // A little more slack than before (0.3 s start, up to 2 s queued) so short network hiccups
-      // don't throw away Claude's words.
-      if (next > this.context.currentTime + 2) { this.stopAudio(id); next = 0; }
-      if (next < this.context.currentTime) next = this.context.currentTime + .3;
       source.start(next); this.nextAudio.set(id, next + buffer.duration);
       if (!this.sources.has(id)) this.sources.set(id, new Set());
       this.sources.get(id).add(source); source.onended = () => this.sources.get(id)?.delete(source);
     } catch { /* Ignore damaged audio without stopping the browser connection. */ }
   }
+  takeVoiceStats() { const s = this.voiceStats; this.voiceStats = { packets: 0, underruns: 0, dropped: 0, maxGap: 0, lastAt: s.lastAt, lead: s.lead }; return s; }
   async toggleMic(id) {
     if (this.microphone?.id === id) { this.stopMic(); return; }
     this.stopMic();

@@ -39,7 +39,8 @@ class HttpSocket extends EventEmitter {
         this.waiter = finish;
       });
       this.lastUsed = Date.now();
-      const messages = this.queue; this.queue = []; this.bytes = 0;
+      // Sound first: Claude's voice must not wait behind a browser picture in the same reply.
+      const messages = [...this.queue.filter(m => m.type === 'audio'), ...this.queue.filter(m => m.type !== 'audio')]; this.queue = []; this.bytes = 0;
       return { messages, closed: this.readyState !== 1 };
     } finally { this.polling = false; }
   }

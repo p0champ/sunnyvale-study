@@ -4,6 +4,12 @@
 
 This section is the current state. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
 
+### NEWEST (Claude, voice fix round 2 + diagnostics + stricter flick, 2026-10-21 late)
+- After round 1 the user still heard Claude's voice lagging (Display sharpness Fast did not help, so it's not GPU load). Round 2: the headset player is adaptive: starts 0.3 s ahead and adds 0.15 s each time it runs dry (max 1.2 s); flushes only past lead + 2 s. HTTPS-fallback replies now put audio before frames.
+- DIAGNOSTICS: every 10 s while sound plays, the headset sends {type:'voice-stats'} (pieces, underruns, dropped, maxGap ms between pieces arriving, lead, main-thread stall ms, transport wss/https). server.mjs appends it with the PC side (pieces sent, maxGap from Chrome, frames, frame KB, max bufferedAmount) to bridge/private/voice.log. No audio content is logged. Read it to see whether gaps start on the PC (Chrome capture) or in the network (Funnel).
+- FLICK less sensitive (user kept minimising windows by accident): open hand held 0.3 s first, tip speed > 2.4 m/s (was 1.5) and > 1.8 m/s in both halves of the 120 ms window, nothing for 1 s after releasing a window. Simulated: 2.8 and 3.5 m/s flicks minimise; 1.8 m/s, a 1.2 m/s wave, a flick within 100 ms of opening the hand and a whole-arm swing don't.
+- Cache tags voice-fix-2. Needs bridge restart + Quest refresh (no extension reload).
+
 ### NEWEST (Claude, voice lag fix, extension 0.4.5, 2026-10-21 evening)
 - User: Claude voice mode "lagging like crazy, missing half the words and cutting", new since the afternoon. Cause: since extension 0.4.4 every still is a 2560x1600 PNG (often 1-3 MB), re-captured every 250 ms while claude.ai's voice screen animates. Pictures and sound share one connection (now over Tailscale Funnel), so sound packets queued behind big pictures arrived late and the headset player dropped them (it flushed anything more than 0.7 s behind).
 - Fix: server.mjs tab.voice() is true while the headset mic is on for that tab, tab sound is enabled, or sound arrived in the last 3 s. Then stills are JPEG q70 at most once a second, and a frame waits while more than 64 KB is still buffered, so sound goes first. Without voice nothing changes (sharp PNG, 250 ms).

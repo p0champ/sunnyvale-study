@@ -80,6 +80,7 @@ function webURL(value) {
 wss.on('connection', ws => {
   let paired = false, closed = false, pending = 0, tabs = new Map(), sequence = Promise.resolve();
   const worldCalls = new Map();
+  let voice = { packets: 0, maxGap: 0, last: 0, frames: 0, frameKB: 0, maxBuffered: 0 };   // PC side of the voice diagnostics
   const send = data => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); };
   const timer = setTimeout(() => { if (!paired) ws.close(1008, 'Pairing required'); }, 5000);
   // Heartbeat: a headset that vanished (Wi-Fi dropped, headset asleep) is let go within about 30 seconds,
@@ -144,6 +145,7 @@ wss.on('connection', ws => {
       const delay = Math.max(0, 40 - (Date.now() - tab.sentAt));
       if (delay || ws.bufferedAmount > (tab.voice() ? 64000 : 1024000)) { tab.timer = setTimeout(tab.flush, delay || 100); return; }
       tab.waiting = true; tab.sentAt = Date.now();
+      voice.frames++; voice.frameKB += tab.latest.length / 1024;
       send({ type: 'frame', id, data: tab.latest }); tab.latest = null;
     };
     page.on('popup', popup => { const u = popup.url(); popup.close().catch(() => {}); if (/^https?:/.test(u)) addTab(u).catch(e => send({ type: 'error', message: e.message })); });
@@ -151,7 +153,7 @@ wss.on('connection', ws => {
     page.on('framenavigated', frame => { if (frame === page.mainFrame()) send({ type: 'location', id, url: page.url() }); });
     page.on('detached', () => { tab.micEnabled = false; send({ type: 'sharing-stopped', id }); send({ type: 'error', id, message: 'Chrome stopped sharing this tab. Reopen it from the menu. Your Chrome tab stays open.' }); });
     page.on('audio', packet => {
-      if (!closed && tabs.has(id) && packet?.rate === 24000 && typeof packet.data === 'string' && packet.data.length <= 20000) { tab.soundAt = Date.now(); send({ type: 'audio', id, rate: packet.rate, data: packet.data }); }
+      if (!closed && tabs.has(id) && packet?.rate === 24000 && typeof packet.data === 'string' && packet.data.length <= 20000) { const now = Date.now(); if (voice.last) voice.maxGap = Math.max(voice.maxGap, now - voice.last); voice.last = now; voice.packets++; voice.maxBuffered = Math.max(voice.maxBuffered, ws.bufferedAmount || 0); tab.soundAt = now; send({ type: 'audio', id, rate: packet.rate, data: packet.data }); }
     });
     page.on('audio-status', enabled => send({ type: 'audio-status', id, enabled }));
     send({ type: 'tab', id, url, title: page.currentTitle || '', width: tab.width, height: tab.height, audioEnabled: !!page.audioEnabled });
@@ -251,6 +253,13 @@ wss.on('connection', ws => {
     if (paired && (m.type.startsWith('backup-') || m.type === 'restore-part')) {
       backup.handle(m, data => send({ type: 'reply', reqId: m.reqId, ok: true, ...data }))
         .catch(e => send({ type: 'reply', reqId: m.reqId, ok: false, error: e.message }));
+      return;
+    }
+    if (paired && m.type === 'voice-stats') {
+      const pc = voice; voice = { packets: 0, maxGap: 0, last: voice.last, frames: 0, frameKB: 0, maxBuffered: 0 };
+      const line = new Date().toISOString() + ' headset ' + JSON.stringify({ packets: m.packets, underruns: m.underruns, dropped: m.dropped, maxGap: m.maxGap, lead: m.lead, stall: m.stall, transport: m.transport })
+        + ' pc ' + JSON.stringify({ packets: pc.packets, maxGap: pc.maxGap, frames: pc.frames, frameKB: Math.round(pc.frameKB), maxBuffered: pc.maxBuffered }) + '\n';
+      appendFile(root + '/voice.log', line).catch(() => {});
       return;
     }
     if (paired && m.type === 'mic-data') {
