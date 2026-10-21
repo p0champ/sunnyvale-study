@@ -9,6 +9,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
+import { annotationsFor } from './tool-annotations.mjs';
 
 const text = value => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }] });
 const failure = message => ({ content: [{ type: 'text', text: message }], isError: true });
@@ -65,6 +66,8 @@ export function createConnector({ secret, getConnection, log }) {
       ].join(' ')
     });
     const shortText = z.string().max(20000);
+    const register = server.registerTool.bind(server);
+    server.registerTool = (name, config, handler) => register(name, { ...config, annotations: annotationsFor(name, config.annotations) }, handler);
 
     // ---------- World tools (they run inside the Sunnyvale page) ----------
     server.registerTool('list_windows', {

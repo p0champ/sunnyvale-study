@@ -4,9 +4,11 @@ Read HANDOVER.md, MORNING_REPORT.md, bridge/README.md, then this file. The Claud
 
 Item 0 is fixed: try saved bridge settings automatically; disconnected Claude stays in VR with a clear message. Only the explicit outside-browser page button can leave VR, after confirmation. No bridge restart or extension reload for this change. A rotated temporary tunnel still requires the current private link.
 
-Part 1 items 1, 2, 3, 7, 8, 9, 11, 12 and 15 now have PC-tested fixes (see report). Continue remaining bugs and media/PDF checks. Record findings, actual PC validation and pending Quest checks in ROUND_TWO_REPORT.md. Use an isolated bridge for tests; keep the real bridge running. If a later backend restart is necessary, regenerate and verify connector setup, preserve credentials and guide the user through replacing the Quest address and re-adding the Claude connector.
+Part 1 repairs now have PC validation: items 1–13 and 15, plus the honest unsupported state/proposal for 14. See ROUND_TWO_REPORT.md for specific test evidence and pending real Quest/Google Docs checks. Extension 0.4.1 and backend updates need the single final restart/reload, new temporary addresses and connector verification; see the newest HANDOVER runtime checkpoint. Never restart again casually or reuse a stale link. Maintain one frontend connection.
 
-Parts 2–5 and permanent-address work need an explained proposal and explicit approval before implementation. Recommend the backup safety net first, then transparency/listening, search/capture/comfort/export. Do not make paid API keys mandatory.
+Next is user verification with the short Quest checklist. The current Google Docs result proves export handoff, not the live account/editor. Raw camera support and real hand comfort need actual Quest confirmation. Do not claim browser movie playback is smooth (snapshot cap remains four per second).
+
+Parts 2–5 and permanent-address work need approval. NEXT_FEATURES_PROPOSAL.md ranks the whole requested list with web limits, recommended order and wake-word/address alternatives. Recommend private PC backups first. Wait for an explicit yes before building any of them. No paid API key requirement.
 
 ## Historical roadmap (superseded where the checkpoint above differs)
 

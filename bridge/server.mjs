@@ -138,7 +138,7 @@ wss.on('connection', ws => {
       if (!closed && tabs.has(id) && packet?.rate === 24000 && typeof packet.data === 'string' && packet.data.length <= 20000) send({ type: 'audio', id, rate: packet.rate, data: packet.data });
     });
     page.on('audio-status', enabled => send({ type: 'audio-status', id, enabled }));
-    send({ type: 'tab', id, url, width: tab.width, height: tab.height, audioEnabled: !!page.audioEnabled });
+    send({ type: 'tab', id, url, title: page.currentTitle || '', width: tab.width, height: tab.height, audioEnabled: !!page.audioEnabled });
     cdp.on('Page.screencastFrame', async frame => {
       // Cast images can be low resolution even with a high maximum size. Use
       // them only as change notifications, then capture the actual HiDPI page.
@@ -146,10 +146,10 @@ wss.on('connection', ws => {
       tab.dirty = true; tab.schedule();
       await cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {});
     });
+    if (!useExtension) await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => send({ type: 'error', message: 'Page is still loading or could not be reached.' }));
     await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 30, maxWidth: 64, maxHeight: 40, everyNthFrame: 2 });
     tab.schedule();
     if (useExtension) send({ type: 'location', id, url: page.url() });
-    else await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => send({ type: 'error', message: 'Page is still loading or could not be reached.' }));
     return id;
   }
   async function command(m) {
@@ -165,10 +165,12 @@ wss.on('connection', ws => {
         // World tools run inside the Sunnyvale page; wait for its answer.
         world(name, input) {
           return new Promise((resolve, reject) => {
+            if (worldCalls.size >= 32) { reject(Error('Sunnyvale is busy. Wait for the current tools to finish.')); return; }
             const reqId = randomBytes(8).toString('hex');
-            const t = setTimeout(() => { worldCalls.delete(reqId); reject(Error('Sunnyvale did not answer in time.')); }, 15000);
+            const expiresAt = Date.now() + 60000;
+            const t = setTimeout(() => { worldCalls.delete(reqId); reject(Error('Sunnyvale did not answer within 60 seconds. Check the headset connection, then retry. Approval in Claude is controlled by Claude, not Sunnyvale.')); }, 60000);
             worldCalls.set(reqId, { resolve, reject, t });
-            send({ type: 'world-call', reqId, name, input });
+            send({ type: 'world-call', reqId, name, input, expiresAt });
           });
         }
       };
@@ -177,6 +179,10 @@ wss.on('connection', ws => {
     if (m.type === 'open') { await addTab(webURL(m.url)); return; }
     const tab = tabs.get(m.id); if (!tab) throw Error('Browser window is closed.');
     const { page, cdp } = tab;
+    if (m.type === 'page-info') {
+      const info = page.info ? await page.info() : { url: page.url(), title: await page.title(), text: (await page.locator('body').innerText({timeout:4000})).slice(0,8000) };
+      send({ type: 'page-info', id: m.id, reqId: String(m.reqId).slice(0,80), url: info.url, title: info.title, text: info.text }); return;
+    }
     if (m.type === 'ack') { tab.waiting = false; return; }
     if (m.type === 'close') { clearTimeout(tab.timer); clearTimeout(tab.stillTimer); tabs.delete(m.id); await page.close(); return; }
     if (m.type === 'audio-start') {
@@ -208,6 +214,7 @@ wss.on('connection', ws => {
     if (m.type === 'key' && ['Enter', 'Backspace', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight'].includes(m.key)) { await page.keyboard.press(m.key); return; }
     const x = Math.max(0, Math.min(tab.width - 1, Number(m.x))), y = Math.max(0, Math.min(tab.height - 1, Number(m.y)));
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw Error('Invalid pointer position.');
+    if (m.type === 'move') { await cdp.send('Input.dispatchMouseEvent', { type:'mouseMoved', x, y }); return; }
     if (m.type === 'click') {
       await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });

@@ -82,3 +82,14 @@ The necessary backend restart rotates the temporary relay address and stops old 
 Workspace browser sharing now accepts a saved pose after opening. Existing VR browser panels are detached/replaced on workspace load; native Chrome tabs stay open. Position, quaternion and full scale vectors are restored without rounding; old scalar-scale saves remain supported. Stored positions use the scene/local-floor reference; headset recentering across sessions can still shift that reference. No bridge restart or extension update is required for these page changes.
 
 The browser window header and headset status strip now show MIC CONNECTING / LISTENING while the Quest mic is shared. Toggling off, closing, disconnecting or a track ending clears it. Sunnyvale speech defaults to English (US), selectable as English (UK) in the thesis settings on the 2D page. Claude website speech has its own Settings > General > Voice > Language setting: https://support.claude.com/en/articles/11101966-use-voice-mode
+
+
+## Round-two final bridge update: extension 0.4.1
+
+Reload the extension at chrome://extensions once. No reinstall or sign-in reset. Lost-target CDP errors reattach/retry once with viewport/capture/mic restored; explicit user sharing cancellation is respected. Fixed read-only page-info inspects only the shared tab's URL/title/visible body (8,000 chars), never input values/cookies/storage. Browser gaze uses it, cursor/Lens improve aiming, and logical CSS coordinates avoid double-applying pixel density.
+
+All MCP tools have explicit annotation hints. Reads/additive local tools are non-destructive; close_window remains destructive because unsaved content can be removed. Hints do not override Claude permissions: Customize > Connectors > Sunnyvale Study > Tool permissions > Always allow for trusted tools. The bridge waits 60 seconds for the world (previously 15), sends an expiry, and the page refuses expired requests. Claude's pre-call approval UI has its own timing.
+
+Run npm test: nine tests, sequential browser suites, isolated profiles/ports. Includes real disposable extension recovery/page context, authenticated MCP metadata, media lifecycles, camera rejection, citations, motion and language. Disposable Playwright screenshot streaming starts after initial navigation; production still uses ordinary Chrome via the extension.
+
+Backend update requires a single restart. Preserve private pairing/connector credentials; regenerate private connector setup and run check-connector.mjs. The quick-tunnel hostname changes, so Quest must use the current private shortcut and Claude must have its connector removed/re-added from the new private setup file. Restart also stops tab sound capture. The report contains user steps and separates completed PC checks from pending actual headset/account tests.

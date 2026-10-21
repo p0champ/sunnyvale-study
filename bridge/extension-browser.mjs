@@ -56,12 +56,13 @@ export class ExtensionBrowser extends EventEmitter {
     this.pages.set(id, page);
     const cdp = (method, params) => this.request('cdp', { id, method, params });
     page.attach = async url => {
-      try { const result = await this.request('open', { id, url }); page.currentURL = result.url; page.audioEnabled = result.audioEnabled; }
+      try { const result = await this.request('open', { id, url }); page.currentURL = result.url; page.currentTitle = result.title; page.audioEnabled = result.audioEnabled; }
       catch (error) { this.pages.delete(id); throw error; }
     };
     page.cdp.send = (method, params) => method === 'Page.screencastFrameAck' ? Promise.resolve() : cdp(method, params);
     page.mainFrame = () => page.frame;
     page.url = () => page.currentURL;
+    page.info = async () => { const info = await this.request('page-info', { id }); page.currentURL = info.url; page.currentTitle = info.title; return info; };
     page.goto = async url => {
       const result = await cdp('Page.navigate', { url }); if (result.errorText) throw Error(result.errorText);
     };

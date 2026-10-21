@@ -1,4 +1,5 @@
 import { formatReference, speechLanguage } from './study-utils.js?v=round2-voice-3';
+import { environmentCamera, rawCamera, rawCameraImage } from './scanner-camera.js?v=round2-camera-4';
 // Thesis and Jarvis tools for Sunnyvale Study: a file library, PDF reader with highlights, quote collector,
 // citation builder, video player with timestamp pins, frame grabs, side-by-side comparison, a live thesis
 // document, deadlines, a status strip (word count + next deadline), session summaries, morning briefings,
@@ -196,7 +197,7 @@ export function installThesisTools(ctx) {
       move: uv => { if (r.sel) { r.sel.b = uv; drawPage(r); } },
       up: uv => { if (!r.sel) return; r.sel.b = uv || r.sel.b; highlightRect(r, r.sel); r.sel = null; drawPage(r); }
     });
-    loadPdf(r).catch(e => { relabel(obj.userData.pageLabel, 'COULD NOT OPEN'); console.warn(e); });
+    r.ready = loadPdf(r).then(() => r, e => { r.loadError = Error('Could not open this PDF: ' + e.message); relabel(obj.userData.pageLabel, 'COULD NOT OPEN'); return null; });
     return show(obj, 0.75, -0.05);
   }
   async function loadPdf(r) {
@@ -289,7 +290,8 @@ export function installThesisTools(ctx) {
   async function readerFor(id) {
     const r = [...readers.values()].find(x => x.obj.userData.id === id) || [...readers.values()].find(x => x.obj.userData.title.toLowerCase().includes(String(id).toLowerCase()));
     if (!r) throw Error('No open document with that id. Open it first with open_document.');
-    if (!r.doc) await new Promise(res => setTimeout(res, 1500));
+    await r.ready;
+    if (r.loadError) throw r.loadError;
     return r;
   }
   async function readPages(r, from, to) {
@@ -564,11 +566,28 @@ export function installThesisTools(ctx) {
   }
   restorers.image = item => openImage(item);
   // Scan a book page with the headset camera (only where Quest Browser allows camera access)
+  let rawScanReady = false, rawCapture = null;
+  const scanUnavailable = () => {
+    jarvisSay('', ['SCAN', 'REAL PAGE CAMERA IS NOT AVAILABLE', 'ADD A PHOTO TO THE LIBRARY INSTEAD']);
+    return openWindow('Add a photo of the page', 'This browser has not provided a real outward-facing camera. Avatar/selfie cameras cannot scan a book. Take a photo on your phone, transfer it to the Quest, then add it under Library on the Sunnyvale page. Files are stored in the browser where you upload them.');
+  };
+  async function saveScan(dataURL) {
+    const blob = await (await fetch(dataURL)).blob();
+    await addFiles([new File([blob], `Scanned page ${Date.now()}.jpg`, {type:'image/jpeg'})]);
+    const f=store.library().at(-1);openImage({fileId:f.id,title:f.name});
+    jarvisSay('', ['SCAN','PAGE SAVED IN YOUR LIBRARY']);
+  }
   async function openScanner() {
+    if (rawScanReady) {
+      const obj=openWindow('Real page camera', 'Point the headset at the page, then tap Capture. This captures one real camera image; it does not record a video.');obj.userData.noSave=true;
+      addButton(obj,'CAPTURE PAGE',0,-.29,.28,()=>{rawCapture=obj;});
+      obj.userData.onClose=()=>{if(rawCapture===obj)rawCapture=null;};return obj;
+    }
     let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 1280, height: 720 } }); }
-    catch { jarvisSay('', ['J.A.R.V.I.S.', "THE HEADSET CAMERA ISN'T AVAILABLE HERE", 'ADD A PHOTO TO THE LIBRARY INSTEAD']); return null; }
-    const video = document.createElement('video'); video.srcObject = stream; video.playsInline = true; video.muted = true; await video.play();
+    try { stream = await environmentCamera(); }
+    catch { return scanUnavailable(); }
+    const video = document.createElement('video'); video.srcObject = stream; video.playsInline = true; video.muted = true;
+    try { await video.play(); } catch { stream.getTracks().forEach(t=>t.stop()); return scanUnavailable(); }
     const group = new THREE.Group();
     const tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.SRGBColorSpace;
     group.add(new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.4), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })));
@@ -1000,7 +1019,7 @@ export function installThesisTools(ctx) {
   // ================================================================ GAZE: what you're looking at (and a picture of it for Claude)
   const lookTarget = new THREE.WebGLRenderTarget(768, 432);
   const lookCam = new THREE.PerspectiveCamera(70, 768 / 432, 0.05, 100);
-  function whatUserSees() {
+  async function whatUserSees() {
     const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
     cam.updateMatrixWorld();
     const origin = v3().setFromMatrixPosition(cam.matrixWorld), dir = v3().set(0, 0, -1).transformDirection(cam.matrixWorld);
@@ -1011,6 +1030,13 @@ export function installThesisTools(ctx) {
       const p = hit.object, u = p.userData;
       info = { looking_at: u.kind || 'window', id: u.browserId ? 'browser:' + u.browserId : u.id, title: u.title, text: String(u.body || '').slice(0, 2000), distance_m: +hit.distance.toFixed(2) };
       if (u.kind === 'pdf') { const r = readers.get(p); if (r) info.page = r.page; }
+      if (u.browserId) {
+        const page = await bridge()?.describe?.(u.browserId);
+        info.url = page?.url || bridge()?.urlOf(u.browserId) || '';
+        info.title = page?.title || info.title;
+        info.text = page?.text || '';
+        if (page?.stale) info.page_context_stale = true;
+      }
     }
     // Render what's in front of the user (virtual objects only; the real room isn't visible to the page)
     lookCam.position.copy(origin); lookCam.quaternion.setFromRotationMatrix(cam.matrixWorld);
@@ -1059,6 +1085,7 @@ export function installThesisTools(ctx) {
     <button id="thesisDownload">Download thesis (.txt)</button> <button id="thesisDownloadDoc">Download thesis (Word .doc)</button>
     <label>Sunnyvale speech language <select id="speechLanguage"><option value="en-US">English (US)</option><option value="en-GB">English (UK)</option></select></label>
     <small>This controls Sunnyvale speech. Claude's own voice and response language are set separately in Claude.</small>
+    <label><input id="rawCameraEnable" type="checkbox"> Allow real-camera Scan this VR session (where supported)</label>
     <div id="sessionSummary"></div>`;
   hint?.appendChild(box);
   const el = id => document.getElementById(id);
@@ -1070,7 +1097,8 @@ export function installThesisTools(ctx) {
   const download = (name, type, text) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
   el('thesisDownload')?.addEventListener('click', () => download('thesis.txt', 'text/plain', thesisText()));
   el('thesisDownloadDoc')?.addEventListener('click', () => download('thesis.doc', 'application/msword',
-    `<html><body><h1>${thesis.title}</h1>${thesis.paras.map(p => p.heading ? `<h2>${p.text}</h2>` : `<p>${p.text}</p>`).join('')}<h2>Bibliography</h2>${store.sources().map(s => `<p>${reference(s)}</p>`).join('')}</body></html>`));
+    `<html><meta charset="utf-8"><body><h1>${escapeHTML(thesis.title)}</h1>${thesis.paras.map(p => p.heading ? `<h2>${escapeHTML(p.text)}</h2>` : `<p>${escapeHTML(p.text)}</p>`).join('')}<h2>Bibliography</h2>${store.sources().map(s => `<p>${escapeHTML(reference(s))}</p>`).join('')}</body></html>`));
+  function escapeHTML(value) { return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
   function renderLibraryPage() {
     const list = el('libraryList'), dl = el('deadlineList');
     if (list) {
@@ -1127,7 +1155,7 @@ export function installThesisTools(ctx) {
     add_deadline: ({ title, date }) => ok({ deadline: addDeadline(title, date) }),
     remove_deadline: ({ id }) => { removeDeadline(id); return ok({}); },
     list_deadlines: () => JSON.stringify(upcoming().map(d => ({ ...d, days_left: daysLeft(d.date) }))),
-    write_session_summary: ({ done, next }) => { session.claude = { done: clampText(done, 1500), next: clampText(next, 1500) }; const all = store.sessions(); if (session.finished && all.length) { all[all.length - 1].claude = session.claude; store.setSessions(all); } return ok({}); },
+    write_session_summary: ({ done, next }) => { session.claude = { done: clampText(done, 1500), next: clampText(next, 1500) }; const all = store.sessions(); if (session.finished && all.length) { all[all.length - 1].claude = session.claude; store.setSessions(all); } refreshBriefing(); return ok({}); },
     show_briefing: () => ok({ id: briefing(false).userData.id }),
     point_at: ({ id, part }) => pointAt(id, part) && ok({}),
     what_user_is_looking_at: () => whatUserSees(),
@@ -1141,7 +1169,11 @@ export function installThesisTools(ctx) {
   return {
     tools,
     addFiles,
-    update(dt) { updateOrb(dt); refreshStrip(); for (const p of players.values()) if (!p.video.paused) p.drawBar?.(); },
+    update(dt) {
+      updateOrb(dt); refreshStrip(); for (const p of players.values()) if (!p.video.paused) p.drawBar?.();
+      const camera=renderer.xr.isPresenting ? rawCamera(renderer) : null;rawScanReady=!!camera;
+      if(rawCapture){rawCapture=null;try{if(!camera)throw Error('Camera unavailable');saveScan(rawCameraImage(renderer,camera)).catch(()=>scanUnavailable());}catch{scanUnavailable();}}
+    },
     onSessionStart: startSession,
     onSessionEnd: finishSession,
     onFocusComplete() { session.focusDone++; },

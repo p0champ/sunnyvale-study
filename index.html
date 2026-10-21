@@ -89,7 +89,7 @@ document.body.appendChild(enterButton);
   enterButton.textContent = 'ENTER SUNNYVALE';
   enterButton.onclick = async () => {
     const session = await xr.requestSession(ar ? 'immersive-ar' : 'immersive-vr', {
-      requiredFeatures: ['local-floor'], optionalFeatures: ['bounded-floor', 'hand-tracking']
+      requiredFeatures: ['local-floor'], optionalFeatures: ['bounded-floor', 'hand-tracking', ...(ar && document.getElementById('rawCameraEnable')?.checked ? ['camera-access'] : [])]
     });
     passthrough = ar;
     try { sound().resume(); } catch (e) { /* no sound available */ }
@@ -3007,6 +3007,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
 });
 
 renderer.domElement.addEventListener('pointermove', e => {
+  if (!drag.panel && !drag.surface) { setPointer(e); browserBridge?.hover(raycaster); }
   if (drag.surface) { setPointer(e); const h = raycaster.intersectObject(drag.surface.mesh, false)[0]; if (h) drag.surface.move(h.uv, null); return; }
   if (!drag.panel) return;
   setPointer(e);
@@ -3125,6 +3126,12 @@ renderer.setAnimationLoop(window.studyDebug.animate = () => {
   fireLight.intensity = 9 + Math.sin(t * 13) * 1.5 + Math.sin(t * 7.3) * 1.5;
   if (park.visible) updateFire(dt);
   updateHeld();
+  if (renderer.xr.isPresenting) {
+    browserBridge?.clearHover();
+    for (const s of inputs) if (s.ray.visible && (!s.isHand || s.hand.visible) && !s.held && s !== palm.state) {
+      const {origin,dir}=rayFrom(s);raycaster.set(origin,dir);if(browserBridge?.hover(raycaster))break;
+    }
+  }
   updateMenu(dt);
   updateClaudeButton(dt);
   updateTouches(dt);

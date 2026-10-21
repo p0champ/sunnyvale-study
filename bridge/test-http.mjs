@@ -37,6 +37,7 @@ test('HTTPS transport: auth, CORS, pairing, streaming, input, close, and actual 
     const first = await (await request('poll', session)).json(); assert.equal(first.messages[0].type, 'ready');
     const messages = [];
     async function pollUntil(check) {
+      const cached = check(); if (cached) return cached;
       for (let i = 0; i < 15; i++) {
         const result = await (await request('poll', session)).json(); messages.push(...result.messages);
         for (const m of result.messages) if (m.type === 'frame') await send({ type: 'ack', id: m.id });

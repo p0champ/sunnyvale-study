@@ -65,6 +65,41 @@ const permittedCommands = new Set(['Page.enable', 'Page.startScreencast', 'Page.
   'Page.navigate', 'Page.getNavigationHistory', 'Page.navigateToHistoryEntry', 'Page.reload', 'Page.captureScreenshot',
   'Emulation.setDeviceMetricsOverride', 'Emulation.clearDeviceMetricsOverride', 'Input.dispatchMouseEvent',
   'Input.dispatchKeyEvent', 'Input.insertText']);
+async function recoverTab(tab) {
+  if (![...tabs.values()].includes(tab)) throw Error('Chrome sharing was stopped. Reopen the window from Sunnyvale.');
+  if (tab.recovering) return tab.recovering;
+  tab.recovering = (async () => {
+    const current = await chrome.tabs.get(tab.tabId); webURL(current.url);
+    await chrome.tabs.update(tab.tabId, { active: true });
+    if (![...tabs.values()].includes(tab)) throw Error('Chrome sharing was stopped.');
+    try { await chrome.debugger.attach({ tabId: tab.tabId }, '1.3'); }
+    catch (error) { if (!/already attached/i.test(error.message)) throw error; }
+    await withTimeout(chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.enable'), 8000, 'The tab is still waking up.');
+    await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Emulation.setDeviceMetricsOverride', tab.viewport || { width:1280, height:800, deviceScaleFactor:2, mobile:false });
+    if (tab.cast) await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.startScreencast', tab.cast).catch(error => { if (!/already active/i.test(error.message)) throw error; });
+    if (tab.micScript && ['claude.ai','www.claude.ai','localhost','127.0.0.1'].includes(new URL(current.url).hostname)) {
+      await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: tab.micScript }).catch(() => {});
+      const source = '(' + installRemoteMicrophone.toString() + ')();';
+      tab.micScript = (await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.addScriptToEvaluateOnNewDocument', { source })).identifier;
+      await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Runtime.evaluate', { expression: source, userGesture: true });
+    }
+    tab.needsAttach = false;
+  })();
+  try { await tab.recovering; } finally { tab.recovering = null; }
+}
+async function sendCDP(tab, method, params = {}) {
+  if (method === 'Emulation.setDeviceMetricsOverride') tab.viewport = params;
+  if (method === 'Page.startScreencast') tab.cast = params;
+  if (method === 'Page.stopScreencast') tab.cast = null;
+  try {
+    if (tab.needsAttach) await recoverTab(tab);
+    return await chrome.debugger.sendCommand({ tabId: tab.tabId }, method, params);
+  } catch (error) {
+    if (!/not attached|not attached to an active page|no target with given id|session closed/i.test(error.message)) throw error;
+    await recoverTab(tab);
+    return chrome.debugger.sendCommand({ tabId: tab.tabId }, method, params);
+  }
+}
 async function command(m) {
   if (m.command === 'open') {
     if (tabs.size >= 4) throw Error('Close a Sunnyvale browser window first (maximum four).');
@@ -90,11 +125,19 @@ async function command(m) {
       await chrome.tabs.update(tab.id, { active: true, muted: !audioTabs.has(tab.id) });
       await withTimeout(chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable'), 8000, 'The tab is still waking up.');
       await chrome.debugger.sendCommand({ tabId: tab.id }, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
-      return { tabId: tab.id, url: tab.url || u.href, audioEnabled: audioTabs.has(tab.id) };
+      return { tabId: tab.id, url: tab.url || u.href, title: tab.title || '', audioEnabled: audioTabs.has(tab.id) };
     } catch (error) { const record = tabs.get(m.id); tabs.delete(m.id); await detach(record); throw error; }
   }
   const tab = tabs.get(m.id); if (!tab) throw Error('Chrome tab is no longer attached. Reopen it from Sunnyvale.');
   if (m.command === 'release') { tabs.delete(m.id); await detach(tab); return {}; }
+  if (m.command === 'page-info') {
+    // Fixed read-only inspection, limited to the already shared tab. Input
+    // values, cookies, storage and passwords are deliberately not inspected.
+    const expression = `JSON.stringify({url:location.href,title:document.title,text:(document.body?.innerText||'').slice(0,8000),width:innerWidth,height:innerHeight,dpr:devicePixelRatio})`;
+    const result = await sendCDP(tab, 'Runtime.evaluate', { expression, returnByValue: true });
+    if (result.exceptionDetails) throw Error('The page is navigating. Try looking at it again.');
+    return JSON.parse(result.result.value);
+  }
   if (m.command === 'audio-start') { await startAudio(tab.tabId); return {}; }
   if (m.command === 'audio-stop') { await stopAudio(tab.tabId); return {}; }
   if (m.command === 'mic-start') {
@@ -115,8 +158,8 @@ async function command(m) {
   }
   if (m.command !== 'cdp' || !permittedCommands.has(m.method)) throw Error('Unsupported browser command.');
   if (m.method === 'Page.navigate') webURL(m.params.url);
-  let result = await chrome.debugger.sendCommand({ tabId: tab.tabId }, m.method, m.params || {});
-  if (m.method === 'Page.captureScreenshot' && result.data?.length > 3000000) result = await chrome.debugger.sendCommand({ tabId: tab.tabId }, m.method, { ...m.params, format: 'jpeg', quality: 95 });
+  let result = await sendCDP(tab, m.method, m.params || {});
+  if (m.method === 'Page.captureScreenshot' && result.data?.length > 3000000) result = await sendCDP(tab, m.method, { ...m.params, format: 'jpeg', quality: 95 });
   return result;
 }
 chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -137,9 +180,13 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   }
   if (method === 'Page.frameNavigated' && !params.frame.parentId) send({ type: 'event', id: item[0], method, params });
 });
-chrome.debugger.onDetach.addListener(source => {
+chrome.debugger.onDetach.addListener(async (source, reason) => {
   const item = [...tabs].find(([, tab]) => tab.tabId === source.tabId);
   if (!item) return;
+  if (reason !== 'canceled_by_user') {
+    const current = await chrome.tabs.get(source.tabId).catch(() => null);
+    if (current && tabs.has(item[0])) { item[1].needsAttach = true; return; }
+  }
   tabs.delete(item[0]); stopAudio(source.tabId); send({ type: 'event', id: item[0], method: 'detached', params: {} });
 });
 async function connect() {

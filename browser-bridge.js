@@ -6,6 +6,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
   let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false;
   const tabs = new Map();
   const restoredPanels = [];
+  const descriptions = new Map(); let descriptionCount = 0;
   const normalFoveation = renderer?.xr?.getFoveation?.() ?? 1;
   const updateReadingQuality = () => renderer?.xr?.setFoveation?.(tabs.size ? 0 : normalFoveation);
   const send = m => { if (ready && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(m)); };
@@ -82,6 +83,13 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     const content = new THREE.Mesh(new THREE.PlaneGeometry(.72, .45), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
     content.position.set(0, -.025, .006); panel.add(content);
     const tab = { panel, content, canvas, ctx, texture, url: m.url, decoding: false, width: m.width || 1280, height: m.height || 800, audioEnabled: !!m.audioEnabled }; tabs.set(m.id, tab);
+    tab.title = m.title || new URL(m.url).hostname; panel.userData.title = tab.title; panel.userData.url = m.url;
+    tab.cursor = new THREE.Mesh(new THREE.RingGeometry(.002, .004, 24), new THREE.MeshBasicMaterial({color:0xffd27a,depthTest:false,toneMapped:false}));
+    tab.cursor.position.z = .004; tab.cursor.renderOrder = 1001; tab.cursor.visible = false; content.add(tab.cursor);
+    const lensCanvas = document.createElement('canvas'); lensCanvas.width = 512; lensCanvas.height = 320;
+    tab.lensCanvas = lensCanvas; tab.lensTexture = new THREE.CanvasTexture(lensCanvas); tab.lensTexture.colorSpace = THREE.SRGBColorSpace;
+    tab.lens = new THREE.Mesh(new THREE.PlaneGeometry(.2,.125),new THREE.MeshBasicMaterial({map:tab.lensTexture,depthTest:false,toneMapped:false}));
+    tab.lens.renderOrder = 1000; tab.lens.visible = false; panel.add(tab.lens);
     updateReadingQuality();
     button(panel, 'Back', -.32, .235, .09, () => send({ type: 'back', id: m.id }));
     button(panel, 'Next', -.22, .235, .09, () => send({ type: 'forward', id: m.id }));
@@ -89,6 +97,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     button(panel, 'URL', -.02, .235, .09, () => { focused = m.id; addressMode = true; address = ''; showKeyboard(m.id); keyboard.visible = true; status('Type a website address, then Enter'); });
     button(panel, 'Keys', .08, .235, .09, () => { addressMode = false; showKeyboard(m.id); });
     button(panel, 'New', .18, .235, .09, () => send({ type: 'open', url: 'https://example.com' }));
+    const lensButton = button(panel, 'Lens', .28, .235, .09, () => { tab.lensEnabled = !tab.lensEnabled; lensButton.userData.label(tab.lensEnabled ? 'Lens ON' : 'Lens'); tab.lens.visible = false; });
     button(panel, 'Up', -.17, -.29, .16, () => send({ type: 'scroll', id: m.id, x: 640, y: 400, delta: -550 }));
     button(panel, 'Down', .02, -.29, .16, () => send({ type: 'scroll', id: m.id, x: 640, y: 400, delta: 550 }));
     button(panel, 'Text +', -.28, -.36, .16, () => send({ type: 'text-scale', id: m.id, delta: 1 }));
@@ -108,6 +117,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     ready = false; const old = socket; socket = null; old?.close();
     for (const t of [...tabs.values()]) closeWindow(t.panel);
     tabs.clear(); restoredPanels.length = 0; updateReadingQuality(); report('Disconnected. Reconnect before using the browser buttons.');
+    for (const job of descriptions.values()) { clearTimeout(job.timer); job.resolve(null); } descriptions.clear();
   }
   document.getElementById('bridgeDisconnect').onclick = disconnect;
   window.addEventListener('pagehide', () => { media.stopAll(); ready = false; socket?.close(); });
@@ -157,6 +167,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (socket !== current || failure) return;
         let m; try { m = JSON.parse(event.data); } catch { fail('The secure address returned an unexpected response. Check that you used the current PC bridge address.'); return; }
         if (m.type === 'world-call') {                                    // a command from the user's Claude connector
+          if (m.expiresAt && Date.now() > m.expiresAt) { send({type:'world-result',reqId:m.reqId,ok:false,error:'This tool request expired before reaching the headset. Please try again.'}); return; }
           Promise.resolve().then(() => worldTool(String(m.name), m.input || {}))
             .then(result => send({ type: 'world-result', reqId: m.reqId, ok: true, result: String(result) }))
             .catch(e => send({ type: 'world-result', reqId: m.reqId, ok: false, error: String(e?.message || e) }));
@@ -178,7 +189,14 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
           }
           if (pendingMic && /claude\.ai/.test(m.url || '')) { pendingMic = false; setTimeout(() => media.toggleMic(m.id), 4000); }
         }
-        if (m.type === 'location' && tabs.has(m.id)) tabs.get(m.id).url = m.url;
+        if (m.type === 'page-info') {
+          const t = tabs.get(m.id); if (t) { t.url = m.url; t.title = m.title; t.text = m.text; t.panel.userData.title = m.title; t.panel.userData.url = m.url; }
+          const job = descriptions.get(m.reqId); if (job) { descriptions.delete(m.reqId); clearTimeout(job.timer); job.resolve({url:m.url,title:m.title,text:m.text}); }
+        }
+        if (m.type === 'location' && tabs.has(m.id)) {
+          tabs.get(m.id).url = m.url;
+          if (media.microphone?.id === m.id && !['claude.ai','www.claude.ai','localhost','127.0.0.1'].includes(new URL(m.url).hostname)) media.stopMic();
+        }
         if (m.type === 'viewport' && tabs.has(m.id)) { tabs.get(m.id).width = m.width; tabs.get(m.id).height = m.height; }
         if (m.type === 'audio') media.play(m.id, m.data, m.rate);
         if (m.type === 'audio-status' && tabs.has(m.id)) { const tab = tabs.get(m.id); tab.audioEnabled = m.enabled; tab.soundButton.userData.label(m.enabled ? 'Sound ON' : 'Sound'); if (!m.enabled) media.stopAudio(m.id); }
@@ -245,10 +263,33 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     setTimeout(() => document.getElementById('bridgeConnect').click(), 0);
   }
   return {
+    describe(id) {
+      const tab = tabs.get(id); if (!tab) return Promise.resolve(null);
+      if (!ready) return Promise.resolve({url:tab.url,title:tab.title,text:tab.text||'',stale:true});
+      return new Promise(resolve => { const reqId='info-'+(++descriptionCount); const timer=setTimeout(()=>{descriptions.delete(reqId);resolve({url:tab.url,title:tab.title,text:tab.text||'',stale:true});},5000); descriptions.set(reqId,{resolve,timer}); send({type:'page-info',id,reqId}); });
+    },
     get microphoneState() { const mic = media.microphone; return mic ? { id: mic.id, pending: mic.pending } : null; },
     open(url, saved) { if (!ready) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },
+    clearHover() { for (const tab of tabs.values()) { tab.cursor.visible = false; tab.lens.visible = false; } },
+    hover(raycaster) {
+      for (const tab of tabs.values()) { tab.cursor.visible = false; tab.lens.visible = false; }
+      const hit = raycaster.intersectObjects([...tabs.values()].map(t=>t.content).filter(shown),false)[0];
+      if (!hit || hit.object.parent.userData.locked) return false;
+      const tab=tabs.get(hit.object.parent.userData.browserId), uv=hit.uv;
+      tab.cursor.position.set((uv.x-.5)*.72,(uv.y-.5)*.45,.004); tab.cursor.visible=true;
+      if (tab.lensEnabled) {
+        tab.lens.visible=true;tab.lens.position.set(Math.max(-.25,Math.min(.25,(uv.x-.5)*.72+.13)),Math.max(-.16,Math.min(.16,(uv.y-.5)*.45+.09)),.022);
+        if (!tab.lensAt || performance.now()-tab.lensAt>100) {
+          tab.lensAt=performance.now();const g=tab.lensCanvas.getContext('2d'),w=tab.canvas.width*.1,h=w*.625;
+          const x=Math.max(0,Math.min(tab.canvas.width-w,uv.x*tab.canvas.width-w/2)),y=Math.max(0,Math.min(tab.canvas.height-h,(1-uv.y)*tab.canvas.height-h/2));
+          g.drawImage(tab.canvas,x,y,w,h,0,0,512,320);g.strokeStyle='#ffd27a';g.lineWidth=8;g.strokeRect(4,4,504,312);tab.lensTexture.needsUpdate=true;
+        }
+      }
+      if (!tab.hoverAt || performance.now()-tab.hoverAt>100) { tab.hoverAt=performance.now();send({type:'move',id:hit.object.parent.userData.browserId,x:Math.min(tab.width-1,uv.x*tab.width),y:Math.min(tab.height-1,(1-uv.y)*tab.height)}); }
+      return true;
+    },
     // Open a page (e.g. docs.new) and type text into it once it has loaded (used to export the thesis)
     openAndType(url, text) {
       if (!ready) return false;
@@ -269,7 +310,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       if (panel.userData.locked) return false;          // locked windows can be moved, but not clicked
       focused = id; addressMode = false;
       const tab = tabs.get(id);
-      send({ type: scroll ? 'scroll' : 'click', id, x: Math.round(hit.uv.x * (tab.width - 1)), y: Math.round((1 - hit.uv.y) * (tab.height - 1)), delta: scroll });
+      send({ type: scroll ? 'scroll' : 'click', id, x: Math.min(tab.width-1,hit.uv.x*tab.width), y: Math.min(tab.height-1,(1-hit.uv.y)*tab.height), delta: scroll });
       return true;
     },
     touch(point, state) {
@@ -277,7 +318,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (!shown(t.content) || t.panel.userData.locked) continue;
         const p = t.content.worldToLocal(point.clone());
         if (Math.abs(p.z) < .018 && Math.abs(p.x) < .36 && Math.abs(p.y) < .225) {
-          if (state.bridgeTouch !== id) { state.bridgeTouch = id; focused = id; send({ type: 'click', id, x: (p.x / .72 + .5) * (t.width - 1), y: (.5 - p.y / .45) * (t.height - 1) }); }
+          if (state.bridgeTouch !== id) { state.bridgeTouch = id; focused = id; send({ type: 'click', id, x: Math.min(t.width-1,(p.x / .72 + .5) * t.width), y: Math.min(t.height-1,(.5 - p.y / .45) * t.height) }); }
           return;
         }
       }
@@ -292,6 +333,8 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       }
       const id = panel.userData.browserId, t = tabs.get(id);
       if (!t) return;
+      t.cursor.geometry.dispose(); t.cursor.material.dispose();
+      t.lens.geometry.dispose(); t.lens.material.dispose(); t.lensTexture.dispose();
       send({ type: 'close', id }); tabs.delete(id); updateReadingQuality();
     },
     get connected() { return ready; },

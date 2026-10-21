@@ -16,7 +16,7 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
   const fixture = http.createServer((req, res) => {
     if (req.url.startsWith('/event')) { events.push({ url: decodeURIComponent(req.url), cookie: req.headers.cookie }); res.end('ok'); return; }
     res.setHeader('Content-Type', 'text/html'); res.setHeader('Set-Cookie', 'test_session=remembered; Path=/; SameSite=Lax');
-    res.end(`<body style="margin:0;height:3000px;background:#375"><input style="position:absolute;left:20px;top:20px;width:300px;height:60px" oninput="fetch('/event?text='+encodeURIComponent(this.value))"><button style="position:absolute;left:20px;top:100px;width:300px;height:60px" onclick="fetch('/event?click=yes')">Click</button><script>onscroll=()=>fetch('/event?scroll='+scrollY)</script>`);
+    res.end(`<title>Bridge fixture</title><body style="margin:0;height:3000px;background:#375"><input style="position:absolute;left:20px;top:20px;width:300px;height:60px" oninput="fetch('/event?text='+encodeURIComponent(this.value))"><button style="position:absolute;left:20px;top:100px;width:300px;height:60px" onclick="fetch('/event?click=yes')">Click</button><p style="position:absolute;left:400px;top:300px">Visible study text</p><script>onmousemove=e=>window.lastMove={x:e.clientX,y:e.clientY};onscroll=()=>fetch('/event?scroll='+scrollY)</script>`);
   });
   await new Promise(r => fixture.listen(18141, '127.0.0.1', r));
   const child = spawn(process.execPath, ['server.mjs'], { cwd: fileURLToPath(new URL('.', import.meta.url)), windowsHide: true,
@@ -58,6 +58,16 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     await until(() => events.find(e => e.url.includes('Remembered Chrome')));
     send({ type: 'scroll', id: tab.id, x: 640, y: 400, delta: 600 }); await until(() => events.find(e => e.url.includes('scroll=600')));
     assert.ok(events.every(e => e.cookie?.includes('test_session=remembered')));
+    send({type:'move',id:tab.id,x:90,y:140});await until(()=>existing.evaluate(()=>window.lastMove?.x===90&&window.lastMove?.y===140));
+    send({type:'page-info',id:tab.id,reqId:'fixture-info'});
+    const info=await until(()=>messages.find(m=>m.type==='page-info'&&m.reqId==='fixture-info'));
+    assert.equal(info.title,'Bridge fixture');assert.ok(info.text.includes('Visible study text'));
+    assert.ok(!info.text.includes('Remembered Chrome'),'Text inspection excludes input values');
+    assert.equal(await worker.evaluate(async()=>{
+      const original=chrome.debugger.sendCommand.bind(chrome.debugger);let failed=false;
+      chrome.debugger.sendCommand=async(target,method,params)=>{if(method==='Page.captureScreenshot'&&!failed){failed=true;throw Error('Not attached to an active page');}return original(target,method,params);};
+      try{const shot=await sendCDP([...tabs.values()][0],'Page.captureScreenshot',{format:'png'});return failed&&shot.data.startsWith('iVBOR');}finally{chrome.debugger.sendCommand=original;}
+    }),true,'Screenshot retries exactly once after a missing-page attachment');
     const still = await until(() => messages.find(m => m.type === 'frame' && m.data.startsWith('iVBOR')));
     const png = Buffer.from(still.data, 'base64');
     assert.equal(png.readUInt32BE(16), 2560, 'Idle text is sent losslessly at double resolution');
