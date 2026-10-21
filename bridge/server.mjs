@@ -88,8 +88,17 @@ wss.on('connection', ws => {
     });
     if (closed) return;
     if (useExtension && !extension.connected) throw Error('Connect the Sunnyvale extension in Google Chrome first.');
-    const page = await (useExtension ? extension.newPage() : context.newPage()), id = randomBytes(8).toString('hex');
-    if (useExtension) await page.attach(url);
+    let page = await (useExtension ? extension.newPage() : context.newPage());
+    const id = randomBytes(8).toString('hex');
+    if (useExtension) {
+      // Chrome sometimes doesn't answer the first time (a sleeping tab); a second try usually works, so retry once.
+      try { await page.attach(url); }
+      catch (error) {
+        if (!/did not respond|waking up/i.test(error.message)) throw error;
+        page = await extension.newPage();
+        await page.attach(url);
+      }
+    }
     const cdp = useExtension ? page.cdp : await context.newCDPSession(page);
     if (!useExtension) await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
     if (closed) { await page.close(); return; }

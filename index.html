@@ -50,7 +50,7 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=20261021-connector-1';
+import { installBrowserBridge } from './browser-bridge.js?v=20261022-desk-1';
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
@@ -673,7 +673,7 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
 }
 
 // The Stark look: a see-through red-and-gold hologram with glowing edges and scan lines
-function hologramTexture(title, body, W, H) {
+function hologramTexture(title, body, W, H, scroll = 0) {
   return canvasTexture(W, H, (ctx) => {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = 'rgba(70, 6, 6, 0.55)';
@@ -697,14 +697,41 @@ function hologramTexture(title, body, W, H) {
     ctx.fillRect(60, 140, 260, 4);
     ctx.fillStyle = '#ffe9c4';
     const size = textSize(body) * 0.92;
-    ctx.font = `${size}px "Segoe UI", system-ui, sans-serif`;
-    wrapText(ctx, body, 60, 220, W - 120, size * 1.38);
+    drawScrolled(ctx, body, `${size}px "Segoe UI", system-ui, sans-serif`, size, W, H, scroll);
   });
 }
 
-function textSize(body) { const n = body.length; return n < 160 ? 44 : n < 300 ? 36 : n < 480 ? 30 : n < 700 ? 25 : 21; }
+function textSize(body) { const n = body.length; return n < 160 ? 44 : n < 300 ? 36 : 30; }   // long text scrolls instead of shrinking
 
-function cardboardTexture(title, body, W, H) {
+// Splits text into the lines that fit the window, so long text can scroll
+const measureCtx = document.createElement('canvas').getContext('2d');
+function wrapLines(text, font, maxWidth) {
+  measureCtx.font = font;
+  const out = [];
+  for (const paragraph of String(text).split('\n')) {
+    let line = '';
+    for (const word of paragraph.split(' ')) {
+      const test = line ? line + ' ' + word : word;
+      if (measureCtx.measureText(test).width > maxWidth && line) { out.push(line); line = word; } else line = test;
+    }
+    out.push(line);
+  }
+  return out;
+}
+function drawScrolled(ctx, body, font, size, W, H, scroll) {
+  const lines = wrapLines(body, font, W - 140);
+  const perPage = Math.max(1, Math.floor((H - 250) / (size * 1.38)));
+  const start = Math.max(0, Math.min(scroll, Math.max(0, lines.length - perPage)));
+  ctx.font = font;
+  lines.slice(start, start + perPage).forEach((line, i) => ctx.fillText(line, 60, 220 + i * size * 1.38));
+  if (lines.length > perPage) {                                         // a small scroll bar on the right
+    const barH = (H - 260) * perPage / lines.length, barY = 200 + (H - 260 - barH) * start / Math.max(1, lines.length - perPage);
+    ctx.save(); ctx.globalAlpha = 0.45; ctx.fillRect(W - 46, barY, 10, barH); ctx.restore();
+  }
+  return { total: lines.length, perPage };
+}
+
+function cardboardTexture(title, body, W, H, scroll = 0) {
   return canvasTexture(W, H, (ctx) => {
     ctx.fillStyle = '#a5865a'; ctx.fillRect(0, 0, W, H);
     for (let i = 0; i < 3000; i++) {                                  // cardboard speckle
@@ -724,8 +751,7 @@ function cardboardTexture(title, body, W, H) {
     ctx.fillText(title, 60, 120);
     ctx.fillRect(60, 140, ctx.measureText(title).width, 6);
     const size = textSize(body);
-    ctx.font = `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`;
-    wrapText(ctx, body, 60, 220, W - 120, size * 1.38);
+    drawScrolled(ctx, body, `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`, size, W, H, scroll);
 
     ctx.fillStyle = 'rgba(176,176,176,0.92)';                         // duct tape on the corners
     for (const [x, y, r] of [[40, 30, -0.7], [W - 40, 30, 0.7], [40, H - 30, 0.7], [W - 40, H - 30, -0.7]]) {
@@ -735,13 +761,34 @@ function cardboardTexture(title, body, W, H) {
 }
 
 // Change what a window says (redraws both its Sunnyvale and Stark looks)
-function setWindowContent(p, title, body) {
+function setWindowContent(p, title, body, { keepScroll = false } = {}) {
+  if (!keepScroll && body !== p.userData.body) p.userData.scroll = p.userData.followEnd ? 1e6 : 0;   // notes jump to the newest line
+  const size = textSize(body), lines = wrapLines(body, `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`, 1024 - 140);
+  const perPage = Math.max(1, Math.floor((700 - 250) / (size * 1.38)));
+  p.userData.scroll = Math.max(0, Math.min(p.userData.scroll || 0, lines.length - perPage));
+  p.userData.scrollMax = Math.max(0, lines.length - perPage);
   p.userData.cardboard.dispose(); p.userData.hologram.dispose();
-  p.userData.cardboard = cardboardTexture(title, body, 1024, 700);
-  p.userData.hologram = hologramTexture(title, body, 1024, 700);
+  p.userData.cardboard = cardboardTexture(title, body, 1024, 700, p.userData.scroll);
+  p.userData.hologram = hologramTexture(title, body, 1024, 700, p.userData.scroll);
   p.material.map = mode === 'stark' ? p.userData.hologram : p.userData.cardboard;
   p.material.needsUpdate = true;
   p.userData.title = title; p.userData.body = body;
+  updateScrollButtons(p);
+  markDirty();
+}
+function updateScrollButtons(p) {
+  if (!p.userData.upButton) return;
+  if (p.userData.scrollMax === undefined) {
+    const size = textSize(p.userData.body || ''), lines = wrapLines(p.userData.body || '', `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`, 1024 - 140);
+    p.userData.scrollMax = Math.max(0, lines.length - Math.max(1, Math.floor(450 / (size * 1.38))));
+  }
+  p.userData.upButton.visible = p.userData.downButton.visible = p.userData.scrollMax > 0;
+}
+// Scroll a text window a few lines up (-1) or down (+1)
+function scrollWindow(p, dir) {
+  if (!p.userData.cardboard) return;
+  p.userData.scroll = Math.max(0, Math.min(p.userData.scrollMax || 0, (p.userData.scroll || 0) + dir * 4));
+  setWindowContent(p, p.userData.title, p.userData.body, { keepScroll: true });
 }
 
 const burnTex = canvasTexture(128, 128, (ctx) => {
@@ -760,6 +807,56 @@ const glowXTex = canvasTexture(128, 128, (ctx) => {
 });
 const closeButtons = [];
 
+// Little round buttons along the right edge of every window: lock, stash, and scroll arrows.
+const windowButtons = [];
+function sideIcon(draw) {
+  return canvasTexture(128, 128, (ctx) => {
+    ctx.fillStyle = 'rgba(16, 12, 8, 0.85)'; ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 5; ctx.stroke();
+    ctx.strokeStyle = ctx.fillStyle = '#f4e6c4'; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    draw(ctx);
+  });
+}
+const lockOpenTex = sideIcon(ctx => {
+  ctx.strokeRect(40, 62, 48, 36); ctx.beginPath(); ctx.arc(64, 50, 16, Math.PI, Math.PI * 1.9); ctx.stroke();
+});
+const lockShutTex = sideIcon(ctx => {
+  ctx.fillStyle = '#ffb347'; ctx.fillRect(38, 60, 52, 40); ctx.strokeStyle = '#ffb347';
+  ctx.beginPath(); ctx.arc(64, 54, 16, Math.PI, 0); ctx.stroke();
+});
+const stashTex = sideIcon(ctx => {
+  ctx.beginPath(); ctx.moveTo(64, 34); ctx.lineTo(64, 78); ctx.moveTo(46, 60); ctx.lineTo(64, 78); ctx.lineTo(82, 60); ctx.stroke();
+  ctx.strokeRect(40, 86, 48, 8);
+});
+const upTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 76); ctx.lineTo(64, 50); ctx.lineTo(88, 76); ctx.stroke(); });
+const downTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 52); ctx.lineTo(64, 78); ctx.lineTo(88, 52); ctx.stroke(); });
+function addWindowButtons(panel, { scroll = false } = {}) {
+  const { w, h } = panel.userData.size;
+  const make = (tex, y, action) => {
+    const b = new THREE.Mesh(new THREE.CircleGeometry(0.024, 24), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+    b.position.set(w / 2 + 0.034, y, 0.004);
+    b.userData = { action, window: panel };
+    panel.add(b); windowButtons.push(b); (panel.userData.windowButtons ??= []).push(b);
+    return b;
+  };
+  panel.userData.lockButton = make(lockOpenTex, h / 2 - 0.028, () => toggleLock(panel));
+  make(stashTex, h / 2 - 0.088, () => stashWindow(panel));
+  if (scroll) {
+    panel.userData.upButton = make(upTex, -h / 2 + 0.088, () => scrollWindow(panel, -1));
+    panel.userData.downButton = make(downTex, -h / 2 + 0.028, () => scrollWindow(panel, 1));
+    panel.userData.upButton.visible = panel.userData.downButton.visible = false;
+  }
+}
+function toggleLock(panel, value = !panel.userData.locked) {
+  panel.userData.locked = value;
+  if (panel.userData.lockButton) { panel.userData.lockButton.material.map = value ? lockShutTex : lockOpenTex; panel.userData.lockButton.material.needsUpdate = true; }
+  blip(value ? 500 : 800, 0.06);
+  markDirty();
+}
+// Is this part of a locked window? (Locked windows can still be moved, but not clicked.)
+function isLocked(o) { for (let x = o; x && x !== scene; x = x.parent) if (x.userData?.locked) return true; return false; }
+function pressWindowButton(b) { if (pressCooldown > 0) return; pressCooldown = 0.5; blip(1100, 0.05); b.userData.action(); }
+
 function makeCardboardWindow(title, body, position) {
   const W = 1024, H = 700;
   const texture = cardboardTexture(title, body, W, H);
@@ -772,6 +869,7 @@ function makeCardboardWindow(title, body, position) {
   mesh.userData.hologram = hologramTexture(title, body, W, H);
   mesh.userData.title = title;
   mesh.userData.body = body;
+  mesh.userData.scroll = 0;
   const close = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24),
     new THREE.MeshBasicMaterial({ map: burnTex, transparent: true, depthWrite: false }));
   close.position.set(w / 2 - 0.045, h / 2 - 0.045, 0.004);
@@ -779,8 +877,11 @@ function makeCardboardWindow(title, body, position) {
   mesh.add(close);
   mesh.userData.closeButton = close;
   closeButtons.push(close);
+  addWindowButtons(mesh, { scroll: true });
   scene.add(mesh);
   panels.push(mesh);
+  updateScrollButtons(mesh);
+  markDirty();
   return mesh;
 }
 
@@ -885,7 +986,9 @@ function grab(state) {
     raycaster.set(origin, dir);
     const hit = raycaster.intersectObjects(closeButtons.filter(shown), false)[0];
     if (hit) { closeWindow(hit.object.userData.window); return; }
-    const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(shown), false)[0];
+    const side = raycaster.intersectObjects(windowButtons.filter(shown), false)[0];
+    if (side) { pressWindowButton(side.object); return; }
+    const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(m => shown(m) && !isLocked(m)), false)[0];
     if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
   }
   { const { origin, dir } = rayFrom(state); raycaster.set(origin, dir); if (browserBridge?.hit(raycaster)) return; }
@@ -916,6 +1019,7 @@ function grab(state) {
 }
 
 function release(state) {
+  markDirty();
   if (state.stroke) { state.stroke = null; return; }
   if (state.held) { setHeld(state.held, false); checkFlick(state, state.held); }
   state.held = null; state.mode = null;
@@ -1115,8 +1219,14 @@ function updateMenu(dt) {
       if (!tip) continue;
       const p = tip.getWorldPosition(new THREE.Vector3());
       for (const c of [...closeButtons]) {
+        if (!shown(c)) continue;
         const local = c.worldToLocal(p.clone());
         if (Math.abs(local.z) < 0.02 && Math.hypot(local.x, local.y) < 0.035) { pressCooldown = 0.6; closeWindow(c.userData.window); break; }
+      }
+      for (const b of [...windowButtons]) {
+        if (!shown(b) || pressCooldown > 0) continue;
+        const local = b.worldToLocal(p.clone());
+        if (Math.abs(local.z) < 0.02 && Math.hypot(local.x, local.y) < 0.03) { pressWindowButton(b); break; }
       }
     }
   }
@@ -1288,13 +1398,25 @@ function openWindow(title, body) {
   lookFor(p, mode === 'stark');
   return p;
 }
-function findWindow(id) { return panels.find(p => p.userData.id === id); }
+// Finds a window by its id. Browser windows answer to "browser:<id>", "<id>" or "browser" (if only one is open),
+// and stashed windows are found too.
+function findWindow(id) {
+  id = String(id || '');
+  const all = [...panels, ...stash];
+  const raw = id.startsWith('browser:') ? id.slice(8) : id;
+  return all.find(p => p.userData.id === id) || all.find(p => p.userData.browserId && p.userData.browserId === raw) ||
+    (id === 'browser' ? (all.filter(p => p.userData.browserId).length === 1 ? all.find(p => p.userData.browserId) : undefined) : undefined);
+}
 function closeWindow(p) {
   browserBridge?.closed(p);
   if (p.userData.closeButton) closeButtons.splice(closeButtons.indexOf(p.userData.closeButton), 1);
+  for (const b of p.userData.windowButtons || []) { const i = windowButtons.indexOf(b); if (i >= 0) windowButtons.splice(i, 1); }
   if (p === claudePanel) claudePanel = null;
   scene.remove(p);
-  panels.splice(panels.indexOf(p), 1);
+  if (panels.includes(p)) panels.splice(panels.indexOf(p), 1);
+  if (stash.includes(p)) { stash.splice(stash.indexOf(p), 1); updateStashButton(); }
+  p.userData.onClose?.();
+  markDirty();
   for (const s of inputs) if (s.held === p) release(s);
   p.userData.cardboard?.dispose(); p.userData.hologram?.dispose(); p.geometry.dispose(); p.material.dispose();
   for (let i = touchables.length - 1; i >= 0; i--) { let x = touchables[i].mesh; while (x && x !== p) x = x.parent; if (x === p) touchables.splice(i, 1); }
@@ -1321,8 +1443,9 @@ function runClaudeTool(name, input) {
   if (name === 'add_note') {
     let notes = findWindow('notes');
     if (!notes) { notes = openWindow('Notes', ''); notes.userData.id = 'notes'; }
+    notes.userData.followEnd = true;
     const body = (notes.userData.body ? notes.userData.body + '\n' : '') + '- ' + String(input.text);
-    setWindowContent(notes, 'Notes', body.split('\n').slice(-12).join('\n'));
+    setWindowContent(notes, 'Notes', body.split('\n').slice(-200).join('\n'));
     return JSON.stringify({ ok: true });
   }
   if (name === 'create_mind_map') return JSON.stringify({ ok: true, id: createMindMap(String(input.title), input.branches || []).userData.id });
@@ -1608,7 +1731,7 @@ function updateTouches(dt) {
     const p = tip.getWorldPosition(new THREE.Vector3());
     browserBridge?.touch(p, s);
     for (const t of touchables) {
-      if (!shown(t.mesh)) continue;
+      if (!shown(t.mesh) || isLocked(t.mesh)) continue;
       const local = t.mesh.worldToLocal(p.clone());
       if (Math.abs(local.z) < 0.02 && Math.abs(local.x) < t.w / 2 && Math.abs(local.y) < t.h / 2) {
         touchCooldown = 0.7; blip(1200); t.action(); return;
@@ -1630,8 +1753,10 @@ function makeHoloObject(content, w, h, title, kind) {
   handle.add(close);
   handle.userData.closeButton = close;
   closeButtons.push(close);
+  addWindowButtons(handle);
   scene.add(handle);
   panels.push(handle);
+  markDirty();
   return handle;
 }
 function placeInFront(obj, distance = 0.9, height = -0.1) {
@@ -1693,6 +1818,7 @@ function createMindMap(title, branches) {
   });
   group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), holoLineMat));
   const obj = makeHoloObject(group, 1.15, 0.85, title, 'map');
+  obj.userData.build = ['map', title, branches];
   obj.userData.body = branches.map(b => b.label + ': ' + (b.children || []).join(', ')).join('; ');
   placeInFront(obj, 1.0, -0.05);
   blip(660, 0.12);
@@ -1721,6 +1847,7 @@ function createTimeline(title, events) {
     label.position.set(x, up + 0.06, 0); group.add(label);
   });
   const obj = makeHoloObject(group, span + 0.2, 0.6, title, 'timeline');
+  obj.userData.build = ['timeline', title, events];
   obj.userData.body = evs.map(e => e.year + ': ' + e.label).join('; ');
   placeInFront(obj, 1.4, -0.35);
   blip(660, 0.12);
@@ -1758,6 +1885,7 @@ function createFlashcards(title, cards) {
   };
   show();
   const obj = makeHoloObject(card, 0.44, 0.3, title, 'cards');
+  obj.userData.build = ['cards', title, cards];
   obj.userData.body = deck.cards.map(c => c.front + ' = ' + c.back).join('; ');
   obj.userData.deck = deck;
   obj.userData.update = dt => {                                        // the flip animation
@@ -1931,6 +2059,8 @@ function checkFlick(s, p) {
     stash.push(p);
     blip(400, 0.18, 0.15);
     updateStashButton();
+    refreshStashPicker();
+    markDirty();
   }
 }
 function trackHeld(s) {
@@ -1940,19 +2070,68 @@ function trackHeld(s) {
   (s.track ??= []).push({ p, t: performance.now() });
   if (s.track.length > 6) s.track.shift();
 }
-function restoreStash() {
-  if (!stash.length) return;
-  stash.splice(0).forEach((p, i) => {
+// Put one window away into the stash (it zips away and can be brought back later)
+function stashWindow(p) {
+  if (!panels.includes(p) || p === stashPicker) return;
+  for (const s of inputs) if (s.held === p) release(s);
+  p.userData.away = { v: new THREE.Vector3(0, -0.8, 0), t: 0 };
+  panels.splice(panels.indexOf(p), 1);
+  stash.push(p);
+  blip(400, 0.18, 0.15);
+  updateStashButton();
+  refreshStashPicker();
+  markDirty();
+}
+// Bring stashed windows back: one (by window) or all of them
+function unstash(list, startSlot = 0) {
+  list.forEach((p, i) => {
+    if (!stash.includes(p)) return;
+    stash.splice(stash.indexOf(p), 1);
     p.visible = true; p.userData.away = null;
     panels.push(p);
-    p.position.copy(claudeWindowPosition(i));
+    p.position.copy(claudeWindowPosition(startSlot + i));
     faceViewer(p);
     p.userData.popIn = 0;
   });
   updateStashButton();
+  refreshStashPicker();
   blip(700, 0.15);
+  markDirty();
+}
+function restoreStash() { unstash([...stash]); }
+
+// The stash picker: a holographic list of everything in your stash. Tap one to bring it back.
+let stashPicker = null;
+function openStashPicker() {
+  if (stashPicker) { closeWindow(stashPicker); stashPicker = null; return; }
+  if (!stash.length) { jarvisSay('', ['J.A.R.V.I.S.', 'YOUR STASH IS EMPTY', 'FLICK A WINDOW OR TAP ITS ARROW']); return; }
+  stashPicker = makeHoloObject(new THREE.Group(), 0.62, 0.5, 'Stash', 'stash-picker');
+  stashPicker.userData.onClose = () => { stashPicker = null; };
+  refreshStashPicker();
+  placeInFront(stashPicker, 0.6, -0.1);
+}
+function refreshStashPicker() {
+  if (!stashPicker) return;
+  const content = stashPicker.children[0];
+  for (const c of [...content.children]) { content.remove(c); c.geometry?.dispose(); c.material?.map?.dispose(); c.material?.dispose(); }
+  for (let i = touchables.length - 1; i >= 0; i--) if (touchables[i].owner === stashPicker) touchables.splice(i, 1);
+  const head = holoLabel(stash.length ? `STASH: ${stash.length} PUT AWAY` : 'STASH IS EMPTY', { w: 0.4, h: 0.06, fill: 'rgba(110,10,10,0.75)' });
+  head.position.set(0, 0.2, 0); content.add(head);
+  const items = stash.slice(-10);
+  items.forEach((p, i) => {
+    const label = holoLabel(`${p.userData.title || p.userData.kind || 'Window'}`.slice(0, 40), { w: 0.27, h: 0.05 });
+    label.position.set(i % 2 ? 0.145 : -0.145, 0.12 - Math.floor(i / 2) * 0.062, 0.004);
+    content.add(label);
+    touchables.push({ mesh: label, w: 0.27, h: 0.05, owner: stashPicker, action: () => unstash([p], 1) });
+  });
+  if (stash.length) {
+    const all = holoLabel('BRING ALL BACK', { w: 0.3, h: 0.055, fill: 'rgba(40,60,90,0.7)', color: '#dff8ff' });
+    all.position.set(0, -0.21, 0.004); content.add(all);
+    touchables.push({ mesh: all, w: 0.3, h: 0.055, owner: stashPicker, action: () => { restoreStash(); } });
+  }
 }
 function clearDesk() {
+  if (stashPicker) { closeWindow(stashPicker); stashPicker = null; }
   for (const p of [...panels]) {
     if (!p.visible) continue;
     p.userData.away = { v: new THREE.Vector3(0, 0.6, 0), t: 0 };
@@ -2146,7 +2325,7 @@ const heartButton = makeButton('BARBERA', (ctx) => {
   ctx.bezierCurveTo(128, 74, 134, 61, 148, 58); ctx.bezierCurveTo(186, 50, 196, 105, 128, 150);
   ctx.fill();
 }, () => callBarbera());
-const stashButton = makeButton('STASH', (ctx) => drawStashIcon(ctx, 0), () => restoreStash());
+const stashButton = makeButton('STASH', (ctx) => drawStashIcon(ctx, 0), () => openStashPicker());
 function drawStashIcon(ctx, n) {
   ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 8;
   ctx.strokeRect(82, 80, 92, 64); ctx.beginPath(); ctx.moveTo(82, 98); ctx.lineTo(174, 98); ctx.stroke();
@@ -2259,6 +2438,142 @@ function callBarbera() {
 
 // ---------- Claude: without an in-world key, the button opens claude.ai (your subscription) ----------
 function openClaudeWebsite() { if (!browserBridge?.open('https://claude.ai/new')) openOutside('https://claude.ai/new'); }
+
+// ---------- Saving your desk between sessions, and named workspaces ----------
+// Everything you have open (windows, notes, mind maps, timelines, flashcards, thesis tools) is saved in this
+// browser every few seconds, with where it is, its size, lock and stash state, and comes back next time.
+var dirtyFlag = false;
+function markDirty() { dirtyFlag = true; }
+const DESK_KEY = 'sunnyvale.desk.v1', SPACES_KEY = 'sunnyvale.workspaces.v1';
+const restorers = {};          // extra object types (registered by the thesis tools module)
+function readJSON(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
+function writeJSON(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } }
+
+function snapshotDesk() {
+  const items = [];
+  for (const p of [...panels, ...stash]) {
+    const u = p.userData;
+    if (p === stashPicker || u.noSave) continue;
+    if (u.kind === 'browser') { const url = browserBridge?.urlOf?.(u.browserId); if (url) items.push({ type: 'browser', url }); continue; }
+    if (u.kind === 'browser-keyboard') continue;
+    const common = {
+      id: u.id, locked: !!u.locked, stashed: stash.includes(p),
+      pose: { p: p.position.toArray().map(n => +n.toFixed(3)), q: p.quaternion.toArray().map(n => +n.toFixed(4)), s: +(u.baseScale || 1).toFixed(3) }
+    };
+    if (u.cardboard) items.push({ type: 'window', title: u.title, body: u.body, scroll: u.scroll || 0, followEnd: !!u.followEnd, chat: p === claudePanel, ...common });
+    else if (u.build) items.push({ type: u.build[0], args: u.build.slice(1), ...common });
+    else if (u.save) { const extra = u.save(); if (extra) items.push({ ...extra, ...common }); }
+  }
+  return { v: 1, savedAt: Date.now(), items };
+}
+
+function applyPose(p, item) {
+  if (!item.pose) return;
+  p.position.fromArray(item.pose.p);
+  p.quaternion.fromArray(item.pose.q);
+  p.userData.baseScale = item.pose.s || 1;
+  p.userData.popIn = undefined;
+  p.scale.setScalar(p.userData.baseScale);
+}
+function restoreItem(item) {
+  let p = null;
+  if (item.type === 'window') {
+    p = makeCardboardWindow(item.title || '', item.body || '', new THREE.Vector3(0, 1.4, -1));
+    p.userData.followEnd = item.followEnd;
+    p.userData.scroll = item.scroll || 0;
+    setWindowContent(p, item.title || '', item.body || '', { keepScroll: true });
+    lookFor(p, mode === 'stark');
+    if (item.chat) claudePanel = p;
+  } else if (item.type === 'map') p = createMindMap(...item.args);
+  else if (item.type === 'timeline') p = createTimeline(...item.args);
+  else if (item.type === 'cards') p = createFlashcards(...item.args);
+  else if (restorers[item.type]) p = restorers[item.type](item);
+  if (!p) return null;
+  if (item.id) p.userData.id = item.id;
+  applyPose(p, item);
+  if (item.locked) { p.userData.locked = false; toggleLock(p, true); }
+  if (item.stashed && panels.includes(p)) { panels.splice(panels.indexOf(p), 1); stash.push(p); p.visible = false; }
+  const n = Number(String(item.id || '').replace(/\D/g, ''));
+  if (n >= claude.windowCount) claude.windowCount = n + 1;
+  return p;
+}
+function restoreDesk(state, { reopenBrowsers = false } = {}) {
+  if (!state?.items?.length) return 0;
+  let count = 0;
+  for (const item of state.items) {
+    try {
+      if (item.type === 'browser') { if (reopenBrowsers) browserBridge?.open(item.url); continue; }
+      if (restoreItem(item)) count++;
+    } catch (e) { console.warn('Could not restore', item.type, e); }
+  }
+  updateStashButton();
+  return count;
+}
+// Close everything you have open (but not browser windows: those are real Chrome tabs)
+function clearAllWindows() {
+  for (const p of [...panels, ...stash]) if (p.userData.kind !== 'browser' && p.userData.kind !== 'browser-keyboard') closeWindow(p);
+}
+
+let lastSaved = '';
+function saveDeskNow() {
+  const json = JSON.stringify(snapshotDesk());
+  if (json === lastSaved) return;
+  if (writeJSON(DESK_KEY, JSON.parse(json))) lastSaved = json;
+  dirtyFlag = false;
+}
+setInterval(saveDeskNow, 3000);
+window.addEventListener('pagehide', saveDeskNow);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveDeskNow(); });
+
+// Named workspaces (e.g. "Thesis chapter 2"): save the whole layout, load it again later
+function listWorkspaces() { return Object.entries(readJSON(SPACES_KEY, {})).map(([name, s]) => ({ name, items: s.items.length, savedAt: s.savedAt })).sort((a, b) => b.savedAt - a.savedAt); }
+function saveWorkspace(name) {
+  name = String(name || '').trim().slice(0, 40) || 'Workspace ' + new Date().toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const all = readJSON(SPACES_KEY, {});
+  all[name] = snapshotDesk();
+  if (!writeJSON(SPACES_KEY, all)) throw Error('Not enough storage space to save the workspace.');
+  jarvisSay('', ['J.A.R.V.I.S.', 'WORKSPACE SAVED', name.toUpperCase()]);
+  refreshSpacesPicker();
+  return name;
+}
+function loadWorkspace(name) {
+  const state = readJSON(SPACES_KEY, {})[name];
+  if (!state) throw Error('No workspace called ' + name);
+  if (spacesPicker) { closeWindow(spacesPicker); spacesPicker = null; }
+  clearAllWindows();
+  const n = restoreDesk(state, { reopenBrowsers: true });
+  jarvisSay('', ['J.A.R.V.I.S.', 'WORKSPACE LOADED', name.toUpperCase()]);
+  return n;
+}
+function deleteWorkspace(name) { const all = readJSON(SPACES_KEY, {}); delete all[name]; writeJSON(SPACES_KEY, all); refreshSpacesPicker(); }
+
+// The workspaces picker
+let spacesPicker = null;
+function openSpacesPicker() {
+  if (spacesPicker) { closeWindow(spacesPicker); spacesPicker = null; return; }
+  spacesPicker = makeHoloObject(new THREE.Group(), 0.62, 0.52, 'Workspaces', 'spaces-picker');
+  spacesPicker.userData.noSave = true;
+  spacesPicker.userData.onClose = () => { spacesPicker = null; };
+  refreshSpacesPicker();
+  placeInFront(spacesPicker, 0.6, -0.1);
+}
+function refreshSpacesPicker() {
+  if (!spacesPicker) return;
+  const content = spacesPicker.children[0];
+  for (const c of [...content.children]) { content.remove(c); c.geometry?.dispose(); c.material?.map?.dispose(); c.material?.dispose(); }
+  for (let i = touchables.length - 1; i >= 0; i--) if (touchables[i].owner === spacesPicker) touchables.splice(i, 1);
+  const head = holoLabel('WORKSPACES', { w: 0.4, h: 0.06, fill: 'rgba(110,10,10,0.75)' });
+  head.position.set(0, 0.21, 0); content.add(head);
+  const save = holoLabel('SAVE THIS LAYOUT', { w: 0.3, h: 0.055, fill: 'rgba(40,60,90,0.7)', color: '#dff8ff' });
+  save.position.set(0, 0.14, 0.004); content.add(save);
+  touchables.push({ mesh: save, w: 0.3, h: 0.055, owner: spacesPicker, action: () => saveWorkspace() });
+  listWorkspaces().slice(0, 8).forEach((w, i) => {
+    const label = holoLabel(w.name, { w: 0.27, h: 0.05 });
+    label.position.set(i % 2 ? 0.145 : -0.145, 0.065 - Math.floor(i / 2) * 0.062, 0.004);
+    content.add(label);
+    touchables.push({ mesh: label, w: 0.27, h: 0.05, owner: spacesPicker, action: () => loadWorkspace(w.name) });
+  });
+}
 
 // ---------- Switching between Sunnyvale and Stark mode ----------
 // Final state of a mode (used at the end of the transition, and when leaving the headset)
@@ -2414,12 +2729,13 @@ scene.add(camera);
 
 function drawHud(t, lines, progress, fade) {
   const ctx = hudCanvas.getContext('2d');
-  const W = hudCanvas.width, H = hudCanvas.height, cx = W / 2, cy = H / 2;
+  // Everything is centred on the middle of the canvas, which sits straight ahead of your eyes.
+  const W = hudCanvas.width, H = hudCanvas.height, cx = W / 2, cy = H / 2 - 70;
   ctx.clearRect(0, 0, W, H);
   ctx.globalAlpha = fade;
   ctx.strokeStyle = '#ffc861'; ctx.fillStyle = '#ffd98a';
   ctx.shadowColor = '#ff9a3c'; ctx.shadowBlur = 14;
-  const grow = Math.min(1, t * 3);
+  const grow = Math.min(1, t * 3) * 0.78;
   ctx.lineWidth = 4;                                                      // targeting rings, spinning opposite ways
   ctx.beginPath(); ctx.arc(cx, cy, 150 * grow, t * 2, t * 2 + Math.PI * 1.4); ctx.stroke();
   ctx.lineWidth = 2;
@@ -2431,19 +2747,22 @@ function drawHud(t, lines, progress, fade) {
     ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); ctx.stroke();
   }
   ctx.beginPath(); ctx.moveTo(cx - 20, cy); ctx.lineTo(cx + 20, cy); ctx.moveTo(cx, cy - 20); ctx.lineTo(cx, cy + 20); ctx.stroke();
-  ctx.font = '600 30px "Segoe UI", system-ui, sans-serif';               // typed text
+  // Typed text, centred underneath the rings
+  ctx.textAlign = 'center';
+  ctx.font = '600 30px "Segoe UI", system-ui, sans-serif';
   const chars = Math.floor(t * 40);
   let used = 0;
   lines.forEach((line, k) => {
     const shown = line.slice(0, Math.max(0, chars - used));
     used += line.length;
-    ctx.fillText(shown, 60, 70 + k * 42);
+    ctx.fillText(shown, cx, cy + 215 + k * 38, W - 80);
   });
-  ctx.lineWidth = 2;                                                      // progress bar
-  ctx.strokeRect(60, H - 80, 320, 16);
-  ctx.fillRect(62, H - 78, 316 * progress, 12);
-  ctx.font = '22px "Segoe UI", system-ui, sans-serif';
-  ctx.fillText(`${Math.round(progress * 100)}%`, 392, H - 66);
+  ctx.lineWidth = 2;                                                      // progress bar, centred too
+  ctx.strokeRect(cx - 160, H - 46, 320, 14);
+  ctx.fillRect(cx - 158, H - 44, 316 * progress, 10);
+  ctx.font = '20px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(`${Math.round(progress * 100)}%`, cx + 196, H - 34);
+  ctx.textAlign = 'left';
   hudTex.needsUpdate = true;
 }
 
@@ -2572,7 +2891,9 @@ renderer.domElement.addEventListener('pointerdown', e => {
   }
   const x = raycaster.intersectObjects(closeButtons.filter(shown), false)[0];
   if (x) { closeWindow(x.object.userData.window); return; }
-  const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(shown), false)[0];
+  const side = raycaster.intersectObjects(windowButtons.filter(shown), false)[0];
+  if (side) { pressWindowButton(side.object); return; }
+  const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(m => shown(m) && !isLocked(m)), false)[0];
   if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
   if (browserBridge?.hit(raycaster)) { e.preventDefault(); return; }
   const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
@@ -2592,12 +2913,17 @@ renderer.domElement.addEventListener('pointermove', e => {
 });
 
 window.addEventListener('pointerup', () => {
-  if (drag.panel) setHeld(drag.panel, false);
+  if (drag.panel) { setHeld(drag.panel, false); markDirty(); }
   drag.panel = null;
   controls.enabled = true;
 });
 
-renderer.domElement.addEventListener('wheel', e => { setPointer(e); if (browserBridge?.hit(raycaster, e.deltaY)) e.preventDefault(); }, { passive: false });
+renderer.domElement.addEventListener('wheel', e => {
+  setPointer(e);
+  if (browserBridge?.hit(raycaster, e.deltaY)) { e.preventDefault(); return; }
+  const hit = raycaster.intersectObjects(panels.filter(p => p.visible && p.userData.cardboard), false)[0];
+  if (hit && hit.object.userData.scrollMax > 0) { e.preventDefault(); scrollWindow(hit.object, Math.sign(e.deltaY)); }
+}, { passive: false });
 
 // ---------- Loop ----------
 window.addEventListener('resize', () => {
@@ -2645,6 +2971,17 @@ function runWorldTool(name, input) {
 browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool });
 window.studyDebug.browserBridge = browserBridge;
 window.studyDebug.setMode = setMode;
+{
+  const saved = readJSON(DESK_KEY, null);
+  if (saved?.items?.length) {
+    const welcome = panels.find(p => p.userData.title === 'Sunnyvale Study' && !p.userData.id);
+    if (welcome) closeWindow(welcome);
+    restoreDesk(saved);
+  }
+  lastSaved = JSON.stringify(snapshotDesk());
+}
+window.studyDebug.desk = { snapshotDesk, restoreDesk, saveWorkspace, loadWorkspace, listWorkspaces, stashWindow, openStashPicker, openSpacesPicker, toggleLock, findWindow };
+
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(window.studyDebug.animate = () => {
   const dt = Math.min(clock.getDelta(), 0.05);

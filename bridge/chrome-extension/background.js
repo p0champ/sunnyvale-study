@@ -52,6 +52,10 @@ async function detach(tab) {
   await chrome.debugger.detach(target).catch(() => {});
   if (tab.muted !== undefined) await chrome.tabs.update(tab.tabId, { muted: tab.muted }).catch(() => {});
 }
+function withTimeout(promise, ms, message) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error(message)), ms); })]).finally(() => clearTimeout(timer));
+}
 function webURL(value) {
   const u = new URL(value);
   if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) throw Error('Use an http or https website.');
@@ -68,13 +72,23 @@ async function command(m) {
     // Same-origin tabs reuse the user's session and current conversation; unrelated tabs are untouched.
     const candidates = await chrome.tabs.query({});
     const used = new Set([...tabs.values()].map(t => t.tabId));
-    let tab = candidates.find(t => { try { return !used.has(t.id) && new URL(t.url).origin === u.origin; } catch { return false; } });
+    // Skip tabs Chrome has put to sleep (discarded/frozen): they can stall the connection. Use a fresh tab instead.
+    let tab = candidates.find(t => { try { return !used.has(t.id) && !t.discarded && !t.frozen && new URL(t.url).origin === u.origin; } catch { return false; } });
     if (!tab) tab = await chrome.tabs.create({ url: u.href, active: true });
-    await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+    // Wake the tab up before connecting to it (background tabs can be paused by Chrome).
+    await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    try { await chrome.debugger.attach({ tabId: tab.id }, '1.3'); }
+    catch (error) {
+      // A previous session may still be attached (for example after a bridge restart): let go and try again.
+      if (!/already attached/i.test(error.message)) throw error;
+      await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+      await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+    }
     tabs.set(m.id, { tabId: tab.id, muted: tab.mutedInfo?.muted });
     try {
       await chrome.tabs.update(tab.id, { active: true, muted: !audioTabs.has(tab.id) });
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable');
+      await withTimeout(chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable'), 8000, 'The tab is still waking up.');
       await chrome.debugger.sendCommand({ tabId: tab.id }, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
       return { tabId: tab.id, url: tab.url || u.href, audioEnabled: audioTabs.has(tab.id) };
     } catch (error) { const record = tabs.get(m.id); tabs.delete(m.id); await detach(record); throw error; }

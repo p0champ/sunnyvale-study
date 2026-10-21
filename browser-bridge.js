@@ -221,10 +221,13 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
   }
   return {
     open(url) { if (!ready) return false; send({ type: 'open', url }); return true; },
+    urlOf(id) { return tabs.get(id)?.url || ''; },
+    isReady() { return ready; },
     hit(raycaster, scroll = 0) {
       const hit = raycaster.intersectObjects([...tabs.values()].map(t => t.content).filter(shown), false)[0];
       if (!hit) return false;
       const panel = hit.object.parent, id = panel.userData.browserId;
+      if (panel.userData.locked) return false;          // locked windows can be moved, but not clicked
       focused = id; addressMode = false;
       const tab = tabs.get(id);
       send({ type: scroll ? 'scroll' : 'click', id, x: Math.round(hit.uv.x * (tab.width - 1)), y: Math.round((1 - hit.uv.y) * (tab.height - 1)), delta: scroll });
@@ -232,7 +235,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     },
     touch(point, state) {
       for (const [id, t] of tabs) {
-        if (!shown(t.content)) continue;
+        if (!shown(t.content) || t.panel.userData.locked) continue;
         const p = t.content.worldToLocal(point.clone());
         if (Math.abs(p.z) < .018 && Math.abs(p.x) < .36 && Math.abs(p.y) < .225) {
           if (state.bridgeTouch !== id) { state.bridgeTouch = id; focused = id; send({ type: 'click', id, x: (p.x / .72 + .5) * (t.width - 1), y: (.5 - p.y / .45) * (t.height - 1) }); }
