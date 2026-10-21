@@ -1,12 +1,13 @@
 // Writes bridge/private/Claude connector setup.txt with the current connector address and secret,
 // so the user can copy them into Claude's "Add custom connector" dialog. The file stays private.
 // Usage: node make-connector-setup.mjs
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { connectionSettings } from './connection-settings.mjs';
 
-const shortcut = await readFile(new URL('./private/Open Sunnyvale.url', import.meta.url), 'utf8');
-const host = decodeURIComponent(shortcut).match(/wss:\/\/([a-z0-9.-]+)\/bridge/)?.[1];
-if (!host) { console.log('No public address found yet. Is the bridge window open?'); process.exit(1); }
-const secret = (await readFile(new URL('./private/connector.txt', import.meta.url), 'utf8')).trim();
+try {
+const { root, base, secret } = await connectionSettings();
+const host = new URL(base).hostname;
 const text = `SUNNYVALE CLAUDE CONNECTOR - PRIVATE, DO NOT SHARE
 ==================================================
 
@@ -16,7 +17,7 @@ Name:
 Sunnyvale Study
 
 Remote MCP server URL (the password is built into this link, so keep it secret):
-https://${host}/mcp/${secret}
+${base}/mcp/${secret}
 
 Sign in: choose "No sign in" (no account login needed). No request header needed.
 
@@ -27,5 +28,9 @@ ${host.endsWith('.ts.net') ? `This address is permanent (Tailscale Funnel): it s
 You only need to add the connector once.` : `Note: this address is temporary. If the bridge restarts, run make-connector-setup again,
 remove the old connector in Claude and add it again with the new address.`}
 `;
-await writeFile(new URL('./private/Claude connector setup.txt', import.meta.url), text.replace(/\n/g, '\r\n'));
+await writeFile(join(root, 'Claude connector setup.txt'), text.replace(/\r?\n/g, '\r\n'));
 console.log('Written to bridge/private/Claude connector setup.txt');
+} catch {
+  console.error('Could not write connector setup. Check the private address and credential files; private details are withheld.');
+  process.exitCode = 1;
+}
