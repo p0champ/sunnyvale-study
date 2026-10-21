@@ -4,7 +4,7 @@ Read HANDOVER.md, MORNING_REPORT.md, bridge/README.md, then this file. The Claud
 
 Item 0 is fixed: try saved bridge settings automatically; disconnected Claude stays in VR with a clear message. Only the explicit outside-browser page button can leave VR, after confirmation. No bridge restart or extension reload for this change. A rotated temporary tunnel still requires the current private link.
 
-Part 1 repairs now have PC validation: items 1–13 and 15, plus the honest unsupported state/proposal for 14. See ROUND_TWO_REPORT.md for specific test evidence and pending real Quest/Google Docs checks. Extension 0.4.1 and backend updates need the single final restart/reload, new temporary addresses and connector verification; see the newest HANDOVER runtime checkpoint. Never restart again casually or reuse a stale link. Maintain one frontend connection.
+Part 1 repairs now have PC validation: items 1–13 and 15, plus the honest unsupported state/proposal for 14. See ROUND_TWO_REPORT.md for specific test evidence and pending real Quest/Google Docs checks. Backend restart and private connector regeneration/verification are complete (one restart, credentials unchanged, 58 tools reachable). User still needs extension reload to 0.4.1, current private Quest link and connector replacement; see the newest HANDOVER runtime checkpoint. Never restart again casually or reuse a stale link. Maintain one frontend connection.
 
 Next is user verification with the short Quest checklist. The current Google Docs result proves export handoff, not the live account/editor. Raw camera support and real hand comfort need actual Quest confirmation. Do not claim browser movie playback is smooth (snapshot cap remains four per second).
 

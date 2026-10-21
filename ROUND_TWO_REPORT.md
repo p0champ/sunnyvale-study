@@ -87,3 +87,8 @@ The final browser/backend group needs one bridge restart and one extension reloa
 - Try Scan. If real camera access is unavailable, it should offer a phone photo, never an avatar. Leave the optional raw-camera setting off unless testing it deliberately. Change Claude's separate voice language to English if needed.
 
 These are headset/account confirmations still pending, not claims of completed real-device testing. Protected streaming and the four-screenshot-per-second browser video limit are unchanged.
+
+
+## Deployment checkpoint (2026-10-21)
+
+Repair commit 62a3ac5 is live and its Pages build completed. The real bridge was restarted once, local health passed and both private credential files remained unchanged. Private Quest/Claude setup links were regenerated. Internet verification passed: no secret is refused (401); both authenticated connection methods list 58 tools. A stale negative DNS cache on the PC was cleared after the new hostname appeared in public DNS; no second bridge restart was needed. Extension reload and the real Quest/account checklist above are still user steps. HANDOVER, NEXT_STEPS_FOR_GPT and bridge/README are current.
