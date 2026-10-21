@@ -4,6 +4,10 @@
 
 This section is the current state. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
 
+### NEWEST (Claude, site zoom click fix, extension 0.4.3, 2026-10-21)
+- Clicks were still off inside the Claude window only. Cause: the user's Chrome saves claude.ai at about 75% zoom, so CDP clicks (sent in screenshot pixels) landed at 75% of the distance from the top left. Fix: shared tabs are held at 100% with per-tab zoom scope (holdZoom, plus onZoomChange); detach restores per-origin scope, so the user's own claude.ai zoom on the PC returns. Verified in test Chromium at 75%: exact clicks at start, after reload and after navigating; zoom back to 0.75 after closing. npm test 9/9.
+- An aim-test with the user in VR (9 targets) showed clicks within a few pixels of the cursor ring on a normal page. Each pinch registered about 3 clicks: check whether that's the user retrying or a repeated pinch/select event.
+
 ### NEWEST (Claude, VR click offset fix, extension 0.4.2, 2026-10-21)
 - User reported clicks inside browser windows (Claude) landing far above the cursor. Measured in the user's real Chrome with a click-reporting fixture page: clicks intermittently landed at exactly HALF the sent CSS coordinates (e.g. 640,700 -> 320,350), often right after a tab opens. Cause: the extension emulated deviceScaleFactor 2 on a 1x screen; real Chrome sometimes maps Input.dispatchMouseEvent with the real screen ratio. Playwright's test Chromium never shows this, so tests passed.
 - Fix (extension only, no bridge restart, address unchanged): every Emulation.setDeviceMetricsOverride from the extension now uses deviceScaleFactor 0 (the screen's own ratio). Stills are therefore 1280x800 instead of 2560x1600 (4x less data). Do NOT "restore sharpness" with a scaled Page.captureScreenshot clip: Chrome then returns stale, non-updating pictures (verified). Do not go back to an emulated ratio of 2.

@@ -41,8 +41,18 @@ async function detachAll() {
   for (const tab of attached) await detach(tab);
   for (const tabId of [...audioTabs.keys()]) await stopAudio(tabId);
 }
+// A saved site zoom (claude.ai was at 75%) made clicks land at that fraction of the distance from the top left.
+// Shared tabs are held at 100% for that tab only; the site's own zoom comes back when sharing stops.
+async function holdZoom(tabId) {
+  await chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab' }).catch(() => {});
+  if (await chrome.tabs.getZoom(tabId).catch(() => 1) !== 1) await chrome.tabs.setZoom(tabId, 1).catch(() => {});
+}
+chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor }) => {
+  if (newZoomFactor !== 1 && [...tabs.values()].some(tab => tab.tabId === tabId)) holdZoom(tabId);
+});
 async function detach(tab) {
   clearTimeout(tab.frameTimer); tab.latestFrame = null;
+  await chrome.tabs.setZoomSettings(tab.tabId, { scope: 'per-origin' }).catch(() => {});
   const target = { tabId: tab.tabId };
   await stopAudio(tab.tabId);
   if (tab.micScript) await chrome.debugger.sendCommand(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: tab.micScript }).catch(() => {});
@@ -75,6 +85,7 @@ async function recoverTab(tab) {
     try { await chrome.debugger.attach({ tabId: tab.tabId }, '1.3'); }
     catch (error) { if (!/already attached/i.test(error.message)) throw error; }
     await withTimeout(chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.enable'), 8000, 'The tab is still waking up.');
+    await holdZoom(tab.tabId);
     await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Emulation.setDeviceMetricsOverride', tab.viewport || viewportParams({ width:1280, height:800, mobile:false }));
     if (tab.cast) await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.startScreencast', tab.cast).catch(error => { if (!/already active/i.test(error.message)) throw error; });
     if (tab.micScript && ['claude.ai','www.claude.ai','localhost','127.0.0.1'].includes(new URL(current.url).hostname)) {
@@ -129,6 +140,7 @@ async function command(m) {
     try {
       await chrome.tabs.update(tab.id, { active: true, muted: !audioTabs.has(tab.id) });
       await withTimeout(chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable'), 8000, 'The tab is still waking up.');
+      await holdZoom(tab.id);
       await chrome.debugger.sendCommand({ tabId: tab.id }, 'Emulation.setDeviceMetricsOverride', viewport);
       return { tabId: tab.id, url: tab.url || u.href, title: tab.title || '', audioEnabled: audioTabs.has(tab.id) };
     } catch (error) { const record = tabs.get(m.id); tabs.delete(m.id); await detach(record); throw error; }

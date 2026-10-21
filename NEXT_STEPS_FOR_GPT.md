@@ -1,6 +1,6 @@
 # Latest page update: Break logos (2026-10-21)
 
-The user confirmed Chrome extension 0.4.2 is loaded (exact-click fix, see HANDOVER); no repeat reload instruction. Current private Quest-link use and Claude connector replacement remain unconfirmed.
+The user confirmed Chrome extension 0.4.3 should be loaded (exact clicks, including zoomed sites; see HANDOVER); no repeat reload instruction. Current private Quest-link use and Claude connector replacement remain unconfirmed.
 
 The requested six official service logos replace text in the existing Break menu. PC visual/mouse/destination/Focus checks passed; see newest HANDOVER. Refresh Quest once the Pages build is built. No new bridge restart, addresses or extension reload for this update. Remaining headset/account checks and unapproved feature proposals below still apply.
 

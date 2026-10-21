@@ -84,6 +84,10 @@ Workspace browser sharing now accepts a saved pose after opening. Existing VR br
 The browser window header and headset status strip now show MIC CONNECTING / LISTENING while the Quest mic is shared. Toggling off, closing, disconnecting or a track ending clears it. Sunnyvale speech defaults to English (US), selectable as English (UK) in the thesis settings on the 2D page. Claude website speech has its own Settings > General > Voice > Language setting: https://support.claude.com/en/articles/11101966-use-voice-mode
 
 
+## Extension 0.4.3: exact clicks on zoomed sites
+
+While a tab is shared into VR it is held at 100% zoom (for that tab only). Your saved zoom for the site comes back when the VR window closes.
+
 ## Extension 0.4.2: exact clicks
 
 The extension keeps shared pages at the screen's own pixel ratio. An emulated ratio of 2 made real Chrome sometimes place clicks at half the distance (far above and left of the VR cursor). Pictures are now sent at the page size (1280x800 by default). Use the A+ button for bigger text.
