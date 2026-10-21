@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test --test-concurrency=1 test.mjs test-extension.mjs test-http.mjs test-media.mjs test-study-utils.mjs test-connector.mjs test-scanner.mjs test-connection-settings.mjs"
+    "test": "node --test --test-concurrency=1 test.mjs test-extension.mjs test-http.mjs test-media.mjs test-study-utils.mjs test-connector.mjs test-scanner.mjs test-connection-settings.mjs test-startup.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
