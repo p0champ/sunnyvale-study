@@ -51,7 +51,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { installBrowserBridge } from './browser-bridge.js?v=20261022-thesis-1';
-import { installThesisTools } from './thesis-tools.js?v=20261022-thesis-1';
+import { installThesisTools } from './thesis-tools.js?v=20261022-thesis-3';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -2478,8 +2478,8 @@ const thesisButton = makeButton('THESIS', ctx => {
 }, () => { thesisMenuOpen = !thesisMenuOpen; if (thesisMenuOpen) breakMenuOpen = false; syncBreakMenu(); layoutRows(); });
 const textIcon = t => ctx => { ctx.fillStyle = '#f4f0e8'; ctx.font = '700 52px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(t, 128, 128, 170); };
 const thesisItems = [
-  ['LIBRARY', '📚', 'library'], ['THESIS', '✎', 'thesis'], ['QUOTES', '❝', 'quotes'], ['SOURCES', 'BIB', 'sources'], ['DEADLINES', '⚑', 'deadlines'],
-  ['SPACES', '▦', 'spaces'], ['BRIEFING', '☀', 'briefing'], ['SCAN', '⌗', 'scan'], ['WAKE WORD', '“J”', 'wake'], ['LOG OFF', '⏻', 'logoff']
+  ['LIBRARY', 'LIB', 'library'], ['THESIS', 'DOC', 'thesis'], ['QUOTES', '“ ”', 'quotes'], ['SOURCES', 'BIB', 'sources'], ['DEADLINES', 'DUE', 'deadlines'],
+  ['SPACES', 'SAVE', 'spaces'], ['BRIEFING', 'AM', 'briefing'], ['SCAN', 'CAM', 'scan'], ['WAKE WORD', '“J”', 'wake'], ['LOG OFF', 'OFF', 'logoff']
 ];
 for (const [i, [label, icon, key]] of thesisItems.entries()) {
   const b = makeButton(label, textIcon(icon), () => {

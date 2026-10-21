@@ -433,8 +433,8 @@ export function installThesisTools(ctx) {
     btn('FRAME ▶', -0.03, 0.12, () => { video.pause(); seek(p, video.currentTime + 1 / 24); });
     btn('5s ⏩', 0.09, 0.1, () => seek(p, video.currentTime + 5));
     p.speedBtn = btn('1×', 0.18, 0.07, () => setRate(p, { 1: 0.5, 0.5: 0.25, 0.25: 2, 2: 1 }[p.rate] || 1));
-    btn('📍 PIN', 0.27, 0.09, () => addPin(p, video.currentTime, `Moment at ${fmtTime(video.currentTime)}`));
-    btn('📷 GRAB', 0.37, 0.1, () => grabFrame(p));
+    btn('PIN', 0.27, 0.09, () => addPin(p, video.currentTime, `Moment at ${fmtTime(video.currentTime)}`));
+    btn('GRAB', 0.37, 0.1, () => grabFrame(p));
     const y1 = y0 - 0.05;
     addButton(group, 'COMPARE WITH…', -0.3, y1, 0.2, () => openLibraryPicker(['video'], f => compareWith(p, f), 'Pick a clip to compare'), { owner: obj });
     p.linkBtn = addButton(group, 'LINK: OFF', -0.08, y1, 0.14, () => { if (p.link) setLink(p, null); }, { owner: obj });
@@ -523,7 +523,12 @@ export function installThesisTools(ctx) {
     await DB.put('frames', rec);
     session.frames++;
     blip(1200, 0.08); setTimeout(() => blip(1500, 0.06), 90);
-    return openFrame(rec.id, rec);
+    const o = openFrame(rec.id, rec);
+    // The still pops out next to the video, slightly in front, so it doesn't cover the picture
+    const right = v3().set(1, 0, 0).applyQuaternion(p.obj.quaternion), toward = v3().set(0, 0, 1).applyQuaternion(p.obj.quaternion);
+    o.position.copy(p.obj.position).addScaledVector(right, 0.95).addScaledVector(toward, 0.15);
+    o.quaternion.copy(p.obj.quaternion);
+    return o;
   }
   function openFrame(frameId, preloaded) {
     const W = 0.8, H = 0.45;
@@ -594,7 +599,7 @@ export function installThesisTools(ctx) {
     const obj = makeHoloObject(group, 0.72, 0.5, 'Page scanner', 'scanner');
     obj.userData.noSave = true;
     obj.userData.onClose = () => stream.getTracks().forEach(t => t.stop());
-    addButton(group, '📷 CAPTURE PAGE', 0, -0.23, 0.26, async () => {
+    addButton(group, 'CAPTURE PAGE', 0, -0.23, 0.26, async () => {
       const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
       c.getContext('2d').drawImage(video, 0, 0);
       const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.9));
