@@ -1,0 +1,71 @@
+# Good morning! Here's what got built overnight ☕
+
+I worked through your whole list. Almost everything is built, tested on the PC, and live at your usual link. A few things can't be done from a web app, and I explain those at the bottom.
+
+## First: 4 quick steps before you put the headset on (about 5 minutes)
+
+1. **Reload the Chrome extension.** In Chrome on your PC, go to `chrome://extensions`, find **Sunnyvale Browser Bridge** and press its round reload arrow. It should say version **0.4.0**. This switches on the fix for "Chrome did not respond".
+2. **Use the new Quest link.** The bridge restarted once overnight to switch on the new Claude features, so the address changed (your pairing code is the same). Open `F:\QuestStudySpace\bridge\private\Open Sunnyvale.url` on the PC, or send it to your Quest like before.
+3. **Re-add the Claude connector.** Claude's connector settings can't be edited, so in claude.ai go to Settings, Connectors, remove **Sunnyvale Study**, and add it again with the new link. The link is in `F:\QuestStudySpace\bridge\private\Claude connector setup.txt` (or ask Claude Code to put it on your clipboard). Use "No sign in" and leave the header empty.
+4. *(Optional)* If you want tab sound, press **Enable sound** on the Claude tab again, since the restart turned it off.
+
+Keep the minimized **Start Browser Bridge** window running.
+
+## The fixes
+
+| # | What you asked | What you get now |
+|---|---|---|
+| 1 | HUD too far left | Jarvis messages are now centred right in your eye line. |
+| 2 | Claude couldn't close browser windows | Fixed. Claude can close (and point at, and stash) any window, including browser windows. |
+| 3 | "Chrome did not respond" | Chrome was falling asleep on old tabs. The extension now wakes the tab first, and the bridge automatically tries once more if Chrome is slow. |
+| 4 | Echo | Skipped, as you asked. |
+| 5 | Everything disappears | Your windows, notes, mind maps, timelines, flashcards, documents, videos and thesis tools are now **saved automatically** and come back next time, in the same places. |
+| 6 | Window lock | Every window has a **padlock** button on its right edge. Locked windows can be moved but not clicked. |
+| 7 | Scrolling | Long text windows get **▲ ▼ arrows** and a scroll bar on the right edge. |
+| 8 | Pick from the stash | The **Stash** button now opens a list. Tap one window to bring it back, or "Bring all back". |
+| 9 | Stash single windows | Every window has a **↓ stash** button, and Claude can stash specific windows too. |
+| 10 | Notes limit | Raised from 500 to 8,000 characters, and notes scroll. |
+
+## The thesis tools (palm up, then the new **THESIS** button)
+
+The THESIS button opens two rows: **Library, Thesis, Quotes, Sources, Deadlines, Spaces, Briefing, Scan, Wake word, Log off.**
+
+- **Library (11):** on the Sunnyvale page, before entering VR, open **Library, deadlines and thesis** and add files: PDFs, videos, photos of pages, or 3D models (.glb). In VR, tap Library and pick a file.
+- **PDF reader + highlights (11, 12):** PDFs open as a page window with Prev/Next. Turn on **Highlight**, then pinch and drag across a passage. Or ask Claude: *"Highlight the key argument on page 4."* Every highlight is saved as a quote with its source and page.
+- **Quote collector (13):** all your quotes in one scrolling window, each with its citation, like *(Smith 2019, p. 1)*.
+- **Citation builder (14):** a Bibliography window, **Harvard** by default. Tap the style button to switch to APA, MLA or Chicago. Opening a PDF adds it as a source automatically (title, author, year from the file). Ask Claude to add books, articles, films or websites, or to fix details.
+- **Video player (15):** open a video from your library. It has play/pause, ±5 seconds, frame by frame, and slow motion (½×, ¼×). Tap the bar to jump around.
+- **Timestamp pins (16):** the PIN button, or Claude: *"Pin the moment the jets appear."* Pins show on the bar and in a list you can tap.
+- **Frame grab + annotate (17):** GRAB pops out a still beside the video. Turn on **Draw** in the menu and pinch on the still to draw on it. Claude can caption it.
+- **Side-by-side (18):** "Compare with…" opens a second clip next to the first, and they **play together** (linked).
+- **Live thesis document (19):** a writing window with headings and paragraphs. Tap a paragraph, then **Keys** for a keyboard (on the PC, your real keyboard works too). It has Undo. Claude can read it and edit it directly: *"Write me an introduction paragraph about Top Gun."*
+- **Word count on the HUD (20):** a small strip at the bottom of your view always shows your word count (+ words today), your next deadline and the focus timer. Your wrist display shows the word count too.
+- **Export to Google Docs (21):** EXPORT in the thesis window opens a new Google Doc in a VR browser window and types your thesis into it. On the page there are also **Download thesis (.txt / Word .doc)** buttons, and the Word version includes your bibliography.
+- **Saved workspaces (22):** Spaces: save this layout as a workspace, then load it again later, exactly as it was.
+- **Deadlines (23):** add them on the page or ask Claude. They show on the HUD strip, in the briefing, and in a Deadlines window.
+- **Session summary (24):** tap **Log off** for a summary (time studied, focus sessions, new words, quotes, pins), then the headset view closes. Say *"I'm done for today"* and Claude writes what you did and what's next. That shows up in tomorrow's briefing.
+
+## The Jarvis features
+
+- **Gestures (25):** a fist-pull brings windows to you, two hands resize, and a fling sends a window into the stash (I made fling **stash** rather than close, so nothing gets lost by accident). **Mind map branches now start folded: pinch or tap a branch to expand it.**
+- **Gaze (26):** say *"What's this?"* or *"Save that"*, and Claude checks which window you're looking at and gets a picture of your view. Only the virtual things show; the page can't see your real room.
+- **Morning briefing (28):** the first time you enter each day, you get deadlines, sources to read, yesterday's progress and the planned next steps. It's also available anytime with the Briefing button.
+- **3D storyboards (29):** ask Claude *"Make a storyboard of the Top Gun opening"*. The shot cards stand in an arc you can walk along, and they can include your frame grabs. Your own .glb 3D models open from the library and slowly spin.
+- **Claude's orb (30, 31, 32):** Claude now has a glowing coral orb floating beside you. It flies to whatever Claude makes or talks about and **points** at it, down to a single timeline event or mind map branch. Ask *"Walk me through this timeline"*, and Claude points at each event in turn and explains it.
+- **Teacher mode (33):** ask Claude to *"Make a presentation of my thesis pitch so I can rehearse."* You get a big slide screen with Next/Back and speaker notes.
+- **Counter-arguments (34):** when you talk through a thesis claim, Claude saves the strongest objection (and an answer) in a Counter-arguments window.
+- **Book scanning (35):** the Scan button tries the headset camera. **This only works if Quest Browser allows web pages to use the cameras.** If it says the camera isn't available, take a photo with your phone and add it to the library instead.
+- **Wake word (37):** the Wake word button listens for "Jarvis" or "Claude" and then starts your mic in the Claude window. **This only works if Quest Browser supports speech recognition.** If it says "not supported", that browser can't do it.
+
+## What I couldn't do (and why)
+
+- **27, Claude watching DaVinci Resolve live:** a web app can't see other programs on your PC. Claude *can* read your thesis draft live (it's in the world now). For Resolve, a future option would be sharing your PC screen into a VR window.
+- **36, phone notifications on the HUD:** a web page can't read your phone's notifications. That would need an app on the phone. For now, the WhatsApp Web window covers messages from Brenda.
+- **Netflix, Disney+, HBO and Prime videos** still can't be captured (they block it). Your own video files work in the video player.
+
+## Good to know
+- Everything you make is stored **on your Quest's browser** (and files in its library), never on GitHub.
+- Claude's connector only works while Sunnyvale is open and connected to the bridge.
+- In a new Claude chat, turn the connector on with **+ → Connectors → Sunnyvale Study**.
+
+Have fun, and tell me what feels off so I can polish it!

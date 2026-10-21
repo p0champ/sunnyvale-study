@@ -72,3 +72,8 @@ If text remained blurry after 0.3.0, refresh the live app after this revision de
 Every delivered page image now uses the real double-density screenshot, even with an active cursor, spinner or animation. The old low-resolution screencast only signals page changes on the PC; it is not sent to the headset. Snapshot capture is capped at four per second, skips identical images and respects headset acknowledgements. Large PNGs use the existing JPEG95 size fallback. This is intended for sharp study/Claude pages, not smooth movie playback. Test actual headset sharpness and GPU performance after refresh; PC tests cannot establish those.
 
 The necessary backend restart rotates the temporary relay address and stops old tab-audio capture. Keep the same pairing code and Chrome sessions; enable Claude tab sound again through the extension if needed. Read the current handover before troubleshooting.
+
+## Update 0.4.0 and the Claude connector (2026-10-21)
+
+- **Extension 0.4.0:** reload it once at chrome://extensions. It skips tabs Chrome has put to sleep, wakes and focuses the tab before connecting, re-attaches if a previous session is still attached, and times out a stuck tab. The bridge also retries opening once if Chrome doesn't answer.
+- **Claude connector:** the bridge serves an MCP endpoint at /mcp (58 tools). The private one-link URL is written to private/Claude connector setup.txt by `node make-connector-setup.mjs`. `node check-connector.mjs` verifies it from the internet without printing secrets. Add it in claude.ai under Settings, Connectors, Add custom connector, with no sign-in. The link changes whenever the bridge restarts (quick tunnel), so remove and re-add the connector then.
