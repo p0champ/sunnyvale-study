@@ -75,7 +75,7 @@ async function recoverTab(tab) {
     try { await chrome.debugger.attach({ tabId: tab.tabId }, '1.3'); }
     catch (error) { if (!/already attached/i.test(error.message)) throw error; }
     await withTimeout(chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.enable'), 8000, 'The tab is still waking up.');
-    await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Emulation.setDeviceMetricsOverride', tab.viewport || { width:1280, height:800, deviceScaleFactor:2, mobile:false });
+    await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Emulation.setDeviceMetricsOverride', tab.viewport || viewportParams({ width:1280, height:800, mobile:false }));
     if (tab.cast) await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.startScreencast', tab.cast).catch(error => { if (!/already active/i.test(error.message)) throw error; });
     if (tab.micScript && ['claude.ai','www.claude.ai','localhost','127.0.0.1'].includes(new URL(current.url).hostname)) {
       await chrome.debugger.sendCommand({ tabId: tab.tabId }, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: tab.micScript }).catch(() => {});
@@ -87,8 +87,12 @@ async function recoverTab(tab) {
   })();
   try { await tab.recovering; } finally { tab.recovering = null; }
 }
+// Real Chrome can place clicks using the screen's own pixel ratio instead of an emulated one, so with an
+// emulated ratio of 2 on a normal screen clicks landed at half the distance (far above and left of the cursor).
+// Keep the page at the screen's own ratio (a scaled screenshot clip would look sharper, but Chrome then returns stale pictures).
+const viewportParams = params => ({ ...params, deviceScaleFactor: 0 });
 async function sendCDP(tab, method, params = {}) {
-  if (method === 'Emulation.setDeviceMetricsOverride') tab.viewport = params;
+  if (method === 'Emulation.setDeviceMetricsOverride') tab.viewport = params = viewportParams(params);
   if (method === 'Page.startScreencast') tab.cast = params;
   if (method === 'Page.stopScreencast') tab.cast = null;
   try {
@@ -120,11 +124,12 @@ async function command(m) {
       await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
       await chrome.debugger.attach({ tabId: tab.id }, '1.3');
     }
-    tabs.set(m.id, { tabId: tab.id, muted: tab.mutedInfo?.muted });
+    const viewport = viewportParams({ width: 1280, height: 800, mobile: false });
+    tabs.set(m.id, { tabId: tab.id, muted: tab.mutedInfo?.muted, viewport });
     try {
       await chrome.tabs.update(tab.id, { active: true, muted: !audioTabs.has(tab.id) });
       await withTimeout(chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable'), 8000, 'The tab is still waking up.');
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
+      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Emulation.setDeviceMetricsOverride', viewport);
       return { tabId: tab.id, url: tab.url || u.href, title: tab.title || '', audioEnabled: audioTabs.has(tab.id) };
     } catch (error) { const record = tabs.get(m.id); tabs.delete(m.id); await detach(record); throw error; }
   }

@@ -4,8 +4,13 @@
 
 This section is the current state. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
 
+### NEWEST (Claude, VR click offset fix, extension 0.4.2, 2026-10-21)
+- User reported clicks inside browser windows (Claude) landing far above the cursor. Measured in the user's real Chrome with a click-reporting fixture page: clicks intermittently landed at exactly HALF the sent CSS coordinates (e.g. 640,700 -> 320,350), often right after a tab opens. Cause: the extension emulated deviceScaleFactor 2 on a 1x screen; real Chrome sometimes maps Input.dispatchMouseEvent with the real screen ratio. Playwright's test Chromium never shows this, so tests passed.
+- Fix (extension only, no bridge restart, address unchanged): every Emulation.setDeviceMetricsOverride from the extension now uses deviceScaleFactor 0 (the screen's own ratio). Stills are therefore 1280x800 instead of 2560x1600 (4x less data). Do NOT "restore sharpness" with a scaled Page.captureScreenshot clip: Chrome then returns stale, non-updating pictures (verified). Do not go back to an emulated ratio of 2.
+- Verified: npm test 9/9 (test-extension sizes updated, asserts devicePixelRatio 1); real Chrome 20/20 quick clicks exact after the user reloaded the extension to 0.4.2. The user confirmed 0.4.2 is loaded.
+
 ### NEWEST (Codex, Break service logos 2026-10-21)
-- User has now confirmed the normal Chrome extension reload is complete and shows version 0.4.1. Do not ask them to repeat that step. Current private Quest-link use and Claude connector replacement are not separately confirmed.
+- (Superseded: the extension is now 0.4.2, see above.) Current private Quest-link use and Claude connector replacement are not separately confirmed.
 - User explicitly requested replacing service text in Break with logos. The six service buttons now show official, locally bundled logos (YouTube, Instagram, Disney+, HBO Max, Netflix, Prime Video), with no separate visible service labels or letter abbreviations. Existing round backgrounds, layout, links, click targets and Focus restrictions are preserved. Other menu labels are unaffected.
 - Assets live in assets/logos/ with sources in CREDITS.md. makeButton has an optional showLabel flag (default true); service images fit their original aspect ratios into the existing texture. Loading does not block app startup. Names remain in button metadata for identification/testing.
 - PC mouse checks cover six decoded/drawn logo textures, each destination, menu closing, and actual wristwatch Focus tap hiding Break. Visual texture/world previews inspected. Page-only update: refresh Quest after the Pages build completes; no bridge restart, new links or extension reload required for this change.
