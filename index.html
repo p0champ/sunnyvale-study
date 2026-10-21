@@ -3048,7 +3048,7 @@ const CONNECTOR_TOOLS = new Set(['open_window', 'update_window', 'close_window',
 function runWorldTool(name, input) {
   if (name === 'list_windows') {
     return JSON.stringify(panels.filter(p => p.visible).map(p => ({
-      id: p.userData.browserId ? 'browser:' + p.userData.browserId : p.userData.id || null,
+      id: p.userData.browserId ? 'browser:' + p.userData.browserId : (p.userData.id ||= 'w' + (++claude.windowCount)),   // every window gets an id Claude can use
       type: p.userData.kind || 'window',
       title: p.userData.title || '',
       text: String(p.userData.body || '').slice(0, 800)

@@ -1026,7 +1026,10 @@ export function installThesisTools(ctx) {
     const g = c.getContext('2d'), img = g.createImageData(768, 432);
     for (let y = 0; y < 432; y++) img.data.set(px.subarray((431 - y) * 768 * 4, (432 - y) * 768 * 4), y * 768 * 4);
     g.putImageData(img, 0, 0);
-    return { text: JSON.stringify(info), image: c.toDataURL('image/jpeg', 0.75).split(',')[1] };
+    // Keep the picture small enough for the headset connection (messages must stay under about 60 KB)
+    let q = 0.7, data = c.toDataURL('image/jpeg', q).split(',')[1];
+    while (data.length > 42000 && q > 0.25) { q -= 0.1; data = c.toDataURL('image/jpeg', q).split(',')[1]; }
+    return { text: JSON.stringify(info), image: data };
   }
 
   // ================================================================ WAKE WORD ("Jarvis" or "Claude")
