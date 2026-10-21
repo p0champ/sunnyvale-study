@@ -74,7 +74,7 @@ export function installThesisTools(ctx) {
     const canvas = document.createElement('canvas'); canvas.width = pxW; canvas.height = pxH;
     const g = canvas.getContext('2d');
     const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4; tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); tex.minFilter = THREE.LinearMipmapLinearFilter;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, toneMapped: false }));
     return { mesh, canvas, g, tex };
   }

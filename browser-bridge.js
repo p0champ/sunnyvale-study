@@ -7,8 +7,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
   const tabs = new Map();
   const restoredPanels = [];
   const descriptions = new Map(); let descriptionCount = 0;
-  const normalFoveation = renderer?.xr?.getFoveation?.() ?? 1;
-  const updateReadingQuality = () => renderer?.xr?.setFoveation?.(tabs.size ? 0 : normalFoveation);
+  const updateReadingQuality = () => {};          // the main page turns foveation off while any window is open
   const send = m => { if (ready && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(m)); };
   const fields = document.getElementById('bridgeSettings');
   fields.innerHTML = `<summary><b>PC browser bridge</b></summary>
@@ -78,7 +77,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     const canvas = document.createElement('canvas'); canvas.width = 2560; canvas.height = 1600;
     const ctx = canvas.getContext('2d'); ctx.fillStyle = '#101010'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#fff'; ctx.font = '32px sans-serif'; ctx.fillText('Loading browser…', 30, 70);
-    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
     texture.minFilter = THREE.LinearMipmapLinearFilter; texture.generateMipmaps = true;
     const content = new THREE.Mesh(new THREE.PlaneGeometry(.72, .45), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
     content.position.set(0, -.025, .006); panel.add(content);
@@ -212,7 +211,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
               if (t.canvas.width !== img.naturalWidth || t.canvas.height !== img.naturalHeight) {
                 t.canvas.width = img.naturalWidth; t.canvas.height = img.naturalHeight;
                 t.content.material.map.dispose(); t.texture = new THREE.CanvasTexture(t.canvas); t.texture.colorSpace = THREE.SRGBColorSpace;
-                t.texture.minFilter = THREE.LinearMipmapLinearFilter; t.texture.generateMipmaps = true; t.texture.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
+                t.texture.minFilter = THREE.LinearMipmapLinearFilter; t.texture.generateMipmaps = true; t.texture.anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
                 t.content.material.map = t.texture; t.content.material.needsUpdate = true;
               }
               t.ctx.drawImage(img, 0, 0); t.texture.needsUpdate = true;

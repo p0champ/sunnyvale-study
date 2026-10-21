@@ -70,9 +70,10 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     }),true,'Screenshot retries exactly once after a missing-page attachment');
     const still = await until(() => messages.find(m => m.type === 'frame' && m.data.startsWith('iVBOR')));
     const png = Buffer.from(still.data, 'base64');
-    assert.equal(png.readUInt32BE(16), 1280, 'Idle text is sent losslessly at the page size');
-    assert.equal(await existing.evaluate(() => devicePixelRatio), 1, 'The page keeps the screen pixel ratio, so clicks are not scaled');
-    assert.equal(png.readUInt32BE(20), 800);
+    assert.equal(png.readUInt32BE(16), 2560, 'Idle text is sent losslessly at double sharpness');
+    assert.equal(await existing.evaluate(() => devicePixelRatio), 2, 'Double sharpness comes from a real 200% page zoom');
+    assert.equal(await existing.evaluate(() => innerWidth), 1280, 'The page is laid out at its normal size, so clicks use the same pixels');
+    assert.equal(png.readUInt32BE(20), 1600);
     const beforeAnimation = messages.length;
     await existing.evaluate(() => {
       const box = document.createElement('div'); box.style.cssText = 'position:fixed;right:20px;top:200px;width:32px;height:32px'; document.body.append(box);
@@ -82,12 +83,12 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     for (const image of messages.slice(beforeAnimation).filter(m => m.type === 'frame')) {
       const data = Buffer.from(image.data, 'base64');
       assert.ok(image.data.startsWith('iVBOR'), 'Animations never substitute the low-resolution cast JPEG');
-      assert.equal(data.readUInt32BE(16), 1280, 'Animated pages retain full-resolution text');
+      assert.equal(data.readUInt32BE(16), 2560, 'Animated pages retain full-resolution text');
     }
     await existing.evaluate(() => clearInterval(busyAnimation));
     send({ type: 'text-scale', id: tab.id, delta: 1 });
     await until(() => messages.find(m => m.type === 'viewport' && m.width === 1120));
-    await until(() => messages.find(m => m.type === 'frame' && m.data.startsWith('iVBOR') && Buffer.from(m.data, 'base64').readUInt32BE(16) === 1120));
+    await until(() => messages.find(m => m.type === 'frame' && m.data.startsWith('iVBOR') && Buffer.from(m.data, 'base64').readUInt32BE(16) === 2240));
     send({ type: 'mic-start', id: tab.id });
     await until(() => messages.find(m => m.type === 'mic-status' && m.enabled));
     await existing.evaluate(async () => {

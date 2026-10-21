@@ -46,13 +46,15 @@
     <small>Your keys stay in this browser only. They're never put in the code or on GitHub.</small>
   </details>
   <details id="bridgeSettings"></details>
+  <label id="sharpnessRow">Display sharpness (set before entering VR)
+    <select id="sharpness"><option value="fast">Fast</option><option value="sharp">Sharp (recommended)</option><option value="sharpest">Sharpest (slower)</option></select></label>
 </div>
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=claude-spark-1';
+import { installBrowserBridge } from './browser-bridge.js?v=crisp-1';
 import { flickVelocity, speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=claude-spark-1';
+import { installThesisTools } from './thesis-tools.js?v=crisp-1';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -75,6 +77,14 @@ function refreshShadows() { renderer.shadowMap.needsUpdate = true; }
 renderer.localClippingEnabled = true;
 renderer.xr.enabled = true;
 renderer.xr.setFoveation(1);
+// Display sharpness (chosen on the page before entering VR): Fast 1.0, Sharp 1.2 (default), Sharpest 1.5
+const SHARPNESS = { fast: 1, sharp: 1.2, sharpest: 1.5 };
+function sharpness() { try { return SHARPNESS[localStorage.getItem('sunnyvale.sharpness')] || SHARPNESS.sharp; } catch { return SHARPNESS.sharp; } }
+{
+  const box = document.getElementById('sharpness');
+  try { box.value = SHARPNESS[localStorage.getItem('sunnyvale.sharpness')] ? localStorage.getItem('sunnyvale.sharpness') : 'sharp'; } catch { box.value = 'sharp'; }
+  box.onchange = () => { try { localStorage.setItem('sunnyvale.sharpness', box.value); } catch { /* private window: stays for this visit only */ } };
+}
 document.body.appendChild(renderer.domElement);
 let passthrough = false;                  // true when the Quest's cameras are on behind the park
 const enterButton = document.createElement('button');
@@ -88,6 +98,7 @@ document.body.appendChild(enterButton);
   if (!ar && !vr) { enterButton.textContent = 'VR NOT SUPPORTED'; enterButton.disabled = true; return; }
   enterButton.textContent = 'ENTER SUNNYVALE';
   enterButton.onclick = async () => {
+    renderer.xr.setFramebufferScaleFactor(sharpness());           // more pixels = crisper text (costs some speed)
     const session = await xr.requestSession(ar ? 'immersive-ar' : 'immersive-vr', {
       requiredFeatures: ['local-floor'], optionalFeatures: ['bounded-floor', 'hand-tracking', ...(ar && document.getElementById('rawCameraEnable')?.checked ? ['camera-access'] : [])]
     });
@@ -149,6 +160,19 @@ function cyl(rt, rb, h, color, x, y, z, parent = park, opts) {
   m.position.set(x, y, z);
   parent.add(m);
   return m;
+}
+// Text windows are drawn at double resolution (same layout), so letters stay crisp up close and at an angle
+const TEXT_SCALE = 2;
+function sharpTexture(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w * TEXT_SCALE; c.height = h * TEXT_SCALE;
+  const ctx = c.getContext('2d'); ctx.scale(TEXT_SCALE, TEXT_SCALE);
+  draw(ctx, w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
 }
 function canvasTexture(w, h, draw) {
   const c = document.createElement('canvas');
@@ -677,7 +701,7 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
 
 // The Stark look: a see-through red-and-gold hologram with glowing edges and scan lines
 function hologramTexture(title, body, W, H, scroll = 0) {
-  return canvasTexture(W, H, (ctx) => {
+  return sharpTexture(W, H, (ctx) => {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = 'rgba(70, 6, 6, 0.55)';
     ctx.beginPath(); ctx.roundRect(10, 10, W - 20, H - 20, 18); ctx.fill();
@@ -734,8 +758,27 @@ function drawScrolled(ctx, body, font, size, W, H, scroll) {
   return { total: lines.length, perPage };
 }
 
+// Reading mode: a clean, high-contrast page (plain font, no speckle), for long reading in either mode
+const READING_FONT = '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif';
+function readingTexture(title, body, W, H, scroll = 0) {
+  return sharpTexture(W, H, (ctx) => {
+    ctx.fillStyle = '#fbf8f1'; ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
+    ctx.fillStyle = '#111';
+    for (let ts = 60; ts > 28; ts -= 4) {
+      ctx.font = `600 ${ts}px ${READING_FONT}`;
+      if (ctx.measureText(title).width < W - 220) break;
+    }
+    ctx.fillText(title, 60, 118);
+    ctx.fillStyle = '#c96442'; ctx.fillRect(60, 140, 120, 5);
+    ctx.fillStyle = '#111';
+    const size = textSize(body);
+    drawScrolled(ctx, body, `${size}px ${READING_FONT}`, size, W, H, scroll);
+  });
+}
+function bodyFont(p, size) { return p?.userData.reading ? `${size}px ${READING_FONT}` : `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`; }
+
 function cardboardTexture(title, body, W, H, scroll = 0) {
-  return canvasTexture(W, H, (ctx) => {
+  return sharpTexture(W, H, (ctx) => {
     ctx.fillStyle = '#a5865a'; ctx.fillRect(0, 0, W, H);
     for (let i = 0; i < 3000; i++) {                                  // cardboard speckle
       ctx.fillStyle = `rgba(${90 + Math.random() * 60},${70 + Math.random() * 40},${40 + Math.random() * 30},0.35)`;
@@ -766,23 +809,23 @@ function cardboardTexture(title, body, W, H, scroll = 0) {
 // Change what a window says (redraws both its Sunnyvale and Stark looks)
 function setWindowContent(p, title, body, { keepScroll = false } = {}) {
   if (!keepScroll && body !== p.userData.body) p.userData.scroll = p.userData.followEnd ? 1e6 : 0;   // notes jump to the newest line
-  const size = textSize(body), lines = wrapLines(body, `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`, 1024 - 140);
+  const size = textSize(body), lines = wrapLines(body, bodyFont(p, size), 1024 - 140);
   const perPage = Math.max(1, Math.floor((700 - 250) / (size * 1.38)));
   p.userData.scroll = Math.max(0, Math.min(p.userData.scroll || 0, lines.length - perPage));
   p.userData.scrollMax = Math.max(0, lines.length - perPage);
-  p.userData.cardboard.dispose(); p.userData.hologram.dispose();
+  p.userData.cardboard.dispose(); p.userData.hologram.dispose(); p.userData.readingTex?.dispose();
   p.userData.cardboard = cardboardTexture(title, body, 1024, 700, p.userData.scroll);
   p.userData.hologram = hologramTexture(title, body, 1024, 700, p.userData.scroll);
-  p.material.map = mode === 'stark' ? p.userData.hologram : p.userData.cardboard;
-  p.material.needsUpdate = true;
+  p.userData.readingTex = p.userData.reading ? readingTexture(title, body, 1024, 700, p.userData.scroll) : null;
   p.userData.title = title; p.userData.body = body;
+  windowLook(p, mode === 'stark');
   updateScrollButtons(p);
   markDirty();
 }
 function updateScrollButtons(p) {
   if (!p.userData.upButton) return;
   if (p.userData.scrollMax === undefined) {
-    const size = textSize(p.userData.body || ''), lines = wrapLines(p.userData.body || '', `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`, 1024 - 140);
+    const size = textSize(p.userData.body || ''), lines = wrapLines(p.userData.body || '', bodyFont(p, size), 1024 - 140);
     p.userData.scrollMax = Math.max(0, lines.length - Math.max(1, Math.floor(450 / (size * 1.38))));
   }
   p.userData.upButton.visible = p.userData.downButton.visible = p.userData.scrollMax > 0;
@@ -831,6 +874,8 @@ const stashTex = sideIcon(ctx => {
   ctx.beginPath(); ctx.moveTo(64, 34); ctx.lineTo(64, 78); ctx.moveTo(46, 60); ctx.lineTo(64, 78); ctx.lineTo(82, 60); ctx.stroke();
   ctx.strokeRect(40, 86, 48, 8);
 });
+const readTex = sideIcon(ctx => { ctx.font = '700 46px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Aa', 64, 80); });
+const readOnTex = sideIcon(ctx => { ctx.fillStyle = '#fbf8f1'; ctx.beginPath(); ctx.arc(64, 64, 44, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#111'; ctx.font = '700 46px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Aa', 64, 80); });
 const upTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 76); ctx.lineTo(64, 50); ctx.lineTo(88, 76); ctx.stroke(); });
 const downTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 52); ctx.lineTo(64, 78); ctx.lineTo(88, 52); ctx.stroke(); });
 function addWindowButtons(panel, { scroll = false } = {}) {
@@ -845,10 +890,18 @@ function addWindowButtons(panel, { scroll = false } = {}) {
   panel.userData.lockButton = make(lockOpenTex, h / 2 - 0.028, () => toggleLock(panel));
   make(stashTex, h / 2 - 0.088, () => stashWindow(panel));
   if (scroll) {
+    panel.userData.readButton = make(readTex, h / 2 - 0.148, () => toggleReading(panel));
     panel.userData.upButton = make(upTex, -h / 2 + 0.088, () => scrollWindow(panel, -1));
     panel.userData.downButton = make(downTex, -h / 2 + 0.028, () => scrollWindow(panel, 1));
     panel.userData.upButton.visible = panel.userData.downButton.visible = false;
   }
+}
+// Reading mode: switch a text window between its themed look and a clean, high-contrast page
+function toggleReading(panel, value = !panel.userData.reading) {
+  panel.userData.reading = value;
+  if (panel.userData.readButton) { panel.userData.readButton.material.map = value ? readOnTex : readTex; panel.userData.readButton.material.needsUpdate = true; }
+  setWindowContent(panel, panel.userData.title, panel.userData.body, { keepScroll: true });
+  blip(value ? 900 : 700, 0.05);
 }
 function toggleLock(panel, value = !panel.userData.locked) {
   panel.userData.locked = value;
@@ -884,7 +937,7 @@ function makeCardboardWindow(title, body, position) {
   const texture = cardboardTexture(title, body, W, H);
   const w = 0.8, h = 0.55;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
+    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, toneMapped: false }));
   mesh.position.copy(position);
   mesh.userData.size = { w, h };
   mesh.userData.cardboard = texture;
@@ -1456,7 +1509,7 @@ function closeWindow(p) {
   p.userData.onClose?.();
   markDirty();
   for (const s of inputs) if (s.held === p) release(s);
-  p.userData.cardboard?.dispose(); p.userData.hologram?.dispose(); p.geometry.dispose(); p.material.dispose();
+  p.userData.cardboard?.dispose(); p.userData.hologram?.dispose(); p.userData.readingTex?.dispose(); p.geometry.dispose(); p.material.dispose();
   for (let i = touchables.length - 1; i >= 0; i--) { let x = touchables[i].mesh; while (x && x !== p) x = x.parent; if (x === p) touchables.splice(i, 1); }
   blip(500, 0.08);
 }
@@ -2618,7 +2671,7 @@ function snapshotDesk() {
     if (p === stashPicker || u.noSave) continue;
     if (u.kind === 'browser-keyboard') continue;
     const common = {
-      id: u.id, locked: !!u.locked, stashed: stash.includes(p),
+      id: u.id, locked: !!u.locked, stashed: stash.includes(p), reading: !!u.reading,
       pose: { p: p.position.toArray(), q: p.quaternion.toArray(), s: p.scale.toArray(), baseScale: u.baseScale || 1 }
     };
     if (u.kind === 'browser') { const url = browserBridge?.urlOf?.(u.browserId); if (url) items.push({ type: 'browser', url, ...common }); continue; }
@@ -2644,6 +2697,7 @@ function applySavedWindowState(p, item) {
   if (item.id) p.userData.id = item.id;
   applyPose(p, item);
   if (item.locked) { p.userData.locked = false; toggleLock(p, true); }
+  if (item.reading && p.userData.cardboard) toggleReading(p, true);
   if (item.stashed && panels.includes(p)) { panels.splice(panels.indexOf(p), 1); stash.push(p); p.visible = false; }
 }
 function restoreItem(item) {
@@ -2767,6 +2821,14 @@ function setMode(next) {
 
 // Swap the windows between cardboard and hologram; holograms build up with a scan line
 function applyWindows(stark) { for (const p of panels) lookFor(p, stark); }
+// Which texture a window shows: reading mode wins over the Sunnyvale (cardboard) and Stark (hologram) looks
+function windowLook(p, stark) {
+  const reading = !!(p.userData.reading && p.userData.readingTex);
+  p.material.map = reading ? p.userData.readingTex : stark ? p.userData.hologram : p.userData.cardboard;
+  p.material.transparent = stark && !reading;
+  p.material.depthWrite = !stark || reading;
+  p.material.needsUpdate = true;
+}
 function lookFor(p, stark) {
   if (p.userData.kind && !['browser', 'browser-keyboard'].includes(p.userData.kind)) return;
   {
@@ -2775,10 +2837,7 @@ function lookFor(p, stark) {
       p.userData.closeButton.material.blending = stark ? THREE.AdditiveBlending : THREE.NormalBlending;
       p.userData.closeButton.material.needsUpdate = true;
     }
-    p.material.map = stark ? p.userData.hologram : p.userData.cardboard;
-    p.material.transparent = stark;
-    p.material.depthWrite = !stark;
-    p.material.needsUpdate = true;
+    windowLook(p, stark);
     if (p.userData.kind) return;
     p.userData.powerUp = 0;
     p.userData.powerTo = stark ? 'stark' : 'sunnyvale';
@@ -3200,6 +3259,14 @@ window.studyDebug.menu = { menu, buttonRow, categories, toggleCategory, closeCat
 window.studyDebug.desk = { snapshotDesk, restoreDesk, saveWorkspace, loadWorkspace, listWorkspaces, stashWindow, openStashPicker, openSpacesPicker, toggleLock, findWindow };
 
 const clock = new THREE.Clock();
+// While any window is open, the edges of your view are drawn at full detail too (no foveation), so text
+// stays sharp wherever you look; with nothing to read, the edges go back to power saving.
+let readingCheck = 0, readingFoveation = null;
+function updateReadingQuality(dt) {
+  if ((readingCheck += dt) < 0.5) return; readingCheck = 0;
+  const want = panels.some(p => p.visible) ? 0 : 1;
+  if (want !== readingFoveation) { readingFoveation = want; renderer.xr.setFoveation(want); }
+}
 renderer.setAnimationLoop(window.studyDebug.animate = () => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
@@ -3208,6 +3275,7 @@ renderer.setAnimationLoop(window.studyDebug.animate = () => {
   fireLight.intensity = 9 + Math.sin(t * 13) * 1.5 + Math.sin(t * 7.3) * 1.5;
   if (park.visible) updateFire(dt);
   updateHeld();
+  updateReadingQuality(dt);
   if (renderer.xr.isPresenting) {
     browserBridge?.clearHover();
     for (const s of inputs) if (s.ray.visible && (!s.isHand || s.hand.visible) && !s.held && s !== palm.state) {

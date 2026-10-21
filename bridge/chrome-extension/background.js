@@ -41,14 +41,18 @@ async function detachAll() {
   for (const tab of attached) await detach(tab);
   for (const tabId of [...audioTabs.keys()]) await stopAudio(tabId);
 }
-// A saved site zoom (claude.ai was at 75%) made clicks land at that fraction of the distance from the top left.
-// Shared tabs are held at 100% for that tab only; the site's own zoom comes back when sharing stops.
+// Shared tabs are shown at double sharpness with a real 200% page zoom: the page is drawn twice as big
+// (pictures of 2560x1600) but laid out at its normal 1280x800 size. Clicks are sent in those layout
+// pixels, so they stay exact (an emulated pixel ratio of 2 made real Chrome misplace them, and a saved
+// site zoom such as claude.ai at 75% made them land short). The zoom is for that tab only; the site's
+// own zoom comes back when sharing stops.
+const READ_ZOOM = 2;
 async function holdZoom(tabId) {
   await chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab' }).catch(() => {});
-  if (await chrome.tabs.getZoom(tabId).catch(() => 1) !== 1) await chrome.tabs.setZoom(tabId, 1).catch(() => {});
+  if (await chrome.tabs.getZoom(tabId).catch(() => 1) !== READ_ZOOM) await chrome.tabs.setZoom(tabId, READ_ZOOM).catch(() => {});
 }
 chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor }) => {
-  if (newZoomFactor !== 1 && [...tabs.values()].some(tab => tab.tabId === tabId)) holdZoom(tabId);
+  if (newZoomFactor !== READ_ZOOM && [...tabs.values()].some(tab => tab.tabId === tabId)) holdZoom(tabId);
 });
 async function detach(tab) {
   clearTimeout(tab.frameTimer); tab.latestFrame = null;
@@ -100,10 +104,13 @@ async function recoverTab(tab) {
 }
 // Real Chrome can place clicks using the screen's own pixel ratio instead of an emulated one, so with an
 // emulated ratio of 2 on a normal screen clicks landed at half the distance (far above and left of the cursor).
-// Keep the page at the screen's own ratio (a scaled screenshot clip would look sharper, but Chrome then returns stale pictures).
-const viewportParams = params => ({ ...params, deviceScaleFactor: 0 });
+// The page keeps the screen's own pixel ratio; its window is READ_ZOOM times the layout size the headset asks for
+// (a scaled screenshot clip would also look sharper, but Chrome then returns stale pictures).
+const viewportParams = params => ({ ...params, width: params.width * READ_ZOOM, height: params.height * READ_ZOOM, deviceScaleFactor: 0 });
 async function sendCDP(tab, method, params = {}) {
   if (method === 'Emulation.setDeviceMetricsOverride') tab.viewport = params = viewportParams(params);
+  // At 200% zoom a wheel step scrolls half as far, so scroll twice as much to feel the same
+  if (method === 'Input.dispatchMouseEvent' && params.type === 'mouseWheel') params = { ...params, deltaX: (params.deltaX || 0) * READ_ZOOM, deltaY: (params.deltaY || 0) * READ_ZOOM };
   if (method === 'Page.startScreencast') tab.cast = params;
   if (method === 'Page.stopScreencast') tab.cast = null;
   try {
