@@ -33,8 +33,19 @@ test('local backups restore UTF-8 boundaries and binary files exactly; incomplet
     await assert.rejects(call({type:'backup-begin',kind:'library',id:'../outside',size:1}),/unusual id/);
     await assert.rejects(call({type:'restore-part',kind:'unknown',id:'fixture-file',n:0}),/Unknown/);
     await assert.rejects(call({type:'restore-part',kind:'library',id:'fixture-file',n:-1}),/piece number/);
+    for (const n of [6, 2 ** 32, Number.MAX_SAFE_INTEGER]) await assert.rejects(call({type:'restore-part',kind:'library',id:'fixture-file',n}),/piece number/);
     await writeFile(join(root,'pairing.txt'),'fixture');await backup.saveKeys();assert.equal(await readFile(join(backup.folder,'bridge-keys','pairing.txt'),'utf8'),'fixture');
   }finally{
     assert.ok(resolve(root).startsWith(resolve(tmpdir())+sep));await rm(root,{recursive:true,force:true});
   }
+});
+
+
+test('backup initialization errors never include the private filesystem path',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'sunnyvale-backup-error-')),previous=process.env.BRIDGE_BACKUP_DIR;
+  const blocked=join(root,'private-file');await writeFile(blocked,'fixture');
+  process.env.BRIDGE_BACKUP_DIR=blocked;const backup=createBackup({root});
+  if(previous===undefined)delete process.env.BRIDGE_BACKUP_DIR;else process.env.BRIDGE_BACKUP_DIR=previous;
+  try{await assert.rejects(backup.handle({type:'backup-info'},()=>{}),error=>error.message==='Could not read or write the local backup.');}
+  finally{assert.ok(resolve(root).startsWith(resolve(tmpdir())+sep));await rm(root,{recursive:true,force:true});}
 });

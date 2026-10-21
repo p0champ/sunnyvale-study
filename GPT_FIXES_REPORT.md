@@ -38,4 +38,10 @@ HANDOVER and NEXT_STEPS now distinguish current work from superseded history. RE
 
 ## Final PC validation
 
-All 15 npm test cases pass, including isolated Windows startup, actual-app synthetic XR, extension streaming/input/media, HTTP fallback, connector auth and backup round trips. No production extension edits were needed. Secret scans precede each commit. Real-headset pinch confirmation and actual Claude-at-75% account-page clicks remain pending; the branch is not deployed.
+All 16 npm test cases pass, including isolated Windows startup, actual-app synthetic XR, extension streaming/input/media, HTTP fallback, connector auth and backup round trips. No production extension edits were needed. Secret scans precede each commit. Real-headset pinch confirmation and actual Claude-at-75% account-page clicks remain pending; the branch is not deployed.
+
+## Independent review: 8.5/10 (round 2)
+
+A fresh reviewer ran the original full suite independently (15/15), read the baseline-to-branch diff, verified protected Jarvis/link/debug code unchanged, and ran adversarial backup checks. It found two issues: initialization errors could include a local path and huge restore indices wrapped to piece zero. Both were fixed with regression coverage. Reviewer reran the updated targeted checks (4/4); the parent final full suite passed 16/16. No remaining implementation issue blocks the branch.
+
+Ranked remaining validation limits: actual signed-in Claude at saved 75% zoom; real-hand pinch confirmation after merge; reconciliation of newest recovery/canonical backup snapshots at the planned transition. The real bridge stayed running and no PC frontend competed with Quest. All changes are on gpt-fixes; nothing merged/deployed.

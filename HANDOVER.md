@@ -14,7 +14,7 @@ Work is on `gpt-fixes`, based on main `3d76373`; it is NOT merged or deployed. C
 
 Existing main work since Break logos is already built: permanent Funnel address, reconnect/heartbeat, crash restart, Safety Net, spark avatar/moods, five-category menu, exam rehearsal/paragraph comments/shot log/propaganda checklist/window arrangement tools, Display sharpness and Aa reading mode. Compositor/quad layers remain a proposal, not approved work. Older entries below may describe superseded behavior; this checkpoint takes priority.
 
-Validation details and outstanding limits: `GPT_FIXES_REPORT.md`. Independent review result will be recorded there before handoff.
+Validation details and outstanding limits: `GPT_FIXES_REPORT.md`. Independent review: 8.5/10 after two backup edge-case fixes; final PC suite 16/16 passed. Actual Claude-at-75% and real-hand checks remain pending as listed above.
 
 ## Start here: earlier checkpoint for Claude or GPT
 

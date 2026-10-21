@@ -66,8 +66,7 @@ export function createBackup({ root }) {
     for (const [t, u] of uploads) if (Date.now() - u.seen > 10 * 60000) { uploads.delete(t); rm(u.temp).catch(() => {}); }
   }, 60000).unref();
   async function handle(m, reply) {
-    await ready;
-    try { return await answer(m, reply); }
+    try { await ready; return await answer(m, reply); }
     catch (e) { throw Error(e.code === 'ENOENT' ? 'That is not in the backup.' : e.code ? 'Could not read or write the local backup.' : e.message); }   // no local paths in replies
   }
   async function answer(m, reply) {
@@ -126,11 +125,13 @@ export function createBackup({ root }) {
       const file = kind === 'study' ? join(folder, 'study', 'latest.json') : kind === 'library' ? join(folder, 'library', id + '.bin') : join(folder, 'frames', id + '.json');
       const meta = kind === 'library' ? JSON.parse(await readFile(join(folder, 'library', id + '.json'), 'utf8').catch(() => '{}')) : undefined;
       if (kind !== 'study' && !id) throw Error('Missing or unusual id.');
-      const n = Math.max(0, m.n | 0);
+      const n = m.n;
       // Read just this piece of the stored bytes (videos can be big)
-      const bytes = PIECE / 4 * 3, size = (await stat(file)).size, buf = Buffer.alloc(Math.max(0, Math.min(bytes, size - n * bytes)));
+      const bytes = PIECE / 4 * 3, size = (await stat(file)).size, total = Math.ceil(size / bytes) || 1;
+      if (n >= total) throw Error('Invalid backup piece number.');
+      const buf = Buffer.alloc(Math.max(0, Math.min(bytes, size - n * bytes)));
       const fh = await open(file, 'r'); try { await fh.read(buf, 0, buf.length, n * bytes); } finally { await fh.close(); }
-      return reply({ data: buf.toString('base64'), n, total: Math.ceil(size / bytes) || 1, meta });
+      return reply({ data: buf.toString('base64'), n, total, meta });
     }
     throw Error('Unknown backup request.');
   }
