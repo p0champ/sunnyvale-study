@@ -52,9 +52,10 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=stay-1';
-import { flickVelocity, speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=stay-1';
+import { installBrowserBridge } from './browser-bridge.js?v=reliable-1';
+import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
+import { installThesisTools } from './thesis-tools.js?v=gestures-1';
+import { installBackup } from './backup.js?v=backup-1';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -876,6 +877,14 @@ const stashTex = sideIcon(ctx => {
 });
 const readTex = sideIcon(ctx => { ctx.font = '700 46px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Aa', 64, 80); });
 const readOnTex = sideIcon(ctx => { ctx.fillStyle = '#fbf8f1'; ctx.beginPath(); ctx.arc(64, 64, 44, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#111'; ctx.font = '700 46px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Aa', 64, 80); });
+const linkTex = sideIcon(ctx => {              // two chain links: in your group
+  ctx.save(); ctx.translate(64, 64); ctx.rotate(-Math.PI / 4);
+  ctx.beginPath(); ctx.roundRect(-34, -11, 40, 22, 11); ctx.stroke(); ctx.beginPath(); ctx.roundRect(-6, -11, 40, 22, 11); ctx.stroke(); ctx.restore();
+});
+const unlinkTex = sideIcon(ctx => {            // the chain broken: this window stays where it is
+  ctx.strokeStyle = '#ffb347'; ctx.save(); ctx.translate(64, 64); ctx.rotate(-Math.PI / 4);
+  ctx.beginPath(); ctx.roundRect(-40, -11, 34, 22, 11); ctx.stroke(); ctx.beginPath(); ctx.roundRect(6, -11, 34, 22, 11); ctx.stroke(); ctx.restore();
+});
 const upTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 76); ctx.lineTo(64, 50); ctx.lineTo(88, 76); ctx.stroke(); });
 const downTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 52); ctx.lineTo(64, 78); ctx.lineTo(88, 52); ctx.stroke(); });
 function addWindowButtons(panel, { scroll = false } = {}) {
@@ -889,12 +898,20 @@ function addWindowButtons(panel, { scroll = false } = {}) {
   };
   panel.userData.lockButton = make(lockOpenTex, h / 2 - 0.028, () => toggleLock(panel));
   make(stashTex, h / 2 - 0.088, () => stashWindow(panel));
+  panel.userData.linkButton = make(linkTex, h / 2 - 0.148, () => toggleLink(panel));
   if (scroll) {
-    panel.userData.readButton = make(readTex, h / 2 - 0.148, () => toggleReading(panel));
+    panel.userData.readButton = make(readTex, h / 2 - 0.208, () => toggleReading(panel));
     panel.userData.upButton = make(upTex, -h / 2 + 0.088, () => scrollWindow(panel, -1));
     panel.userData.downButton = make(downTex, -h / 2 + 0.028, () => scrollWindow(panel, 1));
     panel.userData.upButton.visible = panel.userData.downButton.visible = false;
   }
+}
+// Your group of windows moves together (make a fist and move it); the link button takes one window out of it
+function toggleLink(panel, unlinked = !panel.userData.unlinked) {
+  panel.userData.unlinked = unlinked;
+  if (panel.userData.linkButton) { panel.userData.linkButton.material.map = unlinked ? unlinkTex : linkTex; panel.userData.linkButton.material.needsUpdate = true; }
+  blip(unlinked ? 520 : 820, 0.05);
+  markDirty();
 }
 // Reading mode: switch a text window between its themed look and a clean, high-contrast page
 function toggleReading(panel, value = !panel.userData.reading) {
@@ -1111,7 +1128,7 @@ function release(state) {
   markDirty();
   if (state.surface) { const sf = state.surface; state.surface = null; sf.up(surfaceUV(state, sf), state); return; }
   if (state.stroke) { state.stroke = null; return; }
-  if (state.held) { setHeld(state.held, false); checkFlick(state, state.held); }
+  if (state.held) setHeld(state.held, false);
   state.held = null; state.mode = null;
 }
 
@@ -1119,7 +1136,6 @@ function updateHeld() {
   for (const s of inputs) {
     if (s.surface) { const uv = surfaceUV(s, s.surface); if (uv) s.surface.move(uv, s); continue; }
     if (s.stroke) { const p = drawPoint(s); if (p) addStrokePoint(s, p); }
-    trackHeld(s);
     if (!s.held || !panels.includes(s.held)) continue;
     if (s.mode === 'near') {
       const p = pinchPoint(s, new THREE.Vector3());
@@ -2082,37 +2098,151 @@ function eraseDrawings() {
   for (const l of [...drawings.children]) { l.geometry.dispose(); drawings.remove(l); }
 }
 
-// ---------- Jarvis gestures: fist-pull, two-hand resize, flick to stash ----------
+// ---------- Jarvis gestures ----------
+// Flick your open hand away ("go away")          -> minimises the window you point at (or look at) into the stash
+// Make a fist in the air and move it              -> moves your whole group of windows; turn the fist to turn them
+// Palm facing you, curl your fingers ("come here") -> brings the window you look at closer (or the whole group)
+// Two hands holding the same window: pull apart to make it bigger.
 const stash = [];
+const jointPos = (s, name) => { const j = s.hand.joints[name]; return j ? j.getWorldPosition(new THREE.Vector3()) : null; };
+const TIPS = ['index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'];
 function isFist(s) {
-  const j = s.hand.joints, wrist = j['wrist'];
-  if (!wrist || !s.hand.visible) return false;
-  const w = wrist.getWorldPosition(new THREE.Vector3());
-  return ['index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip']
-    .every(n => j[n] && j[n].getWorldPosition(new THREE.Vector3()).distanceTo(w) < 0.095);
+  const w = s.hand.visible && jointPos(s, 'wrist');
+  return !!w && TIPS.every(n => { const p = jointPos(s, n); return p && p.distanceTo(w) < 0.095; });
+}
+function isOpenHand(s) {
+  const w = s.hand.visible && jointPos(s, 'wrist');
+  return !!w && TIPS.every(n => { const p = jointPos(s, n); return p && p.distanceTo(w) > 0.13; });
+}
+// How curled the fingers are: fingertips' distance to the palm centre (open ~0.09 m, curled ~0.04 m)
+function fingerReach(s) {
+  const c = jointPos(s, 'middle-finger-metacarpal');
+  if (!c) return 0;
+  const tips = TIPS.slice(0, 3).map(n => jointPos(s, n)).filter(Boolean);
+  return tips.length ? tips.reduce((a, p) => a + p.distanceTo(c), 0) / tips.length : 0;
+}
+function palmFacesViewer(s) {
+  const info = palmInfo(s);
+  if (!info) return false;
+  const toViewer = viewerPosition(new THREE.Vector3()).sub(info.center).normalize();
+  return info.normal.dot(toViewer) > 0.6;
 }
 function flyTo(p, target, duration = 0.45) {
   p.userData.fly = { from: p.position.clone(), to: target.clone(), t: 0, duration };
 }
+// The window in the middle of your view
+function gazeWindow() {
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const origin = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld), dir = new THREE.Vector3(0, 0, -1).transformDirection(cam.matrixWorld);
+  raycaster.set(origin, dir);
+  return raycaster.intersectObjects(panels.filter(p => p.visible), false)[0]?.object || null;
+}
+function pointedWindow(s) {
+  const { origin, dir } = rayFrom(s);
+  raycaster.set(origin, dir);
+  return raycaster.intersectObjects(panels.filter(p => p.visible), false)[0]?.object || null;
+}
+// Your group: every open window, except ones you took out with their link button
+const groupWindows = () => panels.filter(p => p.visible && !p.userData.unlinked && p !== stashPicker);
+
+// --- Flick away: a fast, short flick of the open hand, mostly from the wrist, not towards you
+function detectFlick(s, now) {
+  const tip = jointPos(s, 'middle-finger-tip'), wrist = jointPos(s, 'wrist');
+  if (!tip || !wrist) return;
+  (s.flickTrack ??= []).push({ tip, wrist, t: now });
+  while (s.flickTrack.length > 2 && now - s.flickTrack[0].t > 120) s.flickTrack.shift();
+  if (s.held || s.groupMove || now < (s.flickCooldown || 0) || s.flickTrack.length < 3) return;
+  const a = s.flickTrack[0], dt = (now - a.t) / 1000;
+  if (dt < 0.05) return;
+  const vTip = tip.clone().sub(a.tip).divideScalar(dt), vWrist = wrist.clone().sub(a.wrist).divideScalar(dt);
+  const speed = vTip.length();
+  const eye = viewerPosition(new THREE.Vector3()), toViewer = eye.clone().sub(wrist).normalize();
+  const inFront = wrist.y > eye.y - 0.55 && wrist.distanceTo(eye) < 0.8;
+  if (speed > 1.5 && speed > vWrist.length() * 1.4 + 0.3 && vTip.dot(toViewer) < 0.2 * speed && inFront && isOpenHand(s)) {
+    const p = pointedWindow(s) || gazeWindow();
+    s.flickCooldown = now + 1000; s.flickTrack = [];
+    if (!p) return;
+    stashWindow(p);
+    p.userData.away = { v: vTip.normalize().multiplyScalar(1.2), t: 0 };     // it zips off the way you flicked
+    jarvisSay('', ['J.A.R.V.I.S.', 'MINIMISED', 'BRING IT BACK FROM WORLD › STASH']);
+  }
+}
+
+// --- Fist: move the whole group (starts after holding the fist briefly, so a quick finger curl isn't a grab)
+const groupOutlines = new Map();
+function outlineFor(p) {
+  let o = groupOutlines.get(p);
+  if (!o) {
+    const { w, h } = p.userData.size || { w: 0.8, h: 0.55 };
+    const pts = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => new THREE.Vector3(x * 1.03, y * 1.04, 0.005));
+    o = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.9, depthTest: false }));
+    o.renderOrder = 999; p.add(o); groupOutlines.set(p, o);
+  }
+  return o;
+}
+function wristYaw(s) {
+  const j = s.hand.joints['wrist']; if (!j) return 0;
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(j.getWorldQuaternion(new THREE.Quaternion()));
+  return Math.atan2(f.x, f.z);
+}
+function detectGroupMove(s, now) {
+  const fist = isFist(s) && !s.held && !palmFacesViewer(s);
+  if (fist && !s.fistSince) s.fistSince = now;
+  if (!fist) s.fistSince = 0;
+  if (fist && !s.groupMove && now - s.fistSince > 200) {
+    const items = groupWindows();
+    if (!items.length) return;
+    s.groupMove = { start: jointPos(s, 'wrist'), yaw: wristYaw(s), eye: viewerPosition(new THREE.Vector3()),
+      items: items.map(p => ({ p, pos: p.position.clone(), q: p.quaternion.clone() })) };
+    for (const it of s.groupMove.items) { it.p.userData.fly = null; outlineFor(it.p).visible = true; }
+    blip(520, 0.12, 0.12);
+  }
+  const g = s.groupMove;
+  if (g && !fist) {                                                 // open the hand: drop the group where it is
+    for (const it of g.items) { const o = groupOutlines.get(it.p); if (o) o.visible = false; }
+    s.groupMove = null; markDirty(); blip(700, 0.08);
+    return;
+  }
+  if (g) {
+    const move = jointPos(s, 'wrist').sub(g.start).multiplyScalar(1.5);      // a little amplified, so you don't have to reach far
+    let turn = wristYaw(s) - g.yaw; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    const spin = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), turn);
+    for (const it of g.items) {
+      // turn around you, then move with your fist
+      it.p.position.copy(it.pos).sub(g.eye).applyQuaternion(spin).add(g.eye).add(move);
+      it.p.quaternion.copy(spin).multiply(it.q);
+    }
+  }
+}
+
+// --- Come here: palm facing you, fingers curl in and open again
+function detectBeckon(s, now) {
+  if (s.held || s.groupMove || !palmFacesViewer(s)) { s.beckon = null; return; }
+  const reach = fingerReach(s);
+  const b = (s.beckon ??= { open: reach, curled: false, at: 0 });
+  b.open = Math.max(reach, b.open * 0.995);                         // slowly forget how open the hand was
+  if (!b.curled && b.open > 0.07 && reach < b.open * 0.62) b.curled = true;
+  else if (b.curled && reach > b.open * 0.85) {
+    b.curled = false;
+    if (now - b.at < 450) return;
+    b.at = now;
+    const eye = viewerPosition(new THREE.Vector3()), p = gazeWindow();
+    const closer = q => {
+      const d = q.position.distanceTo(eye); if (d < 0.5) return;
+      const to = eye.clone().add(q.position.clone().sub(eye).multiplyScalar(Math.max(0.5, d * 0.65) / d));
+      flyTo(q, to, 0.35);
+    };
+    if (p) closer(p); else groupWindows().forEach(closer);
+    blip(660, 0.1, 0.12);
+  }
+}
+
 function updateGestures(dt) {
   if (renderer.xr.isPresenting) {
+    const now = performance.now();
     for (const s of inputs) {
-      if (!s.isHand) continue;
-      const fist = isFist(s);
-      if (fist && !s.wasFist && !s.held) {
-        // The Tony Stark pull: point at a far window, close your fist, and it flies to you
-        const { origin, dir } = rayFrom(s);
-        raycaster.set(origin, dir);
-        const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
-        if (hit && hit.distance > 0.6) {
-          viewerPosition(tmpVec);
-          const cam = renderer.xr.getCamera();
-          const fwd = cam.getWorldDirection(new THREE.Vector3()); fwd.y = 0; fwd.normalize();
-          flyTo(hit.object, new THREE.Vector3(tmpVec.x + fwd.x * 0.6, tmpVec.y - 0.1, tmpVec.z + fwd.z * 0.6));
-          blip(520, 0.15, 0.15);
-        }
-      }
-      s.wasFist = fist;
+      if (!s.isHand || !s.hand.visible || s === palm.state) continue;
+      detectGroupMove(s, now); detectFlick(s, now); detectBeckon(s, now);
     }
   }
   // two hands holding the same thing: pull them apart to make it bigger
@@ -2156,27 +2286,6 @@ function grabPoint(s) {
   if (s.mode === 'near') return pinchPoint(s, new THREE.Vector3());
   const { origin, dir } = rayFrom(s);
   return origin.addScaledVector(dir, s.dist);
-}
-// Called when you let go of something: a fast flick sends it into your stash
-function checkFlick(s, p) {
-  const velocity = flickVelocity(s.track || [], performance.now());
-  if (velocity && panels.includes(p)) {
-    const v = new THREE.Vector3().fromArray(velocity);
-    p.userData.away = { v: v.multiplyScalar(0.6), t: 0 };
-    panels.splice(panels.indexOf(p), 1);
-    stash.push(p);
-    blip(400, 0.18, 0.15);
-    updateStashButton();
-    refreshStashPicker();
-    markDirty();
-  }
-}
-function trackHeld(s) {
-  if (!s.held) { s.track = []; return; }
-  const p = grabPoint(s);
-  if (!p) return;
-  (s.track ??= []).push({ p, t: performance.now() });
-  while (s.track.length > 2 && performance.now() - s.track[0].t > 140) s.track.shift();
 }
 // Put one window away into the stash (it zips away and can be brought back later)
 function stashWindow(p) {
@@ -2559,7 +2668,7 @@ const studyButtons = [studyTool('LIBRARY', 'library'), studyTool('THESIS', 'thes
   studyTool('DEADLINES', 'deadlines'), studyTool('BRIEFING', 'briefing')];
 const spacesButton = makeButton('SPACES', icon.spaces, () => { closeCategory(); openSpacesPicker(); });
 const scanButton = makeButton('SCAN', icon.scan, () => { closeCategory(); thesisTools.menu.scan(); });
-const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); thesisTools.menu.logOff(); });
+const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); thesisTools.menu.logOff(); window.studyDebug.backup?.backupNow('logoff'); });
 
 const breakServices = [
   ['YOUTUBE', 'youtube.png', 'https://www.youtube.com/'],
@@ -2671,7 +2780,7 @@ function snapshotDesk() {
     if (p === stashPicker || u.noSave) continue;
     if (u.kind === 'browser-keyboard') continue;
     const common = {
-      id: u.id, locked: !!u.locked, stashed: stash.includes(p), reading: !!u.reading,
+      id: u.id, locked: !!u.locked, stashed: stash.includes(p), reading: !!u.reading, unlinked: !!u.unlinked,
       pose: { p: p.position.toArray(), q: p.quaternion.toArray(), s: p.scale.toArray(), baseScale: u.baseScale || 1 }
     };
     if (u.kind === 'browser') { const url = browserBridge?.urlOf?.(u.browserId); if (url) items.push({ type: 'browser', url, ...common }); continue; }
@@ -2698,6 +2807,7 @@ function applySavedWindowState(p, item) {
   applyPose(p, item);
   if (item.locked) { p.userData.locked = false; toggleLock(p, true); }
   if (item.reading && p.userData.cardboard) toggleReading(p, true);
+  if (item.unlinked) toggleLink(p, true);
   if (item.stashed && panels.includes(p)) { panels.splice(panels.indexOf(p), 1); stash.push(p); p.visible = false; }
 }
 function restoreItem(item) {
@@ -3225,7 +3335,10 @@ function flyOrbTo(result) {
 }
 browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool, restorePanel: applySavedWindowState,
   // Losing or getting back the PC connection (Claude's tools go through it): say so on the HUD
-  onConnection: connected => jarvisSay('', connected ? ['CLAUDE', 'CONNECTED', 'YOUR PC BRIDGE IS BACK'] : ['CLAUDE', 'DISCONNECTED', 'RECONNECTING TO YOUR PC…']) });
+  onConnection: connected => {
+    jarvisSay('', connected ? ['CLAUDE', 'CONNECTED', 'YOUR PC BRIDGE IS BACK'] : ['CLAUDE', 'DISCONNECTED', 'RECONNECTING TO YOUR PC…']);
+    if (connected) window.studyDebug.backup?.onConnected();          // back up soon after connecting
+  } });
 window.studyDebug.browserBridge = browserBridge;
 const outsideClaudeButton = document.createElement('button');
 outsideClaudeButton.textContent = 'Open Claude outside VR…';
@@ -3247,8 +3360,11 @@ thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touch
       working: claude.state === 'thinking' || performance.now() - claudeWorkingAt < 2500 };
   },
 });
+// Safety net: your study work is backed up to the PC (Google Drive) through the bridge
+window.studyDebug.backup = installBackup({ bridge: () => browserBridge, jarvisSay });
 window.studyDebug.thesis = thesisTools;
 window.studyDebug.worldTool = runWorldTool;
+window.studyDebug.gestures = { detectFlick, detectGroupMove, detectBeckon, isFist, isOpenHand, fingerReach, palmFacesViewer, groupWindows, toggleLink, stash };
 window.studyDebug.menu = { menu, buttonRow, categories, toggleCategory, closeCategory, breakServices, syncBreakMenu, updateMenu, get openCategory() { return openCategory; } };
 {
   const saved = readJSON(DESK_KEY, null);

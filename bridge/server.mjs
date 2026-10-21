@@ -9,6 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { ExtensionBrowser, extensionId } from './extension-browser.mjs';
 import { createHttpTransport } from './http-transport.mjs';
 import { createConnector } from './connector.mjs';
+import { createBackup } from './backup.mjs';
 
 const root = process.env.BRIDGE_PRIVATE_DIR || fileURLToPath(new URL('./private/', import.meta.url));
 await mkdir(root, { recursive: true });
@@ -33,7 +34,7 @@ const server = http.createServer((req, res) => {
     connector(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
     return;
   }
-  if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, browser: useExtension ? 'chrome-extension' : 'test-chromium' })); }
+  if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, browser: useExtension ? 'chrome-extension' : 'test-chromium', extensionConnected: useExtension ? !!extension.connected : true })); }
   else {
     if (/^\/(\.well-known|mcp|register|authorize|token|sse)/.test(req.url || '')) connectorLog(`${new Date().toISOString()} ${req.method} ${req.url} -> 404 (not handled)`);
     res.writeHead(404); res.end();
@@ -44,6 +45,7 @@ const browserWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 
 const extension = new ExtensionBrowser();
 const useExtension = process.env.BRIDGE_BROWSER !== 'playwright';
 let active = null, context = null;
+const backup = createBackup({ root });
 const httpTransport = createHttpTransport({ allowedOrigins, validToken, isBusy: () => !!active, onConnection: socket => wss.emit('connection', socket) });
 server.on('upgrade', (req, socket, head) => {
   if (req.url === '/browser') {
@@ -83,10 +85,12 @@ wss.on('connection', ws => {
   // Heartbeat: a headset that vanished (Wi-Fi dropped, headset asleep) is let go within about 30 seconds,
   // so the headset can reconnect instead of being refused as "already connected".
   let alive = true;
-  const heartbeat = typeof ws.ping === 'function' ? setInterval(() => {
+  const heartbeat = setInterval(() => {
+    if (paired) send({ type: 'heartbeat' });          // the page watches for this (it can't see WebSocket pings)
+    if (typeof ws.ping !== 'function') return;        // the HTTPS backup connection has its own timeouts
     if (!alive) { ws.terminate(); return; }
     alive = false; try { ws.ping(); } catch { /* closing */ }
-  }, 15000) : null;
+  }, 15000);
   ws.on?.('pong', () => { alive = true; });
   async function addTab(url) {
     if (tabs.size >= 4) throw Error('Close a browser window first (maximum four).');
@@ -163,7 +167,8 @@ wss.on('connection', ws => {
   async function command(m) {
     if (closed) return;
     if (!paired) {
-      if (m.type !== 'pair' || !validToken(m.token) || (active && active !== ws)) { ws.close(1008, 'Pairing failed or already connected'); return; }
+      if (m.type !== 'pair' || !validToken(m.token)) { ws.close(1008, 'Pairing failed'); return; }
+      if (active && active !== ws) { ws.close(4001, 'Another Sunnyvale page is connected'); return; }
       paired = true; active = ws; clearTimeout(timer); send({ type: 'ready', browserReady: !useExtension || extension.connected });
       activeConnection = {
         tabs,
@@ -239,6 +244,11 @@ wss.on('connection', ws => {
       if (call) { worldCalls.delete(m.reqId); clearTimeout(call.t); m.ok === false ? call.reject(Error(String(m.error || 'Failed'))) : call.resolve(String(m.result ?? 'Done.')); }
       return;
     }
+    if (paired && (m.type.startsWith('backup-') || m.type === 'restore-part')) {
+      backup.handle(m, data => send({ type: 'reply', reqId: m.reqId, ok: true, ...data }))
+        .catch(e => send({ type: 'reply', reqId: m.reqId, ok: false, error: e.message }));
+      return;
+    }
     if (paired && m.type === 'mic-data') {
       const t = tabs.get(m.id);
       if (t?.micEnabled && t.page.sendMic && t.micPending < 20 && m.rate === 24000 && typeof m.data === 'string' && m.data.length <= 20000 && /^[A-Za-z0-9+/]*={0,2}$/.test(m.data)) {
@@ -258,6 +268,10 @@ wss.on('connection', ws => {
     for (const t of tabs.values()) { clearTimeout(t.timer); clearTimeout(t.stillTimer); t.page.close().catch(() => {}); }
     tabs.clear();
   });
+});
+server.on('error', error => {
+  if (error.code === 'EADDRINUSE') { console.log('The bridge is already running (port ' + port + ' is taken). You can close this window.'); process.exit(3); }
+  throw error;
 });
 server.listen(port, '127.0.0.1', () => {
   console.log(`Sunnyvale browser bridge ready on http://127.0.0.1:${port}`);
@@ -284,11 +298,19 @@ const tunnelExe = fileURLToPath(new URL('./bin/cloudflared.exe', import.meta.url
 if (/^https:\/\/[a-z0-9.-]+$/i.test(permanent)) {
   // Make sure Tailscale Funnel still points at this bridge (it normally stays on by itself)
   if (process.env.BRIDGE_TUNNEL !== '0' && existsSync(tailscaleExe)) {
-    const funnel = spawn(tailscaleExe, ['funnel', '--bg', String(port)], { windowsHide: true });
-    funnel.on('error', () => console.log('Could not check Tailscale Funnel. Is Tailscale running and signed in?'));
-    funnel.on('exit', code => console.log(code === 0 ? 'Permanent address: ' + permanent : 'Tailscale Funnel did not start. Open Tailscale and check it is connected.'));
+    const tryFunnel = (attempt = 1) => {
+      const funnel = spawn(tailscaleExe, ['funnel', '--bg', String(port)], { windowsHide: true });
+      funnel.on('error', () => console.log('Could not check Tailscale Funnel. Is Tailscale running and signed in?'));
+      funnel.on('exit', code => {
+        if (code === 0) console.log('Permanent address: ' + permanent);
+        else if (attempt < 6) setTimeout(() => tryFunnel(attempt + 1), 10000);
+        else console.log('Tailscale Funnel did not start. Open Tailscale and check it is connected.');
+      });
+    };
+    tryFunnel();
   }
   await writeQuestLink(permanent);
+  backup.saveKeys();
 } else if (process.env.BRIDGE_TUNNEL === '1' && existsSync(tunnelExe)) {
   tunnel = spawn(tunnelExe, ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], { windowsHide: true });
   tunnel.stderr.on('data', async data => {
