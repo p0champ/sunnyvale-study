@@ -33,7 +33,7 @@ export function createBackup({ root }) {
   // Only the real bridge uses Google Drive; test bridges (their own private folder) keep backups beside it
   const drive = process.env.BRIDGE_BACKUP_DIR || process.env.BRIDGE_PRIVATE_DIR ? null : findGoogleDrive();
   const folder = process.env.BRIDGE_BACKUP_DIR || (drive ? join(drive, 'Sunnyvale Backup') : join(root, 'backups'));
-  const where = drive ? 'Google Drive' : process.env.BRIDGE_BACKUP_DIR || process.env.BRIDGE_PRIVATE_DIR ? 'test folder' : 'this PC only (install Google Drive for desktop to back up to the cloud)';
+  const where = drive ? 'Google Drive' : 'this PC only (install Google Drive for desktop to back up to the cloud)';
   const dirs = ['study', 'library', 'frames', 'bridge-keys', 'incoming'].map(d => join(folder, d));
   const ready = Promise.all(dirs.map(d => mkdir(d, { recursive: true })))
     .then(() => readdir(join(folder, 'incoming'))).then(files => Promise.all(files.map(f => rm(join(folder, 'incoming', f)).catch(() => {}))));
@@ -68,7 +68,7 @@ export function createBackup({ root }) {
   async function handle(m, reply) {
     await ready;
     try { return await answer(m, reply); }
-    catch (e) { throw Error(e.code === 'ENOENT' ? 'That is not in the backup.' : e.message); }   // no local paths in replies
+    catch (e) { throw Error(e.code === 'ENOENT' ? 'That is not in the backup.' : e.code ? 'Could not read or write the local backup.' : e.message); }   // no local paths in replies
   }
   async function answer(m, reply) {
     if (m.type === 'backup-info') {
@@ -94,6 +94,7 @@ export function createBackup({ root }) {
       if (!u || m.n !== u.next || typeof m.data !== 'string' || m.data.length > PIECE) throw Error('Backup piece out of order.');
       // Every piece is base64 of the item's bytes (text is sent as UTF-8 bytes, so no character is ever split)
       const bytes = Buffer.from(m.data, 'base64');
+      if (bytes.toString('base64') !== m.data) throw Error('Backup piece is not valid base64.');
       if (u.bytes + bytes.length > u.limit) { uploads.delete(m.transfer); await rm(u.temp).catch(() => {}); throw Error('Backup is bigger than announced.'); }
       u.next++; u.bytes += bytes.length; u.seen = Date.now();
       await appendFile(u.temp, bytes);
@@ -102,6 +103,7 @@ export function createBackup({ root }) {
     if (m.type === 'backup-end') {
       const u = uploads.get(m.transfer); if (!u) throw Error('Unknown backup.');
       uploads.delete(m.transfer);
+      if (u.kind === 'library' && u.bytes !== u.limit) { await rm(u.temp).catch(() => {}); throw Error('Backup is incomplete. Please retry this file.'); }
       if (u.kind === 'study') {
         JSON.parse(await readFile(u.temp, 'utf8'));                        // only keep complete, valid backups
         await copyFile(u.temp, join(folder, 'study', stamp() + '.json'));
@@ -119,6 +121,8 @@ export function createBackup({ root }) {
     // Restoring: the page asks for a piece of a backed-up item at a time
     if (m.type === 'restore-part') {
       const kind = m.kind, id = safeId(m.id);
+      if (!['study', 'library', 'frame'].includes(kind)) throw Error('Unknown backup kind.');
+      if (!Number.isSafeInteger(m.n) || m.n < 0) throw Error('Invalid backup piece number.');
       const file = kind === 'study' ? join(folder, 'study', 'latest.json') : kind === 'library' ? join(folder, 'library', id + '.bin') : join(folder, 'frames', id + '.json');
       const meta = kind === 'library' ? JSON.parse(await readFile(join(folder, 'library', id + '.json'), 'utf8').catch(() => '{}')) : undefined;
       if (kind !== 'study' && !id) throw Error('Missing or unusual id.');
