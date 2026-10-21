@@ -25,8 +25,10 @@ export class BrowserMedia {
       buffer.copyToChannel(samples, 0);
       const source = this.context.createBufferSource(); source.buffer = buffer; source.connect(this.context.destination);
       let next = this.nextAudio.get(id) || 0;
-      if (next > this.context.currentTime + .7) { this.stopAudio(id); next = 0; }
-      if (next < this.context.currentTime || next > this.context.currentTime + .7) next = this.context.currentTime + .15;
+      // A little more slack than before (0.3 s start, up to 2 s queued) so short network hiccups
+      // don't throw away Claude's words.
+      if (next > this.context.currentTime + 2) { this.stopAudio(id); next = 0; }
+      if (next < this.context.currentTime) next = this.context.currentTime + .3;
       source.start(next); this.nextAudio.set(id, next + buffer.duration);
       if (!this.sources.has(id)) this.sources.set(id, new Set());
       this.sources.get(id).add(source); source.onended = () => this.sources.get(id)?.delete(source);

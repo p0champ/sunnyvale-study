@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sunnyvale Browser Bridge",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Show your Chrome tabs inside your private Sunnyvale VR study space.",
   "minimum_chrome_version": "118",
   "permissions": [

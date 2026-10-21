@@ -1,5 +1,5 @@
 import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
-import { BrowserMedia } from './browser-media.js?v=round2-voice-3';
+import { BrowserMedia } from './browser-media.js?v=voice-fix-1';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel, onConnection }) {
