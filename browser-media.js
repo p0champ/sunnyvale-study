@@ -45,6 +45,9 @@ export class BrowserMedia {
       if (generation !== this.micGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
       const source = this.context.createMediaStreamSource(stream), processor = new AudioWorkletNode(this.context, 'bridge-pcm');
       const mic = { id, stream, source, processor, pending: true }; this.microphone = mic;
+      for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => {
+        if (this.microphone === mic) { this.stopMic(); this.report('Headset microphone sharing stopped. Tap Mic to enable it again.'); }
+      });
       this.changed?.();
       processor.port.onmessage = event => {
         if (this.microphone !== mic || mic.pending) return;

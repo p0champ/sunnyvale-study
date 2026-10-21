@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 test('HTTPS transport: auth, CORS, pairing, streaming, input, close, and actual browser fallback', { timeout: 90000 }, async () => {
-  const dir = fileURLToPath(new URL('./private/http-test', import.meta.url)); await mkdir(dir, { recursive: true });
+  const dir = fileURLToPath(new URL('./private/http-test-' + Date.now(), import.meta.url)); await mkdir(dir, { recursive: true });
   const events = [];
   const fixture = http.createServer((req, res) => {
     if (req.url.startsWith('/event')) { events.push(decodeURIComponent(req.url)); res.end('ok'); return; }

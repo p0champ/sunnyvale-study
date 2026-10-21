@@ -50,8 +50,9 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=round2-windows-2';
-import { installThesisTools } from './thesis-tools.js?v=round2-windows-2';
+import { installBrowserBridge } from './browser-bridge.js?v=round2-voice-3';
+import { flickVelocity, speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
+import { installThesisTools } from './thesis-tools.js?v=round2-voice-3';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -1521,7 +1522,7 @@ function startListening() {
   claude.heard = '';
   if (SR) {
     const rec = new SR();
-    rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+    rec.lang = speechLanguage(); rec.continuous = true; rec.interimResults = true;
     rec.onresult = e => {
       let finalText = '', interim = '';
       for (let i = 0; i < e.results.length; i++) {
@@ -1656,7 +1657,7 @@ function speak(text) {
   const voices = 'speechSynthesis' in window ? speechSynthesis.getVoices() : [];
   if ('speechSynthesis' in window && (voices.length || !getKey('openaiKey'))) {
     const u = new SpeechSynthesisUtterance(text);
-    u.voice = voices.find(v => /en(-|_)GB/i.test(v.lang) && /male|daniel|george|arthur/i.test(v.name)) || voices.find(v => /^en/i.test(v.lang)) || null;
+    u.lang = speechLanguage(); u.voice = englishVoice(voices, u.lang);
     u.rate = 1.03;
     u.onend = done; u.onerror = done;
     speechSynthesis.cancel();
@@ -1734,7 +1735,7 @@ function jarvisSay(text, hudLines) {
     if (text && 'speechSynthesis' in window) {
       const u = new SpeechSynthesisUtterance(text);
       const voices = speechSynthesis.getVoices();
-      u.voice = voices.find(v => /en(-|_)GB/i.test(v.lang)) || voices.find(v => /^en/i.test(v.lang)) || null;
+      u.lang = speechLanguage(); u.voice = englishVoice(voices, u.lang);
       speechSynthesis.speak(u);
     }
   } catch (e) { /* no voice available */ }
@@ -2105,13 +2106,9 @@ function grabPoint(s) {
 }
 // Called when you let go of something: a fast flick sends it into your stash
 function checkFlick(s, p) {
-  const tr = s.track || [];
-  if (tr.length < 3) return;
-  const a = tr[0], b = tr[tr.length - 1];
-  const dtime = (b.t - a.t) / 1000;
-  if (dtime <= 0) return;
-  const v = b.p.clone().sub(a.p).divideScalar(dtime);
-  if (v.length() > 1.6) {
+  const velocity = flickVelocity(s.track || [], performance.now());
+  if (velocity && panels.includes(p)) {
+    const v = new THREE.Vector3().fromArray(velocity);
     p.userData.away = { v: v.multiplyScalar(0.6), t: 0 };
     panels.splice(panels.indexOf(p), 1);
     stash.push(p);
@@ -2126,7 +2123,7 @@ function trackHeld(s) {
   const p = grabPoint(s);
   if (!p) return;
   (s.track ??= []).push({ p, t: performance.now() });
-  if (s.track.length > 6) s.track.shift();
+  while (s.track.length > 2 && performance.now() - s.track[0].t > 140) s.track.shift();
 }
 // Put one window away into the stash (it zips away and can be brought back later)
 function stashWindow(p) {

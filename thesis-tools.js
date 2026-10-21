@@ -1,3 +1,4 @@
+import { formatReference, speechLanguage } from './study-utils.js?v=round2-voice-3';
 // Thesis and Jarvis tools for Sunnyvale Study: a file library, PDF reader with highlights, quote collector,
 // citation builder, video player with timestamp pins, frame grabs, side-by-side comparison, a live thesis
 // document, deadlines, a status strip (word count + next deadline), session summaries, morning briefings,
@@ -341,33 +342,7 @@ export function installThesisTools(ctx) {
     return fmt.length === 1 ? fmt[0] : fmt.slice(0, -1).join(', ') + ' and ' + fmt[fmt.length - 1];      // Harvard
   }
   function surname(s) { const n = s.authors[0] || (s.kind === 'film' ? s.title : s.director) || s.title; return s.authors[0] ? split(n).last : n; }
-  function reference(s, style = settings.style) {
-    const a = authorList(s, style), y = s.year || 'n.d.';
-    const pages = s.pages ? (style === 'MLA' ? `pp. ${s.pages}` : style === 'APA' ? s.pages : `pp. ${s.pages}`) : '';
-    if (style === 'APA') {
-      if (s.kind === 'film') return `${a ? a + ' (Director). ' : ''}(${y}). ${s.title} [Film]. ${s.studio}`.trim();
-      if (s.kind === 'article') return `${a} (${y}). ${s.title}. ${s.journal}${s.volume ? ', ' + s.volume : ''}${s.issue ? `(${s.issue})` : ''}${pages ? ', ' + pages : ''}.${s.doi ? ' https://doi.org/' + s.doi : ''}`;
-      if (s.kind === 'web') return `${a || s.publisher} (${y}). ${s.title}. ${s.publisher && a ? s.publisher + '. ' : ''}${s.url}`;
-      return `${a} (${y}). ${s.title}${s.edition ? ` (${s.edition} ed.)` : ''}. ${s.publisher}.`;
-    }
-    if (style === 'MLA') {
-      if (s.kind === 'film') return `${s.title}. Directed by ${s.director || a}, ${s.studio ? s.studio + ', ' : ''}${y}.`;
-      if (s.kind === 'article') return `${a}. "${s.title}." ${s.journal}${s.volume ? ', vol. ' + s.volume : ''}${s.issue ? ', no. ' + s.issue : ''}, ${y}${pages ? ', ' + pages : ''}.`;
-      if (s.kind === 'web') return `${a ? a + '. ' : ''}"${s.title}." ${s.publisher ? s.publisher + ', ' : ''}${y}, ${s.url}. Accessed ${s.accessed}.`;
-      return `${a}. ${s.title}. ${s.publisher}${s.publisher ? ', ' : ''}${y}.`;
-    }
-    if (style === 'Chicago') {
-      if (s.kind === 'film') return `${s.director || a}, dir. ${y}. ${s.title}. ${s.place ? s.place + ': ' : ''}${s.studio}.`;
-      if (s.kind === 'article') return `${a}. ${y}. "${s.title}." ${s.journal} ${s.volume}${s.issue ? ` (${s.issue})` : ''}${s.pages ? ': ' + s.pages : ''}.`;
-      if (s.kind === 'web') return `${a || s.publisher}. ${y}. "${s.title}." ${s.url}.`;
-      return `${a}. ${y}. ${s.title}. ${s.place ? s.place + ': ' : ''}${s.publisher}.`;
-    }
-    // Harvard
-    if (s.kind === 'film') return `${s.title} (${y}) Directed by ${s.director || a}. [Film]. ${s.place ? s.place + ': ' : ''}${s.studio}.`;
-    if (s.kind === 'article') return `${a} (${y}) '${s.title}', ${s.journal}${s.volume ? ', ' + s.volume : ''}${s.issue ? `(${s.issue})` : ''}${pages ? ', ' + pages : ''}.`;
-    if (s.kind === 'web') return `${a || s.publisher} (${y}) ${s.title}. Available at: ${s.url} (Accessed: ${s.accessed}).`;
-    return `${a} (${y}) ${s.title}.${s.edition ? ' ' + s.edition + ' edn.' : ''} ${s.place ? s.place + ': ' : ''}${s.publisher}.`;
-  }
+  function reference(s, style = settings.style) { return formatReference(s, style); }
   function inText(s, page, style = settings.style) {
     if (!s) return '';
     const n = surname(s), y = s.year || 'n.d.';
@@ -874,11 +849,13 @@ export function installThesisTools(ctx) {
   camera.add(strip.mesh);
   let stripKey = '';
   function refreshStrip(force) {
-    strip.mesh.visible = settings.strip && renderer.xr.isPresenting;
+    const mic = bridge()?.microphoneState;
+    strip.mesh.visible = renderer.xr.isPresenting && (settings.strip || !!mic);
     const next = upcoming()[0], t = timerInfo();
     const text = `✎ ${wordCount().toLocaleString()} WORDS` + (session.wordsStart !== null ? ` (+${Math.max(0, wordCount() - session.wordsStart)})` : '') +
       (next ? `   ·   ⚑ ${next.title.toUpperCase()} ${daysLeft(next.date) === 0 ? 'TODAY' : 'IN ' + daysLeft(next.date) + 'D'}` : '') +
-      (t.running ? `   ·   ◷ ${t.phase.toUpperCase()} ${fmtTime(t.left)}` : '');
+      (t.running ? `   ·   ◷ ${t.phase.toUpperCase()} ${fmtTime(t.left)}` : '') +
+      (mic ? (mic.pending ? '   ·   MIC CONNECTING' : '   ·   ● LISTENING') : '');
     if (text === stripKey && !force) return;
     stripKey = text;
     const { g, canvas, tex } = strip;
@@ -1059,7 +1036,7 @@ export function installThesisTools(ctx) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { jarvisSay('', ['J.A.R.V.I.S.', "WAKE WORD ISN'T SUPPORTED", 'IN THIS BROWSER (NO SPEECH RECOGNITION)']); return false; }
     if (wake) { wake.stop(); wake = null; jarvisSay('', ['J.A.R.V.I.S.', 'WAKE WORD OFF']); return false; }
-    wake = new SR(); wake.continuous = true; wake.interimResults = false; wake.lang = 'en-US';
+    wake = new SR(); wake.continuous = true; wake.interimResults = false; wake.lang = speechLanguage();
     wake.onresult = e => {
       const said = Array.from(e.results).slice(e.resultIndex).map(r => r[0].transcript.toLowerCase()).join(' ');
       if (/\b(jarvis|claude)\b/.test(said)) { blip(1300, 0.08); bridge()?.claudeMic?.(); jarvisSay('', ['J.A.R.V.I.S.', 'LISTENING', 'TALK TO CLAUDE']); }
@@ -1080,9 +1057,13 @@ export function installThesisTools(ctx) {
     <input id="deadlineDate" type="date"> <button id="deadlineAdd">Add deadline</button>
     <div id="deadlineList"></div>
     <button id="thesisDownload">Download thesis (.txt)</button> <button id="thesisDownloadDoc">Download thesis (Word .doc)</button>
+    <label>Sunnyvale speech language <select id="speechLanguage"><option value="en-US">English (US)</option><option value="en-GB">English (UK)</option></select></label>
+    <small>This controls Sunnyvale speech. Claude's own voice and response language are set separately in Claude.</small>
     <div id="sessionSummary"></div>`;
   hint?.appendChild(box);
   const el = id => document.getElementById(id);
+  el('speechLanguage').value = speechLanguage();
+  el('speechLanguage').onchange = () => { localStorage.setItem('sunnyvale.speechLanguage', el('speechLanguage').value); if (wake) wake.lang = speechLanguage(); };
   for (const id of ['deadlineTitle']) el(id)?.addEventListener('keydown', e => e.stopPropagation());
   el('libraryFiles')?.addEventListener('change', e => addFiles([...e.target.files]).then(() => { e.target.value = ''; }));
   el('deadlineAdd')?.addEventListener('click', () => { try { addDeadline(el('deadlineTitle').value || 'Deadline', el('deadlineDate').value); el('deadlineTitle').value = ''; } catch (e) { alert(e.message); } });

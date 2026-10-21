@@ -4,7 +4,7 @@ Read HANDOVER.md, MORNING_REPORT.md, bridge/README.md, then this file. The Claud
 
 Item 0 is fixed: try saved bridge settings automatically; disconnected Claude stays in VR with a clear message. Only the explicit outside-browser page button can leave VR, after confirmation. No bridge restart or extension reload for this change. A rotated temporary tunnel still requires the current private link.
 
-Part 1 items 1, 2, 3, 7 and 8 now have PC-tested fixes (see report). Continue remaining bugs and media/PDF checks. Record findings, actual PC validation and pending Quest checks in ROUND_TWO_REPORT.md. Use an isolated bridge for tests; keep the real bridge running. If a later backend restart is necessary, regenerate and verify connector setup, preserve credentials and guide the user through replacing the Quest address and re-adding the Claude connector.
+Part 1 items 1, 2, 3, 7, 8, 9, 11, 12 and 15 now have PC-tested fixes (see report). Continue remaining bugs and media/PDF checks. Record findings, actual PC validation and pending Quest checks in ROUND_TWO_REPORT.md. Use an isolated bridge for tests; keep the real bridge running. If a later backend restart is necessary, regenerate and verify connector setup, preserve credentials and guide the user through replacing the Quest address and re-adding the Claude connector.
 
 Parts 2–5 and permanent-address work need an explained proposal and explicit approval before implementation. Recommend the backup safety net first, then transparency/listening, search/capture/comfort/export. Do not make paid API keys mandatory.
 

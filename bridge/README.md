@@ -80,3 +80,5 @@ The necessary backend restart rotates the temporary relay address and stops old 
 
 ## Round-two window repairs
 Workspace browser sharing now accepts a saved pose after opening. Existing VR browser panels are detached/replaced on workspace load; native Chrome tabs stay open. Position, quaternion and full scale vectors are restored without rounding; old scalar-scale saves remain supported. Stored positions use the scene/local-floor reference; headset recentering across sessions can still shift that reference. No bridge restart or extension update is required for these page changes.
+
+The browser window header and headset status strip now show MIC CONNECTING / LISTENING while the Quest mic is shared. Toggling off, closing, disconnecting or a track ending clears it. Sunnyvale speech defaults to English (US), selectable as English (UK) in the thesis settings on the 2D page. Claude website speech has its own Settings > General > Voice > Language setting: https://support.claude.com/en/articles/11101966-use-voice-mode

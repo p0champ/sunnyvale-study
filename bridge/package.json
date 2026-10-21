@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test test.mjs test-extension.mjs test-http.mjs test-media.mjs"
+    "test": "node --test test.mjs test-extension.mjs test-http.mjs test-media.mjs test-study-utils.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

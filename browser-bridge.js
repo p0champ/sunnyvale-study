@@ -1,5 +1,5 @@
 import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
-import { BrowserMedia } from './browser-media.js?v=20261021-media-1';
+import { BrowserMedia } from './browser-media.js?v=round2-voice-3';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel }) {
@@ -20,7 +20,12 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
   const report = text => { document.getElementById('bridgeStatus').textContent = text; };
   const media = new BrowserMedia(send, message => { report(message); status(message); });
   media.changed = () => {
-    for (const [id, tab] of tabs) tab.micButton?.userData.label(media.microphone?.id === id ? (media.microphone.pending ? 'Mic …' : 'Mic ON') : 'Mic');
+    for (const [id, tab] of tabs) {
+      const mic = media.microphone?.id === id ? media.microphone : null;
+      tab.micButton?.userData.label(mic ? (mic.pending ? 'Mic …' : 'Mic ON') : 'Mic');
+      if (tab.micIndicator) { tab.micIndicator.visible = !!mic; tab.micIndicator.userData.label(mic?.pending ? 'MIC CONNECTING' : '● LISTENING'); }
+      tab.panel.userData.microphoneShared = !!mic;
+    }
   };
   document.getElementById('bridgeMicrophone').onclick = async () => {
     try {
@@ -89,6 +94,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     button(panel, 'Text +', -.28, -.36, .16, () => send({ type: 'text-scale', id: m.id, delta: 1 }));
     button(panel, 'Text -', -.09, -.36, .16, () => send({ type: 'text-scale', id: m.id, delta: -1 }));
     tab.micButton = button(panel, 'Mic', .1, -.36, .16, () => media.toggleMic(m.id));
+    tab.micIndicator = button(panel, '● LISTENING', 0, .315, .36, () => media.stopMic()); tab.micIndicator.visible = false;
     tab.soundButton = button(panel, tab.audioEnabled ? 'Sound ON' : 'Sound', .29, -.36, .16, async () => {
       try { await media.unlock(); send({ type: tab.audioEnabled ? 'audio-stop' : 'audio-start', id: m.id }); }
       catch { status('Allow sound on the Sunnyvale page before entering VR.'); }
@@ -239,6 +245,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     setTimeout(() => document.getElementById('bridgeConnect').click(), 0);
   }
   return {
+    get microphoneState() { const mic = media.microphone; return mic ? { id: mic.id, pending: mic.pending } : null; },
     open(url, saved) { if (!ready) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },

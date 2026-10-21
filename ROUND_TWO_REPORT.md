@@ -23,3 +23,13 @@ The Part 1 bug list and PDF/video/export checks. New ideas in Parts 2–5 are pr
 - Long thesis titles wrap/shrink to fit two lines instead of being cut off.
 
 PC checks: an open briefing changed from empty to a deadline, eight saved sources and a 64-word draft; all three menus reopened stashed windows; timeline labels stayed targeted after twenty seconds and while moving; window/browser poses retained all decimal values and no spawn/fly override; the full long title was drawn inside its bounds. Existing bridge suites passed. No real bridge restart or extension reload is needed. Refresh Quest after the completed live build.
+
+## Completed: citations, listening indicator, light flick and English (9, 11, 12, 15)
+
+Citations now build their parts only when the details exist, so a film without a studio no longer ends in stray full stops. Tested all four styles, every supported source type and partial metadata. This handles punctuation; check your university's precise citation requirements when preparing the final bibliography.
+
+Claude's window and the HUD now keep a listening indicator visible while the Quest microphone is shared. Connecting and listening are distinct. Closing/toggling/disconnecting or losing the audio track clears sharing. The light flick threshold is lower and uses a short motion average, rejecting slow placement, jitter, stale motion and single tracking jumps in simulations. Actual hand feel still needs Quest testing.
+
+Sunnyvale speech explicitly defaults to English (US), with English (UK) available under Library, deadlines and thesis on the page. If Claude itself speaks German, change Claude's separate Settings > General > Voice > Language to English; changing Sunnyvale or the app display language cannot override that. Official instructions: https://support.claude.com/en/articles/11101966-use-voice-mode
+
+PC checks: citation/motion/voice-selection unit cases; real audio worklet and microphone cleanup tests; window/HUD listening display and close-to-stop; saved language selection; all existing bridge integrations. No bridge restart or extension reload for these changes. Refresh after the live build completes.

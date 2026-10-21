@@ -141,6 +141,7 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     await receive(() => received.find(m => m.type === 'audio' && Buffer.from(m.data, 'base64').some(x => x !== 0)));
     await existing.evaluate(() => { httpTone.stop(); httpToneContext.close(); httpContext.close(); });
     await request('close'); await until(() => worker.evaluate(() => tabs.size === 0));
+    await until(() => existing.evaluate(() => httpVoice.getTracks()[0].readyState === 'ended'));
     assert.equal(await existing.evaluate(() => httpVoice.getTracks()[0].readyState), 'ended', 'HTTPS disconnection stops the remote microphone');
   } finally {
     ws?.close(); await context?.close(); child.kill(); fixture.close();

@@ -7,7 +7,7 @@ import { WebSocket } from 'ws';
 import { fileURLToPath } from 'node:url';
 
 test('private pairing, streamed tabs, click, keyboard, scroll, close, invalid URLs', { timeout: 90000 }, async () => {
-  const dir = fileURLToPath(new URL('./private/test-profile', import.meta.url));
+  const dir = fileURLToPath(new URL('./private/test-profile-' + Date.now(), import.meta.url));
   await mkdir(dir, { recursive: true });
   let received = [];
   const fixture = http.createServer((req, res) => {
