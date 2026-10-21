@@ -92,3 +92,10 @@ These are headset/account confirmations still pending, not claims of completed r
 ## Deployment checkpoint (2026-10-21)
 
 Repair commit 62a3ac5 is live and its Pages build completed. The real bridge was restarted once, local health passed and both private credential files remained unchanged. Private Quest/Claude setup links were regenerated. Internet verification passed: no secret is refused (401); both authenticated connection methods list 58 tools. A stale negative DNS cache on the PC was cleared after the new hostname appeared in public DNS; no second bridge restart was needed. Extension reload and the real Quest/account checklist above are still user steps. HANDOVER, NEXT_STEPS_FOR_GPT and bridge/README are current.
+
+
+## Follow-up: Break menu logos (2026-10-21)
+
+At the user's request, YouTube, Instagram, Disney+, HBO Max, Netflix and Prime Video now show their official logos instead of service text/initials. The same round buttons, destinations and layout are kept. Logo images are bundled locally and keep their proportions; sources are in CREDITS.md. Other menu labels stay as they were.
+
+PC checks: all six logo textures loaded/drew; previews inspected; actual mouse clicks opened each expected address and closed the menu; tapping the actual wristwatch Focus control hid Break and both service rows. This page-only change needs a Quest refresh after deployment, with no additional bridge restart, link change or extension reload. It does not alter the previous browser-video playback limitations.

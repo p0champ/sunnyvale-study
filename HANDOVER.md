@@ -4,7 +4,14 @@
 
 This section is the current state. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
 
-### NEWEST (Codex, round-two fixes 2026-10-21)
+### NEWEST (Codex, Break service logos 2026-10-21)
+- User has now confirmed the normal Chrome extension reload is complete and shows version 0.4.1. Do not ask them to repeat that step. Current private Quest-link use and Claude connector replacement are not separately confirmed.
+- User explicitly requested replacing service text in Break with logos. The six service buttons now show official, locally bundled logos (YouTube, Instagram, Disney+, HBO Max, Netflix, Prime Video), with no separate visible service labels or letter abbreviations. Existing round backgrounds, layout, links, click targets and Focus restrictions are preserved. Other menu labels are unaffected.
+- Assets live in assets/logos/ with sources in CREDITS.md. makeButton has an optional showLabel flag (default true); service images fit their original aspect ratios into the existing texture. Loading does not block app startup. Names remain in button metadata for identification/testing.
+- PC mouse checks cover six decoded/drawn logo textures, each destination, menu closing, and actual wristwatch Focus tap hiding Break. Visual texture/world previews inspected. Page-only update: refresh Quest after the Pages build completes; no bridge restart, new links or extension reload required for this change.
+- Existing real-headset/account checks in ROUND_TWO_REPORT.md remain pending. Parts 2–5 proposals are still awaiting approval; this small logo request is explicitly authorized, not approval of the rest.
+
+### Previous (Codex, round-two fixes 2026-10-21)
 - Current request is the pasted round-two bug list (item 0, then Part 1). Parts 2–5 require a plain-language proposal and explicit user approval before building. The existing connector and thesis tools are built; older notes below that say otherwise are historical.
 - Item 0: saved bridgeURL/bridgeToken are tried once automatically on page load, unless a new private fragment overrides them. A stale quick-tunnel address still needs the current private link. Disconnected Claude shows a HUD message and stays in-world. A separate page button opens Claude outside VR only after explicit confirmation. No bridge restart or extension reload required.
 - Completed next group: live briefing refreshes on source/deadline/thesis/session edits and after restore; new sources default unread (existing explicit read flags preserved); saved-source count is shown. Quotes/Sources/Deadlines reveal hidden/stashed windows. Timeline orb resolves indices/year/labels, tracks moved targets and remains until changed or closed. Workspace poses preserve unrounded position/quaternion/vector scale, including browser windows, and clear spawn/fly overrides. Long thesis titles fit up to two lines. PC full-app regressions pass; true headset gesture/comfort results remain pending.

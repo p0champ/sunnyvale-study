@@ -93,3 +93,7 @@ All MCP tools have explicit annotation hints. Reads/additive local tools are non
 Run npm test: nine tests, sequential browser suites, isolated profiles/ports. Includes real disposable extension recovery/page context, authenticated MCP metadata, media lifecycles, camera rejection, citations, motion and language. Disposable Playwright screenshot streaming starts after initial navigation; production still uses ordinary Chrome via the extension.
 
 Backend update requires a single restart. Preserve private pairing/connector credentials; regenerate private connector setup and run check-connector.mjs. The quick-tunnel hostname changes, so Quest must use the current private shortcut and Claude must have its connector removed/re-added from the new private setup file. Restart also stops tab sound capture. The report contains user steps and separates completed PC checks from pending actual headset/account tests.
+
+
+## Break logo follow-up (page only)
+The six existing service buttons now use local official logos instead of text. URLs/bridge operations/Focus restrictions are unchanged. Refresh Quest after the live build; this update requires no further bridge restart, link replacement or extension reload. See CREDITS.md for asset sources and ROUND_TWO_REPORT.md for PC validation.

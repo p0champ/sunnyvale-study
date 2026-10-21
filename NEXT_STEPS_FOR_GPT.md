@@ -1,3 +1,9 @@
+# Latest page update: Break logos (2026-10-21)
+
+The user confirmed Chrome extension 0.4.1 is loaded; no repeat reload instruction. Current private Quest-link use and Claude connector replacement remain unconfirmed.
+
+The requested six official service logos replace text in the existing Break menu. PC visual/mouse/destination/Focus checks passed; see newest HANDOVER. Refresh Quest once the Pages build is built. No new bridge restart, addresses or extension reload for this update. Remaining headset/account checks and unapproved feature proposals below still apply.
+
 # Current continuation: round-two fixes (2026-10-21)
 
 Read HANDOVER.md, MORNING_REPORT.md, bridge/README.md, then this file. The Claude MCP connector and thesis tools are already implemented. The old roadmap below is historical and must not trigger rebuilding them.

@@ -1135,14 +1135,14 @@ buttonRow.position.y = 0.17;
 menu.add(buttonRow);
 const menuButtons = [];
 
-function makeButton(label, drawIcon, action) {
+function makeButton(label, drawIcon, action, { showLabel = true } = {}) {
   const tex = canvasTexture(256, 256, (ctx) => {
     ctx.fillStyle = 'rgba(16, 14, 12, 0.85)';
     ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 6; ctx.stroke();
     ctx.save(); drawIcon(ctx); ctx.restore();
     ctx.fillStyle = '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(label, 128, 206);
+    if (showLabel) ctx.fillText(label, 128, 206);
   });
   const b = new THREE.Mesh(new THREE.CircleGeometry(0.04, 32),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
@@ -2442,25 +2442,37 @@ const breakButton = makeButton('BREAK', ctx => {
   breakMenuOpen = !breakMenuOpen; syncBreakMenu(); layoutRows();
 });
 const breakServices = [
-  ['YOUTUBE', 'YT', 'https://www.youtube.com/'],
-  ['INSTAGRAM', 'IG', 'https://www.instagram.com/'],
-  ['DISNEY+', 'D+', 'https://www.disneyplus.com/'],
-  ['HBO MAX', 'HBO', 'https://www.hbomax.com/'],
-  ['NETFLIX', 'N', 'https://www.netflix.com/'],
-  ['PRIME VIDEO', 'prime', 'https://www.primevideo.com/'],
+  ['YOUTUBE', 'youtube.png', 'https://www.youtube.com/'],
+  ['INSTAGRAM', 'instagram.webp', 'https://www.instagram.com/'],
+  ['DISNEY+', 'disney-plus.png', 'https://www.disneyplus.com/'],
+  ['HBO MAX', 'hbo-max.svg', 'https://www.hbomax.com/'],
+  ['NETFLIX', 'netflix.png', 'https://www.netflix.com/'],
+  ['PRIME VIDEO', 'prime-video.png', 'https://www.primevideo.com/'],
 ];
 for (const [i, [label, icon, url]] of breakServices.entries()) {
-  const b = makeButton(label, ctx => {
-    ctx.fillStyle = '#f4f0e8'; ctx.font = '700 62px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(icon, 128, 129, 170);
-  }, () => {
+  const logo = new Image();
+  const drawLogo = ctx => {
+    // Fit every brand inside the existing round button without stretching it.
+    if (!logo.naturalWidth) return;
+    const scale = Math.min(184 / logo.naturalWidth, 156 / logo.naturalHeight);
+    const width = logo.naturalWidth * scale, height = logo.naturalHeight * scale;
+    ctx.drawImage(logo, 128 - width / 2, 128 - height / 2, width, height);
+  };
+  const b = makeButton(label, drawLogo, () => {
     if (isFocusActive()) return;
     if (!browserBridge?.open(url)) {
       jarvisSay('', ['BREAK', 'CONNECT YOUR PC BROWSER BRIDGE', 'THEN CHOOSE A SERVICE AGAIN']);
       return;
     }
     breakMenuOpen = false; syncBreakMenu(); layoutRows();
-  });
+  }, { showLabel: false });
+  b.name = label; b.userData.service = label;
+  logo.onload = () => {
+    const texture = b.material.map;
+    drawLogo(texture.image.getContext('2d'));
+    texture.needsUpdate = true; b.userData.logoLoaded = true;
+  };
+  logo.src = './assets/logos/' + icon;
   breakRows[Math.floor(i / 3)].add(b);
 }
 // Thesis tools: one button in the main row opens two rows of research / writing tools
@@ -3105,7 +3117,7 @@ thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touch
 });
 window.studyDebug.thesis = thesisTools;
 window.studyDebug.worldTool = runWorldTool;
-window.studyDebug.menu = { menu, thesisButton, thesisRows, thesisItems, updateMenu };
+window.studyDebug.menu = { menu, thesisButton, thesisRows, thesisItems, breakButton, breakRows, breakServices, syncBreakMenu, updateMenu };
 {
   const saved = readJSON(DESK_KEY, null);
   if (saved?.items?.length) {

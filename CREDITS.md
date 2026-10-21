@@ -16,3 +16,13 @@ These models are from Sketchfab and licensed under [CC-BY-4.0](http://creativeco
 
 ## Code
 - [three.js](https://threejs.org) (MIT)
+
+
+## Break menu service logos
+The locally bundled logos identify the services opened by the existing buttons. The logos and trademarks belong to their respective owners. Sources from the services' own sites:
+- YouTube: https://www.youtube.com/s/desktop/4cb73bce/img/favicon_144x144.png
+- Instagram: https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp
+- Disney+: https://static-assets.bamgrid.com/product/disneyplus/favicons/disPlus-favicon-180x180.7d56f648dc95f591721935193bc827cb.png
+- HBO Max: stacked SVG from https://www.hbomax.com/ (bundle-logo-max-title); the vector artwork is unchanged.
+- Netflix: https://assets.nflxext.com/us/ffe/siteui/common/icons/nficon2016.png
+- Prime Video: https://m.media-amazon.com/images/G/01/digital/video/acquisition/web_footer_logo._CB397720133_.png
