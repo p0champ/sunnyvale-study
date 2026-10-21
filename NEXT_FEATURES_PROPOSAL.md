@@ -1,14 +1,10 @@
-# Proposed next features — awaiting approval
+# Feature status and remaining proposals
 
-These are proposals only. Each needs an explicit yes before implementation, one small group at a time. The listening indicator was an authorized bug fix and is already built.
+Safety Net stage 1, the spark avatar, category menu and the tools listed in the newest HANDOVER are already built. Remaining proposals need an explicit yes before implementation, one small group at a time. The listening indicator was an authorized bug fix and is already built.
 
-## First recommendation: Safety Net (39)
+## Safety Net (39) — BUILT, stage 1
 
-A quiet PC backup would protect the desk, thesis, sources, quotes, deadlines and library catalogue from lost Quest browser storage. While a paired Quest is connected, changes would go to a private PC folder. A small status would show the last successful backup. Restore would preview a dated copy before replacing anything. Backing up the actual files would be optional because videos can be large.
-
-If Google Drive for desktop is already installed, the folder could sit inside its synced folder: no public API keys or new OAuth setup. Otherwise it works as a normal PC folder. It cannot back up while the PC/bridge is off or recover data lost before its first backup. Browser storage remains the working copy. Backups need bounded retention and must never enter Git.
-
-Suggested stages: (1) backup and restore preview; (2) thesis version history; (3) trash for closed windows and undo. Each stage needs agreed behavior and storage limits. Recommend approving stage 1 only first.
+backup.js and bridge/backup.mjs implement local/optional Drive backups, dated study snapshots, library files, frames, bridge keys and restore preview. Real Quest study backup verified; isolated text/binary/frame restore tests pass. Google Drive for desktop is not installed. See bridge/README.md for optional setup. History/trash/undo beyond the existing behavior remain proposals requiring approval.
 
 ## Suggested order
 
@@ -16,7 +12,7 @@ Effort is relative, not a promised completion time. Appearance changes need a pr
 
 | Order | Item | What you would see / how it works | Effort and web limits |
 | --- | --- | --- | --- |
-| 1 | 39 Safety Net | Private dated backups, last-backup status and restore preview; later history/trash/undo. | Medium, then large. Needs PC connection and available disk space. |
+| BUILT | 39 Safety Net stage 1 | Private dated backups, status and restore preview. Later history/trash/undo remain proposals. | Needs PC connection and available disk space. |
 | 2 | 42 Transparency | A compact list of Claude's completed/failed actions, a working light and confirmation before actual deletion. | Medium. Feasible with local logs and retention limits. Mic indicator already built. |
 | 3 | 40 Find anything | Search local notes, sources, quotes, thesis and filenames; select a result to reveal it. | Medium. File contents need indexing; encrypted/DRM files cannot be assumed readable. |
 | 4 | 41 Fast capture | Save a note, quote, current shared page or permitted frame to an inbox with one deliberate action. | Medium. No background capture of unrelated tabs or the room. |
