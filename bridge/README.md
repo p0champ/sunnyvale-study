@@ -77,3 +77,6 @@ The necessary backend restart rotates the temporary relay address and stops old 
 
 - **Extension 0.4.0:** reload it once at chrome://extensions. It skips tabs Chrome has put to sleep, wakes and focuses the tab before connecting, re-attaches if a previous session is still attached, and times out a stuck tab. The bridge also retries opening once if Chrome doesn't answer.
 - **Claude connector:** the bridge serves an MCP endpoint at /mcp (58 tools). The private one-link URL is written to private/Claude connector setup.txt by `node make-connector-setup.mjs`. `node check-connector.mjs` verifies it from the internet without printing secrets. Add it in claude.ai under Settings, Connectors, Add custom connector, with no sign-in. The link changes whenever the bridge restarts (quick tunnel), so remove and re-add the connector then.
+
+## Round-two window repairs
+Workspace browser sharing now accepts a saved pose after opening. Existing VR browser panels are detached/replaced on workspace load; native Chrome tabs stay open. Position, quaternion and full scale vectors are restored without rounding; old scalar-scale saves remain supported. Stored positions use the scene/local-floor reference; headset recentering across sessions can still shift that reference. No bridge restart or extension update is required for these page changes.

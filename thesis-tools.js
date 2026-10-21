@@ -98,6 +98,7 @@ export function installThesisTools(ctx) {
 
   // Things that should face you and sit at a comfortable spot when they appear
   function show(obj, distance = 0.9, height = -0.1) { placeInFront(obj, distance, height); markDirty(); return obj; }
+  function reveal(obj) { ctx.revealWindow?.(obj); obj.visible = true; return show(obj); }
 
   // ================================================================ LIBRARY (your files)
   function fileType(name, mime) {
@@ -313,9 +314,9 @@ export function installThesisTools(ctx) {
     const s = { id: uid('s'), kind: fields.kind || 'book', authors: (fields.authors || []).map(String), title: clampText(fields.title, 300), year: clampText(fields.year, 12),
       publisher: fields.publisher || '', place: fields.place || '', journal: fields.journal || '', volume: fields.volume || '', issue: fields.issue || '',
       pages: fields.pages || '', url: fields.url || '', doi: fields.doi || '', director: fields.director || '', studio: fields.studio || '',
-      edition: fields.edition || '', accessed: fields.accessed || today(), fileId: fields.fileId || null, toRead: !!fields.toRead };
+      edition: fields.edition || '', accessed: fields.accessed || today(), fileId: fields.fileId || null, toRead: fields.toRead !== false };
     const all = store.sources(); all.push(s); store.setSources(all);
-    refreshSourcesWindow();
+    refreshSourcesWindow(); refreshBriefing();
     if (!quiet) blip(990, 0.1);
     return s;
   }
@@ -323,7 +324,7 @@ export function installThesisTools(ctx) {
     const all = store.sources(), s = all.find(x => x.id === id);
     if (!s) throw Error('No source with that id.');
     Object.assign(s, Object.fromEntries(Object.entries(fields).filter(([k, v]) => v !== undefined && k !== 'id')));
-    store.setSources(all); refreshSourcesWindow(); refreshQuotesWindow();
+    store.setSources(all); refreshSourcesWindow(); refreshQuotesWindow(); refreshBriefing();
     return s;
   }
   // Name helpers: authors are written "First Last" or "Last, First"
@@ -389,7 +390,7 @@ export function installThesisTools(ctx) {
   function openQuotesWindow() {
     let w = findWindow('quotes');
     if (!w) { w = openWindow('Quotes', quotesText()); w.userData.id = 'quotes'; }
-    refreshQuotesWindow(); return w;
+    refreshQuotesWindow(); return reveal(w);
   }
   function refreshQuotesWindow() { const w = findWindow('quotes'); if (w) setWindowContent(w, `Quotes (${store.quotes().length})`, quotesText()); }
   function openSourcesWindow() {
@@ -402,7 +403,7 @@ export function installThesisTools(ctx) {
         refreshSourcesWindow(); refreshQuotesWindow();
       });
     }
-    refreshSourcesWindow(); return w;
+    refreshSourcesWindow(); return reveal(w);
   }
   function refreshSourcesWindow() {
     const w = findWindow('sources'); if (!w) return;
@@ -706,7 +707,7 @@ export function installThesisTools(ctx) {
 
   // ================================================================ THESIS DOCUMENT (live, editable in place)
   const thesis = readJSON('sunnyvale.thesis', { title: 'Bachelor thesis: Propaganda in film', paras: [], history: [] });
-  const saveThesis = () => { thesis.updated = Date.now(); writeJSON('sunnyvale.thesis', thesis); refreshStrip(); };
+  const saveThesis = () => { thesis.updated = Date.now(); writeJSON('sunnyvale.thesis', thesis); refreshStrip(); refreshBriefing(); };
   const words = t => (String(t).match(/[\p{L}\p{N}'’-]+/gu) || []).length;
   const wordCount = () => thesis.paras.reduce((n, p) => n + words(p.text), 0);
   function snapshotThesis() { thesis.history = [...(thesis.history || []), JSON.stringify({ title: thesis.title, paras: thesis.paras })].slice(-30); }
@@ -743,9 +744,13 @@ export function installThesisTools(ctx) {
     if (!doc) return;
     const { canvas, g, tex } = doc.view, W = canvas.width, H = canvas.height, stark = getMode() === 'stark';
     frameBox(g, W, H, stark);
-    g.fillStyle = accent(); g.font = '700 46px Georgia, serif'; g.fillText(thesis.title.slice(0, 60), 50, 75);
+    let titleSize = 46, titleLines;
+    do { g.font = `700 ${titleSize}px Georgia, serif`; titleLines = wrap(g, thesis.title, W - 100); if (titleLines.length <= 2 || titleSize <= 26) break; titleSize -= 2; } while (true);
+    g.fillStyle = accent();
+    titleLines.forEach((line, index) => g.fillText(line, 50, 65 + index * (titleSize + 8), W - 100));
+    const infoY = 65 + titleLines.length * (titleSize + 8);
     g.font = '26px "Segoe UI", system-ui, sans-serif'; g.globalAlpha = 0.7;
-    g.fillText(`${wordCount().toLocaleString()} words · ${thesis.paras.length} paragraphs · saved ${thesis.updated ? new Date(thesis.updated).toLocaleTimeString().slice(0, 5) : '—'}`, 52, 115);
+    g.fillText(`${wordCount().toLocaleString()} words · ${thesis.paras.length} paragraphs · saved ${thesis.updated ? new Date(thesis.updated).toLocaleTimeString().slice(0, 5) : '—'}`, 52, infoY);
     g.globalAlpha = 1;
     const lines = [];
     thesis.paras.forEach((p, i) => {
@@ -755,7 +760,7 @@ export function installThesisTools(ctx) {
       lines.push({ text: '', para: i, gap: true });
     });
     if (!thesis.paras.length) lines.push({ text: 'Empty. Tap + PARAGRAPH to start writing, or ask Claude to draft a section.', para: -1, hint: true });
-    const lineH = 44, top = 165, per = Math.floor((H - top - 30) / lineH);
+    const lineH = 44, top = Math.max(165, infoY + 50), per = Math.floor((H - top - 30) / lineH);
     doc.scroll = Math.max(0, Math.min(doc.scroll, Math.max(0, lines.length - per)));
     doc.layout = [];
     lines.slice(doc.scroll, doc.scroll + per).forEach((l, k) => {
@@ -843,19 +848,19 @@ export function installThesisTools(ctx) {
   function addDeadline(title, date) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw Error('Use a date like 2026-12-15.');
     const all = store.deadlines(); all.push({ id: uid('d'), title: clampText(title, 80), date }); store.setDeadlines(all);
-    refreshStrip(); renderLibraryPage(); refreshDeadlinesWindow();
+    refreshStrip(); renderLibraryPage(); refreshDeadlinesWindow(); refreshBriefing();
     return all[all.length - 1];
   }
   function removeDeadline(idOrTitle) {
     const all = store.deadlines(), k = String(idOrTitle).toLowerCase();
     store.setDeadlines(all.filter(d => d.id !== idOrTitle && d.title.toLowerCase() !== k));
-    refreshStrip(); renderLibraryPage(); refreshDeadlinesWindow();
+    refreshStrip(); renderLibraryPage(); refreshDeadlinesWindow(); refreshBriefing();
   }
   const deadlineLine = d => { const n = daysLeft(d.date); return `${d.title}: ${n === 0 ? 'TODAY' : n === 1 ? 'tomorrow' : 'in ' + n + ' days'} (${d.date})`; };
   function openDeadlinesWindow() {
     let w = findWindow('deadlines');
     if (!w) { w = openWindow('Deadlines', ''); w.userData.id = 'deadlines'; }
-    refreshDeadlinesWindow(); return w;
+    refreshDeadlinesWindow(); return reveal(w);
   }
   function refreshDeadlinesWindow() {
     const w = findWindow('deadlines'); if (!w) return;
@@ -911,7 +916,7 @@ export function installThesisTools(ctx) {
     if (session.finished || !session.start) return null;
     session.finished = true;
     const s = sessionSummary();
-    const all = store.sessions(); all.push(s); store.setSessions(all.slice(-60));
+    const all = store.sessions(); all.push(s); store.setSessions(all.slice(-60)); refreshBriefing();
     const hint = document.getElementById('sessionSummary');
     if (hint) hint.textContent = 'Last session: ' + summaryText(s).replace(/\n+/g, ' ');
     return s;
@@ -924,13 +929,16 @@ export function installThesisTools(ctx) {
       ['J.A.R.V.I.S.', 'SESSION COMPLETE', `${s.minutes} MIN · ${Math.max(0, s.wordsEnd - s.wordsStart)} NEW WORDS · ${s.quotes} QUOTES`]);
     setTimeout(() => { finishSession(); renderer.xr.getSession()?.end().catch(() => {}); }, 9000);
   }
-  function briefing(auto) {
+  function refreshBriefing() { if (findWindow('briefing')) briefing(false, { reveal: false, announce: false }); }
+  function briefing(auto, options = {}) {
+    const saved = readJSON('sunnyvale.thesis', null);
+    if (saved && Array.isArray(saved.paras)) Object.assign(thesis, saved);
     const last = store.sessions().slice(-1)[0], next = upcoming();
     const toRead = store.sources().filter(s => s.toRead).slice(0, 5);
     const lines = [
       `Good ${now().getHours() < 12 ? 'morning' : now().getHours() < 18 ? 'afternoon' : 'evening'}. ${now().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}.`,
       '', 'DEADLINES', ...(next.length ? next.slice(0, 4).map(d => '• ' + deadlineLine(d)) : ['• None set']),
-      '', 'TO READ', ...(toRead.length ? toRead.map(s => '• ' + s.title) : ['• Nothing marked']),
+      '', `TO READ (${store.sources().filter(s => s.toRead).length} · ${store.sources().length} SOURCES SAVED)`, ...(toRead.length ? toRead.map(s => '• ' + s.title) : ['• No saved sources marked to read']),
       '', 'LAST SESSION', last ? `• ${new Date(last.start).toLocaleDateString()}: ${last.minutes} min, ${last.wordsEnd - last.wordsStart >= 0 ? '+' : ''}${last.wordsEnd - last.wordsStart} words, ${last.quotes} quotes` : '• This is your first session',
       ...(last?.claude?.next ? ['', 'PLANNED NEXT', '• ' + last.claude.next] : []),
       '', `THESIS: ${wordCount().toLocaleString()} words`
@@ -938,7 +946,8 @@ export function installThesisTools(ctx) {
     const w = findWindow('briefing') || (() => { const x = openWindow('Briefing', ''); x.userData.id = 'briefing'; return x; })();
     setWindowContent(w, 'Morning briefing', lines.join('\n'));
     const d = next[0];
-    jarvisSay(auto ? `Good ${now().getHours() < 12 ? 'morning' : 'day'}. ${d ? `${d.title} is due ${daysLeft(d.date) === 0 ? 'today' : 'in ' + daysLeft(d.date) + ' days'}.` : ''}` : '',
+    if (options.reveal !== false) reveal(w);
+    if (options.announce !== false) jarvisSay(auto ? `Good ${now().getHours() < 12 ? 'morning' : 'day'}. ${d ? `${d.title} is due ${daysLeft(d.date) === 0 ? 'today' : 'in ' + daysLeft(d.date) + ' days'}.` : ''}` : '',
       ['J.A.R.V.I.S.', 'BRIEFING', d ? `${d.title.toUpperCase()} · ${daysLeft(d.date)} DAYS` : `THESIS: ${wordCount()} WORDS`]);
     return w;
   }
@@ -954,7 +963,7 @@ export function installThesisTools(ctx) {
   const beamGeo = new THREE.BufferGeometry().setFromPoints([v3(), v3()]);
   const beam = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: 0xff9a6a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   beam.frustumCulled = false; beam.visible = false; scene.add(beam);
-  const orbState = { target: null, pointAt: null, pointUntil: 0, pulse: null, home: true };
+  const orbState = { target: null, pointAt: null, anchor: null, pulse: null, home: true };
   orb.position.set(-0.5, 1.5, -0.4);
   function orbHome(out) {
     viewerPosition(out);
@@ -969,30 +978,42 @@ export function installThesisTools(ctx) {
     if (!p) throw Error('No window with that id.');
     let point = p.getWorldPosition(v3()), mesh = null;
     if (part !== undefined && part !== null && part !== '') {
-      if (p.userData.eventDots && Number.isFinite(+part)) mesh = p.userData.eventDots[+part];
+      if (p.userData.eventDots) {
+        const key = String(part).trim().toLowerCase(), dots = p.userData.eventDots;
+        mesh = dots[+part] || dots.find(dot => [dot.userData.event?.label, dot.userData.event?.year].some(value => String(value).toLowerCase() === key)) || dots.find(dot => String(dot.userData.event?.label).toLowerCase().includes(key));
+        if (!mesh) throw Error('No timeline event matching that index, year or label. Event indices start at 0.');
+      }
       else if (p.userData.nodes) {
         const k = String(part).toLowerCase();
         const hit = Object.entries(p.userData.nodes).find(([label]) => label.toLowerCase() === k) || Object.entries(p.userData.nodes).find(([label]) => label.toLowerCase().includes(k));
         if (hit) { mesh = hit[1]; p.userData.expand?.(hit[0]); }
       } else if (p.userData.id === 'thesis' && doc && Number.isFinite(+part)) { doc.sel = +part; paintThesis(); }
+      p.updateWorldMatrix(true, true);
       if (mesh) point = mesh.getWorldPosition(v3());
     }
     viewerPosition(tmp);
     const toViewer = tmp.clone().sub(point).normalize();
     orbState.target = point.clone().addScaledVector(toViewer, 0.25).add(v3().set(0.12, 0.12, 0));
-    orbState.pointAt = point; orbState.pointUntil = performance.now() + 5000; orbState.home = false;
+    if (orbState.pulse) orbState.pulse.mesh.scale.setScalar(orbState.pulse.s);
+    orbState.pointAt = point; orbState.anchor = { window: p, mesh: mesh || p }; orbState.home = false;
     if (mesh) orbState.pulse = { mesh, t: 0, s: mesh.scale.x };
     return { ok: true };
   }
   const tmp = v3();
   function updateOrb(dt) {
     const t = performance.now() / 1000;
-    if (orbState.home || performance.now() > orbState.pointUntil + 3000) { orbState.home = true; orbState.target = orbHome(v3()); }
+    const anchor = orbState.anchor;
+    if (anchor && panels.includes(anchor.window) && anchor.window.visible) {
+      anchor.window.updateWorldMatrix(true, true);
+      orbState.pointAt = anchor.mesh.getWorldPosition(v3());
+      viewerPosition(tmp);
+      orbState.target = orbState.pointAt.clone().addScaledVector(tmp.clone().sub(orbState.pointAt).normalize(), .25).add(v3().set(.12, .12, 0));
+    } else { orbState.anchor = null; orbState.home = true; orbState.target = orbHome(v3()); }
     orb.position.lerp(orbState.target || orb.position, Math.min(1, dt * 2.5));
     orb.position.y += Math.sin(t * 1.6) * 0.0006;
     orbRing.rotation.x = t * 0.7; orbRing.rotation.y = t * 1.1;
     orbGlow.material.opacity = 0.75 + Math.sin(t * 2.2) * 0.2;
-    const pointing = orbState.pointAt && performance.now() < orbState.pointUntil;
+    const pointing = !!orbState.anchor;
     beam.visible = pointing;
     if (pointing) { const a = beamGeo.attributes.position; a.setXYZ(0, orb.position.x, orb.position.y, orb.position.z); a.setXYZ(1, orbState.pointAt.x, orbState.pointAt.y, orbState.pointAt.z); a.needsUpdate = true; beam.material.opacity = 0.5 + Math.sin(t * 10) * 0.3; }
     const pu = orbState.pulse;
@@ -1144,6 +1165,7 @@ export function installThesisTools(ctx) {
     onSessionEnd: finishSession,
     onFocusComplete() { session.focusDone++; },
     wordCount,
+    refreshBriefing,
     menu: { library: () => openLibraryPicker(), thesis: openThesis, quotes: openQuotesWindow, sources: openSourcesWindow, deadlines: openDeadlinesWindow,
       briefing: () => briefing(false), logOff, scan: openScanner, wake: toggleWakeWord, toggleStrip: () => { settings.strip = !settings.strip; saveSettings(); refreshStrip(true); } },
     repaint() { paintThesis(); refreshStrip(true); }

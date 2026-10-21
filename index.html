@@ -50,8 +50,8 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=round2-connection-1';
-import { installThesisTools } from './thesis-tools.js?v=20261022-thesis-3';
+import { installBrowserBridge } from './browser-bridge.js?v=round2-windows-2';
+import { installThesisTools } from './thesis-tools.js?v=round2-windows-2';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -1899,6 +1899,7 @@ function createTimeline(title, events) {
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffe0a0 }));
     dot.position.set(x, 0, 0); group.add(dot);
     const label = holoLabel(e.label, { w: 0.3, h: 0.11, big: String(e.year) });
+    label.userData.event = { index: i, year: String(e.year), label: String(e.label) };
     label.position.set(x, up + 0.06, 0); group.add(label);
     dots.push(label);
   });
@@ -2546,26 +2547,35 @@ function snapshotDesk() {
   for (const p of [...panels, ...stash]) {
     const u = p.userData;
     if (p === stashPicker || u.noSave) continue;
-    if (u.kind === 'browser') { const url = browserBridge?.urlOf?.(u.browserId); if (url) items.push({ type: 'browser', url }); continue; }
     if (u.kind === 'browser-keyboard') continue;
     const common = {
       id: u.id, locked: !!u.locked, stashed: stash.includes(p),
-      pose: { p: p.position.toArray().map(n => +n.toFixed(3)), q: p.quaternion.toArray().map(n => +n.toFixed(4)), s: +(u.baseScale || 1).toFixed(3) }
+      pose: { p: p.position.toArray(), q: p.quaternion.toArray(), s: p.scale.toArray(), baseScale: u.baseScale || 1 }
     };
+    if (u.kind === 'browser') { const url = browserBridge?.urlOf?.(u.browserId); if (url) items.push({ type: 'browser', url, ...common }); continue; }
     if (u.cardboard) items.push({ type: 'window', title: u.title, body: u.body, scroll: u.scroll || 0, followEnd: !!u.followEnd, chat: p === claudePanel, ...common });
     else if (u.build) items.push({ type: u.build[0], args: u.build.slice(1), ...common });
     else if (u.save) { const extra = u.save(); if (extra) items.push({ ...extra, ...common }); }
   }
-  return { v: 1, savedAt: Date.now(), items };
+  return { v: 2, referenceSpace: 'local-floor', savedAt: Date.now(), items };
 }
 
 function applyPose(p, item) {
   if (!item.pose) return;
   p.position.fromArray(item.pose.p);
   p.quaternion.fromArray(item.pose.q);
-  p.userData.baseScale = item.pose.s || 1;
+  p.userData.baseScale = item.pose.baseScale || (typeof item.pose.s === 'number' ? item.pose.s : 1);
   p.userData.popIn = undefined;
-  p.scale.setScalar(p.userData.baseScale);
+  p.userData.fly = p.userData.away = p.userData.resize = null;
+  p.userData.powerUp = undefined;
+  if (Array.isArray(item.pose.s)) p.scale.fromArray(item.pose.s); else p.scale.setScalar(p.userData.baseScale);
+  p.updateMatrixWorld(true);
+}
+function applySavedWindowState(p, item) {
+  if (item.id) p.userData.id = item.id;
+  applyPose(p, item);
+  if (item.locked) { p.userData.locked = false; toggleLock(p, true); }
+  if (item.stashed && panels.includes(p)) { panels.splice(panels.indexOf(p), 1); stash.push(p); p.visible = false; }
 }
 function restoreItem(item) {
   let p = null;
@@ -2581,10 +2591,7 @@ function restoreItem(item) {
   else if (item.type === 'cards') p = createFlashcards(...item.args);
   else if (restorers[item.type]) p = restorers[item.type](item);
   if (!p) return null;
-  if (item.id) p.userData.id = item.id;
-  applyPose(p, item);
-  if (item.locked) { p.userData.locked = false; toggleLock(p, true); }
-  if (item.stashed && panels.includes(p)) { panels.splice(panels.indexOf(p), 1); stash.push(p); p.visible = false; }
+  applySavedWindowState(p, item);
   const n = Number(String(item.id || '').replace(/\D/g, ''));
   if (n >= claude.windowCount) claude.windowCount = n + 1;
   return p;
@@ -2594,11 +2601,12 @@ function restoreDesk(state, { reopenBrowsers = false } = {}) {
   let count = 0;
   for (const item of state.items) {
     try {
-      if (item.type === 'browser') { if (reopenBrowsers) browserBridge?.open(item.url); continue; }
+      if (item.type === 'browser') { if (reopenBrowsers) browserBridge?.open(item.url, item); continue; }
       if (restoreItem(item)) count++;
     } catch (e) { console.warn('Could not restore', item.type, e); }
   }
   updateStashButton();
+  thesisTools?.refreshBriefing();
   return count;
 }
 // Close everything you have open (but not browser windows: those are real Chrome tabs)
@@ -2633,6 +2641,7 @@ function loadWorkspace(name) {
   if (!state) throw Error('No workspace called ' + name);
   if (spacesPicker) { closeWindow(spacesPicker); spacesPicker = null; }
   clearAllWindows();
+  for (const p of [...panels, ...stash]) if (['browser', 'browser-keyboard'].includes(p.userData.kind)) closeWindow(p);
   const n = restoreDesk(state, { reopenBrowsers: true });
   jarvisSay('', ['J.A.R.V.I.S.', 'WORKSPACE LOADED', name.toUpperCase()]);
   return n;
@@ -3081,7 +3090,7 @@ function runWorldTool(name, input) {
 function flyOrbTo(result) {
   try { const id = JSON.parse(result)?.id; if (id && thesisTools) thesisTools.tools.point_at({ id }); } catch { /* not every answer names a window */ }
 }
-browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool });
+browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool, restorePanel: applySavedWindowState });
 window.studyDebug.browserBridge = browserBridge;
 const outsideClaudeButton = document.createElement('button');
 outsideClaudeButton.textContent = 'Open Claude outside VR…';
@@ -3094,8 +3103,11 @@ window.studyDebug.setMode = setMode;
 thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touchables, surfaces, makeHoloObject, placeInFront, faceViewer, holoLabel,
   canvasTexture, blip, jarvisSay, closeWindow, restorers, markDirty, getMode: () => mode, bridge: () => browserBridge, viewerPosition,
   openWindow, setWindowContent, findWindow, readJSON, writeJSON, timerInfo: () => ({ running: timer.running, phase: timer.phase, left: timer.left }),
-  draw, stashWindow });
+  draw, stashWindow, revealWindow: p => { if (stash.includes(p)) unstash([p]); p.visible = true; },
+});
 window.studyDebug.thesis = thesisTools;
+window.studyDebug.worldTool = runWorldTool;
+window.studyDebug.menu = { menu, thesisButton, thesisRows, thesisItems, updateMenu };
 {
   const saved = readJSON(DESK_KEY, null);
   if (saved?.items?.length) {

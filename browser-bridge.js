@@ -2,9 +2,10 @@ import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
 import { BrowserMedia } from './browser-media.js?v=20261021-media-1';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
-  makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool }) {
+  makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel }) {
   let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false;
   const tabs = new Map();
+  const restoredPanels = [];
   const normalFoveation = renderer?.xr?.getFoveation?.() ?? 1;
   const updateReadingQuality = () => renderer?.xr?.setFoveation?.(tabs.size ? 0 : normalFoveation);
   const send = m => { if (ready && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(m)); };
@@ -93,12 +94,14 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       catch { status('Allow sound on the Sunnyvale page before entering VR.'); }
     });
     focused = m.id;
+    const savedIndex = restoredPanels.findIndex(saved => saved.url === m.url);
+    if (savedIndex >= 0) restorePanel?.(panel, restoredPanels.splice(savedIndex, 1)[0]);
   }
   function disconnect() {
     media.stopAll();
     ready = false; const old = socket; socket = null; old?.close();
     for (const t of [...tabs.values()]) closeWindow(t.panel);
-    tabs.clear(); updateReadingQuality(); report('Disconnected. Reconnect before using the browser buttons.');
+    tabs.clear(); restoredPanels.length = 0; updateReadingQuality(); report('Disconnected. Reconnect before using the browser buttons.');
   }
   document.getElementById('bridgeDisconnect').onclick = disconnect;
   window.addEventListener('pagehide', () => { media.stopAll(); ready = false; socket?.close(); });
@@ -236,7 +239,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     setTimeout(() => document.getElementById('bridgeConnect').click(), 0);
   }
   return {
-    open(url) { if (!ready) return false; send({ type: 'open', url }); return true; },
+    open(url, saved) { if (!ready) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },
     // Open a page (e.g. docs.new) and type text into it once it has loaded (used to export the thesis)
