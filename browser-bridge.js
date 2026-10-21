@@ -230,6 +230,10 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     document.getElementById('bridgeToken').value = pairing.get('pair');
     history.replaceState(null, '', location.pathname + location.search);
     document.getElementById('bridgeConnect').click();
+  } else if (document.getElementById('bridgeURL').value.trim() && document.getElementById('bridgeToken').value.trim()) {
+    // Try the saved private connection once. A stale temporary address is
+    // reported by the normal connection timeout, without leaving the world.
+    setTimeout(() => document.getElementById('bridgeConnect').click(), 0);
   }
   return {
     open(url) { if (!ready) return false; send({ type: 'open', url }); return true; },

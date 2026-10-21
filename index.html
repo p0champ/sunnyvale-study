@@ -50,7 +50,7 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=20261022-thesis-1';
+import { installBrowserBridge } from './browser-bridge.js?v=round2-connection-1';
 import { installThesisTools } from './thesis-tools.js?v=20261022-thesis-3';
 let thesisTools;
 let browserBridge;
@@ -2525,7 +2525,11 @@ function callBarbera() {
 }
 
 // ---------- Claude: without an in-world key, the button opens claude.ai (your subscription) ----------
-function openClaudeWebsite() { if (!browserBridge?.open('https://claude.ai/new')) openOutside('https://claude.ai/new'); }
+function openClaudeWebsite() {
+  if (browserBridge?.open('https://claude.ai/new')) return true;
+  jarvisSay('', ['CLAUDE', 'NOT CONNECTED TO YOUR PC', 'CHECK THE BRIDGE AND OPEN THE NEW PRIVATE LINK']);
+  return false;
+}
 
 // ---------- Saving your desk between sessions, and named workspaces ----------
 // Everything you have open (windows, notes, mind maps, timelines, flashcards, thesis tools) is saved in this
@@ -3079,6 +3083,13 @@ function flyOrbTo(result) {
 }
 browserBridge = installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables, makeWindow: makeCardboardWindow, position: claudeWindowPosition, faceViewer, closeWindow, shown, styleWindow: p => lookFor(p, mode === 'stark'), status: message => jarvisSay('', ['BROWSER BRIDGE', message]), worldTool: runWorldTool });
 window.studyDebug.browserBridge = browserBridge;
+const outsideClaudeButton = document.createElement('button');
+outsideClaudeButton.textContent = 'Open Claude outside VR…';
+outsideClaudeButton.onclick = () => {
+  if (window.confirm('Open Claude in a normal browser tab? This leaves the Sunnyvale VR view.')) openOutside('https://claude.ai/new');
+};
+document.getElementById('bridgeSettings').appendChild(outsideClaudeButton);
+window.studyDebug.openClaudeWebsite = openClaudeWebsite;
 window.studyDebug.setMode = setMode;
 thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touchables, surfaces, makeHoloObject, placeInFront, faceViewer, holoLabel,
   canvasTexture, blip, jarvisSay, closeWindow, restorers, markDirty, getMode: () => mode, bridge: () => browserBridge, viewerPosition,
