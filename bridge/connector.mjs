@@ -62,6 +62,7 @@ export function createConnector({ secret, getConnection, log }) {
         "Call list_windows to see what is open (and the ids) before changing things. When you talk about a window or a part of one, call point_at so your orb points at it. When walking the user through a timeline, point_at each event in turn (part = its number, starting at 0) and explain it.",
         "When the user argues a thesis point, raise the strongest objection and save it with add_counterargument. When the user says they're done for the day, call write_session_summary with what was done and what's next.",
         "If the user says 'this' or 'that' without saying what, call what_user_is_looking_at. Save quotable lines with highlight_passage (exact words from read_document) so they get a source and page.",
+        "For exam practice, use start_exam, then exam_question and exam_feedback one question at a time. For feedback on the thesis, pin comment_paragraph cards (with suggested wording when useful) instead of rewriting it. While watching a clip, view_frame on grabs and log_shot each shot; for propaganda analysis, fill_checklist per scene. When the user asks to tidy or set up the room, use arrange_windows.",
         "In browser windows, take a screenshot first and use its pixel coordinates for clicks. Ask the user before sending messages, posting, buying or submitting anything in a browser window."
       ].join(' ')
     });
@@ -120,7 +121,7 @@ export function createConnector({ secret, getConnection, log }) {
     };
     const studyTools = [
       ['stash_window', 'Put one window away into the stash (the user can bring it back from the menu).', { id: z.string() }],
-      ['point_at', 'Make your orb fly to a window and point at it. part (optional) = a timeline event number (from 0), a mind map branch name, or a thesis paragraph number.', { id: z.string(), part: opt(z.union([z.string(), z.number()])) }],
+      ['point_at', 'Make your avatar (the Claude spark) fly to a window and point at it. part (optional) = a timeline event number (from 0), a mind map branch name, or a thesis paragraph number.', { id: z.string(), part: opt(z.union([z.string(), z.number()])) }],
       ['what_user_is_looking_at', 'See what the user is looking at right now: the window in the middle of their view (id, title, text) plus a picture of the virtual view. The real room is not visible in the picture.', {}, true],
       ['list_library', "List the files in the user's library (PDFs, videos, images, 3D models). The user adds files on the Sunnyvale page.", {}, true],
       ['open_document', 'Open a PDF (or any library file) as a window, by name. Optional page.', { name: str(200), page: opt(num) }],
@@ -156,6 +157,21 @@ export function createConnector({ secret, getConnection, log }) {
       ['make_presentation', 'Make a big presentation (teacher mode) for the user to rehearse: slides with a title, bullets and speaker notes.', { title: str(80), slides: z.array(z.object({ title: str(80), bullets: z.array(str(200)).max(8), notes: opt(str(500)) })).max(40) }],
       ['go_to_slide', 'Show a slide of a presentation (number from 0).', { id: z.string(), slide: num }],
       ['add_counterargument', "Save the strongest objection to one of the user's thesis claims (and optionally how to answer it) in the Counter-arguments window.", { claim: str(400), objection: str(800), response: opt(str(800)) }],
+      ['start_exam', 'Start an exam rehearsal where you play the examiner: ask questions out loud one at a time with exam_question, listen, then add what to improve with exam_feedback. Finish with end_exam.', { topic: str(120), minutes_per_question: opt(num) }],
+      ['exam_question', 'Show the next exam question (also ask it out loud) and restart its countdown.', { question: str(600), minutes: opt(num) }],
+      ['exam_feedback', 'Add one concrete thing to improve about the answer (to the current question, or question = its number from 1).', { improve: str(400), question: opt(num) }],
+      ['end_exam', 'Finish the exam rehearsal and show the summary and the full list of things to improve.', { summary: opt(str(1500)) }],
+      ['comment_paragraph', 'Pin a comment card beside one thesis paragraph (number from 0, see read_thesis). Optionally give suggestion = full replacement wording; the user taps ACCEPT to use it, or DISMISS.', { index: num, comment: str(500), suggestion: opt(str(20000)) }],
+      ['list_comments', 'List the open comment cards on the thesis.', {}, true],
+      ['clear_comments', 'Remove all comment cards from the thesis.', {}],
+      ['log_shot', 'Add a shot to the shot log of a video (the playing one if video is left out). time in seconds (default: where the video is now). Look at frame grabs with view_frame first.', { video: opt(str(200)), time: opt(num), shot_type: str(40), angle: opt(str(40)), movement: opt(str(40)), notes: opt(str(400)), frame_id: opt(str(40)) }],
+      ['open_shot_log', 'Open the shot log window of a video (window id) or film title.', { video: opt(str(200)) }],
+      ['list_shots', 'List the logged shots of a video (window id) or film title.', { video: opt(str(200)) }, true],
+      ['view_frame', 'Look at a frame grab (returns the picture). Use the frame window id, or the frame_id from grab_frame.', { id: opt(z.string()), frame_id: opt(str(40)) }, true],
+      ['fill_checklist', 'Fill in the propaganda checklist for one scene. answers: enemy (how is the enemy shown?), music (what does the music do?), military (military cooperation in the credits?), framing (which heroic framing is used?), message (what does the scene want the viewer to feel or believe?). The same film and scene again updates it.', { film: str(120), scene: str(200), time: opt(num), answers: z.object({ enemy: opt(str(600)), music: opt(str(600)), military: opt(str(600)), framing: opt(str(600)), message: opt(str(600)) }) }],
+      ['open_checklist', 'Open the propaganda checklist window (for one film, or all).', { film: opt(str(120)) }],
+      ['list_checklists', 'List every checked scene with its answers.', {}, true],
+      ['arrange_windows', 'Move windows around the user. place: front, left, right, far-left, far-right, behind, above, below or desk. Windows sharing a place stand side by side. Ids come from list_windows.', { layout: z.array(z.object({ id: z.string(), place: z.enum(['front', 'left', 'right', 'far-left', 'far-right', 'behind', 'above', 'below', 'desk']) })).max(20) }],
     ];
     for (const [name, description, inputSchema, readOnly] of studyTools) {
       server.registerTool(name, { title: name.replace(/_/g, ' '), description, inputSchema, annotations: readOnly ? { readOnlyHint: true } : undefined }, input => world(name, input || {}));

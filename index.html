@@ -50,9 +50,9 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=round2-voice-3';
+import { installBrowserBridge } from './browser-bridge.js?v=claude-spark-1';
 import { flickVelocity, speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=round2-voice-3';
+import { installThesisTools } from './thesis-tools.js?v=claude-spark-1';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -1131,7 +1131,7 @@ menu.add(realGlass, reactor);
 
 // Buttons float above the glass and always face you
 const buttonRow = new THREE.Group();
-buttonRow.position.y = 0.17;
+buttonRow.position.y = 0.22;                                      // high enough to clear the Claude bottle
 menu.add(buttonRow);
 const menuButtons = [];
 
@@ -1278,7 +1278,7 @@ function updateMenu(dt) {
     for (const b of menuButtons) {
       if (b.userData.sphere) continue;
       b.userData.pulse = Math.max(0, b.userData.pulse - dt * 3);
-      b.scale.setScalar(1 + b.userData.pulse * 0.25);
+      b.scale.setScalar((b.userData.active ? 1.15 : 1) + b.userData.pulse * 0.25);
     }
   }
 }
@@ -2365,16 +2365,9 @@ function updateStarkFX(dt) {
   dust.rotation.y += dt * 0.02;
 }
 
-// ---------- Menu: the new buttons ----------
-const toolRow = new THREE.Group();
-toolRow.position.y = 0.27;
-toolRow.scale.setScalar(0.8);
-menu.add(toolRow);
-function makeToolButton(label, drawIcon, action) {
-  const b = makeButton(label, drawIcon, action);
-  buttonRow.remove(b); toolRow.add(b);
-  return b;
-}
+// ---------- Menu: five categories on your palm; tap one to open its row of tools ----------
+// STUDY · CREATE · WORLD · BREAK · BARBERA. Only one row of tools is open at a time; tap the category again to close it.
+const ink = '#f4f0e8', gold = '#ffc861';
 const heartButton = makeButton('BARBERA', (ctx) => {
   ctx.fillStyle = '#e8384f'; ctx.shadowColor = '#ff6b81'; ctx.shadowBlur = 18;
   ctx.beginPath(); ctx.moveTo(128, 150);
@@ -2384,7 +2377,7 @@ const heartButton = makeButton('BARBERA', (ctx) => {
 }, () => callBarbera());
 const stashButton = makeButton('STASH', (ctx) => drawStashIcon(ctx, 0), () => openStashPicker());
 function drawStashIcon(ctx, n) {
-  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 8;
+  ctx.strokeStyle = ink; ctx.lineWidth = 8;
   ctx.strokeRect(82, 80, 92, 64); ctx.beginPath(); ctx.moveTo(82, 98); ctx.lineTo(174, 98); ctx.stroke();
   ctx.fillStyle = '#ffb347'; ctx.font = '700 40px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
   if (n) ctx.fillText(String(n), 128, 136);
@@ -2400,47 +2393,121 @@ function updateStashButton() {
   });
   stashButton.material.needsUpdate = true;
 }
-const drawButton = makeToolButton('DRAW', (ctx) => {
-  ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+
+// Icons, drawn (no text abbreviations)
+const icon = {
+  study(ctx) {                                      // an open book with a pen
+    ctx.strokeStyle = ink; ctx.lineWidth = 7; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(128, 82); ctx.quadraticCurveTo(100, 66, 66, 72); ctx.lineTo(66, 146); ctx.quadraticCurveTo(100, 140, 128, 156);
+    ctx.quadraticCurveTo(156, 140, 190, 146); ctx.lineTo(190, 72); ctx.quadraticCurveTo(156, 66, 128, 82); ctx.lineTo(128, 156); ctx.stroke();
+    ctx.strokeStyle = gold; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(150, 128); ctx.lineTo(192, 58); ctx.stroke();
+  },
+  create(ctx) {                                     // a sparkle and a pencil line
+    ctx.fillStyle = gold;
+    const star = (x, y, r) => { ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr = i % 2 ? r * 0.28 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.fill(); };
+    star(150, 92, 34); star(98, 70, 16);
+    ctx.strokeStyle = ink; ctx.lineWidth = 8; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(66, 150); ctx.bezierCurveTo(90, 120, 110, 160, 136, 136); ctx.stroke();
+  },
+  world(ctx) {                                      // a globe
+    ctx.strokeStyle = ink; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(128, 108, 50, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(128, 108, 22, 50, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = gold; ctx.beginPath(); ctx.moveTo(78, 108); ctx.lineTo(178, 108); ctx.moveTo(86, 84); ctx.lineTo(170, 84); ctx.moveTo(86, 132); ctx.lineTo(170, 132); ctx.stroke();
+  },
+  coffee(ctx) {
+    ctx.strokeStyle = ink; ctx.lineWidth = 8; ctx.lineCap = 'round';
+    ctx.strokeRect(78, 94, 86, 56);
+    ctx.beginPath(); ctx.arc(170, 117, 18, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+    ctx.strokeStyle = gold;
+    for (const x of [96, 123, 150]) { ctx.beginPath(); ctx.moveTo(x, 76); ctx.lineTo(x + 6, 58); ctx.stroke(); }
+  },
+  library(ctx) {                                    // books on a shelf
+    const books = [[66, 18, 80, ink], [88, 22, 70, gold], [114, 16, 86, ink], [134, 20, 76, '#e08a5a']];
+    for (const [x, w, h, c] of books) { ctx.fillStyle = c; ctx.fillRect(x, 156 - h, w, h); }
+    ctx.save(); ctx.translate(176, 156); ctx.rotate(0.3); ctx.fillStyle = gold; ctx.fillRect(-20, -74, 18, 74); ctx.restore();
+    ctx.fillStyle = ink; ctx.fillRect(58, 158, 140, 6);
+  },
+  thesis(ctx) {                                     // a page with lines and a pen
+    ctx.strokeStyle = ink; ctx.lineWidth = 7;
+    ctx.strokeRect(84, 60, 70, 92); ctx.beginPath(); ctx.moveTo(98, 86); ctx.lineTo(140, 86); ctx.moveTo(98, 106); ctx.lineTo(140, 106); ctx.moveTo(98, 126); ctx.lineTo(126, 126); ctx.stroke();
+    ctx.strokeStyle = gold; ctx.beginPath(); ctx.moveTo(150, 150); ctx.lineTo(186, 76); ctx.stroke();
+  },
+  quotes(ctx) {                                     // two big quote marks
+    ctx.fillStyle = gold;
+    for (const x of [96, 154]) {
+      ctx.beginPath(); ctx.arc(x, 120, 20, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x + 18, 116); ctx.quadraticCurveTo(x + 20, 76, x - 8, 66); ctx.lineTo(x - 4, 78); ctx.quadraticCurveTo(x + 8, 92, x, 108); ctx.fill();
+    }
+  },
+  sources(ctx) {                                    // a stack of reference cards
+    ctx.strokeStyle = ink; ctx.lineWidth = 6;
+    [66, 92, 118].forEach((y, i) => ctx.strokeRect(66 + i * 10, y, 104, 22));
+    ctx.strokeStyle = gold; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.arc(168, 152, 11, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(186, 152, 11, 0, Math.PI * 2); ctx.stroke();
+  },
+  deadlines(ctx) {                                  // a calendar page with today's date
+    ctx.strokeStyle = ink; ctx.lineWidth = 7; ctx.strokeRect(74, 70, 108, 86);
+    ctx.fillStyle = '#e8384f'; ctx.fillRect(74, 70, 108, 22);
+    ctx.fillStyle = ink; ctx.fillRect(96, 58, 8, 22); ctx.fillRect(152, 58, 8, 22);
+    ctx.fillStyle = gold; ctx.font = '700 46px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(String(new Date().getDate()), 128, 146);
+  },
+  briefing(ctx) {                                   // a sunrise
+    ctx.strokeStyle = gold; ctx.lineWidth = 7; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(128, 138, 34, Math.PI, 0); ctx.stroke();
+    for (let i = 0; i < 5; i++) { const a = Math.PI + (i + 0.5) * Math.PI / 5; ctx.beginPath(); ctx.moveTo(128 + Math.cos(a) * 46, 138 + Math.sin(a) * 46); ctx.lineTo(128 + Math.cos(a) * 62, 138 + Math.sin(a) * 62); ctx.stroke(); }
+    ctx.strokeStyle = ink; ctx.beginPath(); ctx.moveTo(62, 140); ctx.lineTo(194, 140); ctx.stroke();
+  },
+  spaces(ctx) {                                     // a saved layout of windows
+    ctx.strokeStyle = ink; ctx.lineWidth = 6;
+    ctx.strokeRect(62, 70, 56, 40); ctx.strokeRect(126, 70, 68, 40); ctx.strokeRect(62, 118, 104, 36);
+    ctx.fillStyle = gold; ctx.beginPath(); ctx.moveTo(176, 120); ctx.lineTo(196, 120); ctx.lineTo(196, 158); ctx.lineTo(186, 150); ctx.lineTo(176, 158); ctx.fill();
+  },
+  scan(ctx) {                                       // a camera
+    ctx.strokeStyle = ink; ctx.lineWidth = 7; ctx.lineJoin = 'round';
+    ctx.strokeRect(66, 82, 124, 72); ctx.strokeRect(100, 66, 40, 16);
+    ctx.strokeStyle = gold; ctx.beginPath(); ctx.arc(128, 118, 22, 0, Math.PI * 2); ctx.stroke();
+  },
+  logoff(ctx) {                                     // a power symbol
+    ctx.strokeStyle = gold; ctx.lineWidth = 10; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(128, 116, 40, -Math.PI / 2 + 0.6, Math.PI * 1.5 - 0.6); ctx.stroke();
+    ctx.strokeStyle = ink; ctx.beginPath(); ctx.moveTo(128, 64); ctx.lineTo(128, 112); ctx.stroke();
+  },
+};
+
+// The tools inside each category
+const drawButton = makeButton('DRAW', (ctx) => {
+  ctx.strokeStyle = gold; ctx.lineWidth = 9; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(70, 140); ctx.bezierCurveTo(100, 60, 130, 160, 160, 90); ctx.lineTo(186, 70); ctx.stroke();
 }, () => { draw.on = !draw.on; jarvisSay('', ['J.A.R.V.I.S.', draw.on ? 'DRAWING ON' : 'DRAWING OFF', draw.on ? 'PINCH IN THE AIR TO DRAW' : '']); });
-makeToolButton('ERASE', (ctx) => {
-  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+const eraseButton = makeButton('ERASE', (ctx) => {
+  ctx.strokeStyle = ink; ctx.lineWidth = 10; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(90, 75); ctx.lineTo(166, 151); ctx.moveTo(166, 75); ctx.lineTo(90, 151); ctx.stroke();
 }, () => eraseDrawings());
-makeToolButton('CARDS', (ctx) => {
-  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 7;
+const cardsButton = makeButton('FLASHCARDS', (ctx) => {
+  ctx.strokeStyle = ink; ctx.lineWidth = 7;
   ctx.strokeRect(70, 70, 90, 62); ctx.fillStyle = 'rgba(255,180,80,0.5)'; ctx.fillRect(96, 92, 90, 62); ctx.strokeRect(96, 92, 90, 62);
 }, () => createFlashcards(DEMO_CARDS.title, DEMO_CARDS.cards));
-makeToolButton('MAP', (ctx) => {
-  ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 5; ctx.fillStyle = '#f4f0e8';
+const mapButton = makeButton('MIND MAP', (ctx) => {
+  ctx.strokeStyle = gold; ctx.lineWidth = 5; ctx.fillStyle = ink;
   const pts = [[128, 110], [74, 78], [182, 78], [80, 148], [176, 148]];
   pts.slice(1).forEach(([x, y]) => { ctx.beginPath(); ctx.moveTo(128, 110); ctx.lineTo(x, y); ctx.stroke(); });
   pts.forEach(([x, y], i) => { ctx.beginPath(); ctx.arc(x, y, i ? 11 : 17, 0, Math.PI * 2); ctx.fill(); });
 }, () => createMindMap(DEMO_MAP.title, DEMO_MAP.branches));
-makeToolButton('TIMELINE', (ctx) => {
-  ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 6;
+const timelineButton = makeButton('TIMELINE', (ctx) => {
+  ctx.strokeStyle = gold; ctx.lineWidth = 6;
   ctx.beginPath(); ctx.moveTo(56, 112); ctx.lineTo(200, 112); ctx.stroke();
-  ctx.fillStyle = '#f4f0e8';
+  ctx.fillStyle = ink;
   [74, 112, 150, 186].forEach((x, i) => { ctx.fillRect(x - 2, i % 2 ? 80 : 112, 4, 32); ctx.beginPath(); ctx.arc(x, 112, 9, 0, Math.PI * 2); ctx.fill(); });
 }, () => createTimeline(DEMO_TIMELINE.title, DEMO_TIMELINE.events));
 
-// Break services use the same browser bridge and menu style as the study tools.
-let breakMenuOpen = false;
-const breakRows = [0.27, 0.36].map(y => {
-  const row = new THREE.Group(); row.position.y = y; row.scale.setScalar(0.8);
-  row.visible = false; menu.add(row); return row;
-});
-const breakButton = makeButton('BREAK', ctx => {
-  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 8; ctx.lineCap = 'round';
-  ctx.strokeRect(78, 94, 86, 56);
-  ctx.beginPath(); ctx.arc(170, 117, 18, -Math.PI / 2, Math.PI / 2); ctx.stroke();
-  ctx.strokeStyle = '#ffc861';
-  for (const x of [96, 123, 150]) { ctx.beginPath(); ctx.moveTo(x, 76); ctx.lineTo(x + 6, 58); ctx.stroke(); }
-}, () => {
-  if (isFocusActive()) return;
-  breakMenuOpen = !breakMenuOpen; syncBreakMenu(); layoutRows();
-});
+const studyTool = (label, key) => makeButton(label, icon[key], () => { closeCategory(); thesisTools.menu[key]?.(); });
+const studyButtons = [studyTool('LIBRARY', 'library'), studyTool('THESIS', 'thesis'), studyTool('QUOTES', 'quotes'), studyTool('SOURCES', 'sources'),
+  studyTool('DEADLINES', 'deadlines'), studyTool('BRIEFING', 'briefing')];
+const spacesButton = makeButton('SPACES', icon.spaces, () => { closeCategory(); openSpacesPicker(); });
+const scanButton = makeButton('SCAN', icon.scan, () => { closeCategory(); thesisTools.menu.scan(); });
+const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); thesisTools.menu.logOff(); });
+
 const breakServices = [
   ['YOUTUBE', 'youtube.png', 'https://www.youtube.com/'],
   ['INSTAGRAM', 'instagram.webp', 'https://www.instagram.com/'],
@@ -2449,10 +2516,10 @@ const breakServices = [
   ['NETFLIX', 'netflix.png', 'https://www.netflix.com/'],
   ['PRIME VIDEO', 'prime-video.png', 'https://www.primevideo.com/'],
 ];
-for (const [i, [label, icon, url]] of breakServices.entries()) {
+const breakButtons = breakServices.map(([label, file, url]) => {
   const logo = new Image();
   const drawLogo = ctx => {
-    // Fit every brand inside the existing round button without stretching it.
+    // Fit every brand inside the round button without stretching it.
     if (!logo.naturalWidth) return;
     const scale = Math.min(184 / logo.naturalWidth, 156 / logo.naturalHeight);
     const width = logo.naturalWidth * scale, height = logo.naturalHeight * scale;
@@ -2464,7 +2531,7 @@ for (const [i, [label, icon, url]] of breakServices.entries()) {
       jarvisSay('', ['BREAK', 'CONNECT YOUR PC BROWSER BRIDGE', 'THEN CHOOSE A SERVICE AGAIN']);
       return;
     }
-    breakMenuOpen = false; syncBreakMenu(); layoutRows();
+    closeCategory();
   }, { showLabel: false });
   b.name = label; b.userData.service = label;
   logo.onload = () => {
@@ -2472,51 +2539,44 @@ for (const [i, [label, icon, url]] of breakServices.entries()) {
     drawLogo(texture.image.getContext('2d'));
     texture.needsUpdate = true; b.userData.logoLoaded = true;
   };
-  logo.src = './assets/logos/' + icon;
-  breakRows[Math.floor(i / 3)].add(b);
-}
-// Thesis tools: one button in the main row opens two rows of research / writing tools
-let thesisMenuOpen = false;
-const thesisRows = [0.27, 0.36].map(y => {
-  const row = new THREE.Group(); row.position.y = y; row.scale.setScalar(0.8);
-  row.visible = false; menu.add(row); return row;
+  logo.src = './assets/logos/' + file;
+  return b;
 });
-const thesisButton = makeButton('THESIS', ctx => {
-  ctx.strokeStyle = '#f4f0e8'; ctx.lineWidth = 7;
-  ctx.strokeRect(84, 60, 70, 92); ctx.beginPath(); ctx.moveTo(98, 86); ctx.lineTo(140, 86); ctx.moveTo(98, 106); ctx.lineTo(140, 106); ctx.moveTo(98, 126); ctx.lineTo(126, 126); ctx.stroke();
-  ctx.strokeStyle = '#ffc861'; ctx.beginPath(); ctx.moveTo(150, 150); ctx.lineTo(186, 76); ctx.stroke();
-}, () => { thesisMenuOpen = !thesisMenuOpen; if (thesisMenuOpen) breakMenuOpen = false; syncBreakMenu(); layoutRows(); });
-const textIcon = t => ctx => { ctx.fillStyle = '#f4f0e8'; ctx.font = '700 52px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(t, 128, 128, 170); };
-const thesisItems = [
-  ['LIBRARY', 'LIB', 'library'], ['THESIS', 'DOC', 'thesis'], ['QUOTES', '“ ”', 'quotes'], ['SOURCES', 'BIB', 'sources'], ['DEADLINES', 'DUE', 'deadlines'],
-  ['SPACES', 'SAVE', 'spaces'], ['BRIEFING', 'AM', 'briefing'], ['SCAN', 'CAM', 'scan'], ['WAKE WORD', '“J”', 'wake'], ['LOG OFF', 'OFF', 'logoff']
-];
-for (const [i, [label, icon, key]] of thesisItems.entries()) {
-  const b = makeButton(label, textIcon(icon), () => {
-    thesisMenuOpen = false; syncBreakMenu(); layoutRows();
-    if (key === 'spaces') return openSpacesPicker();
-    if (key === 'logoff') return thesisTools.menu.logOff();
-    ({ library: thesisTools.menu.library, thesis: thesisTools.menu.thesis, quotes: thesisTools.menu.quotes, sources: thesisTools.menu.sources,
-       deadlines: thesisTools.menu.deadlines, briefing: thesisTools.menu.briefing, scan: thesisTools.menu.scan, wake: thesisTools.menu.wake })[key]?.();
-  });
-  buttonRow.remove(b); thesisRows[Math.floor(i / 5)].add(b);
+
+// The category buttons (the main row) and their rows of tools
+const categories = {
+  study: { button: makeButton('STUDY', icon.study, () => toggleCategory('study')), items: studyButtons },
+  create: { button: makeButton('CREATE', icon.create, () => toggleCategory('create')), items: [drawButton, eraseButton, cardsButton, mapButton, timelineButton] },
+  // Sunnyvale and Stark mode are one switch: only the mode you can go to is showing
+  world: { button: makeButton('WORLD', icon.world, () => toggleCategory('world')), items: [reactorButton, bubblesButton, spacesButton, stashButton, scanButton, logOffButton] },
+  break: { button: makeButton('BREAK', icon.coffee, () => { if (!isFocusActive()) toggleCategory('break'); }), items: breakButtons },
+};
+for (const [key, c] of Object.entries(categories)) {
+  c.row = new THREE.Group(); c.row.position.y = 0.32; c.row.scale.setScalar(0.8); c.row.visible = false; c.row.name = key;
+  menu.add(c.row);
+  for (const b of c.items) { b.parent?.remove(b); c.row.add(b); }
 }
+buttonRow.remove(heartButton); buttonRow.add(heartButton);       // Barbera's heart sits at the end of the main row
+let openCategory = null;
+function toggleCategory(key) { openCategory = openCategory === key ? null : key; syncBreakMenu(); layoutRows(); }
+function closeCategory() { openCategory = null; syncBreakMenu(); layoutRows(); }
 
 function isFocusActive() { return timer.running && timer.phase === 'focus'; }
+// Breaks are hidden during focus time; the open category's row is the only one showing
 function syncBreakMenu() {
   const allowed = !isFocusActive();
-  if (!allowed) breakMenuOpen = false;
-  breakButton.visible = allowed;
-  for (const row of breakRows) row.visible = allowed && breakMenuOpen;
-  if (breakMenuOpen) thesisMenuOpen = false;
-  for (const row of thesisRows) row.visible = thesisMenuOpen;
-  toolRow.visible = !breakMenuOpen && !thesisMenuOpen;
+  if (!allowed && openCategory === 'break') openCategory = null;
+  categories.break.button.visible = allowed;
+  for (const [key, c] of Object.entries(categories)) {
+    c.row.visible = openCategory === key;
+    c.button.userData.active = openCategory === key;
+  }
 }
 syncBreakMenu();
 
 // Lay the buttons out in rows, and turn the whole menu to face you
 function layoutRows() {
-  for (const row of [buttonRow, toolRow, ...breakRows, ...thesisRows]) {
+  for (const row of [buttonRow, ...Object.values(categories).map(c => c.row)]) {
     const vis = row.children.filter(b => b.visible);
     vis.forEach((b, i) => { b.position.x = (i - (vis.length - 1) / 2) * 0.092; });
   }
@@ -3068,7 +3128,9 @@ window.studyDebug.claudeTool = runClaudeTool;   // for testing Claude's windows 
 
 // Commands from the user's Claude (through the Claude connector on the PC bridge)
 const CONNECTOR_TOOLS = new Set(['open_window', 'update_window', 'close_window', 'add_note', 'create_mind_map', 'create_timeline', 'make_flashcards', 'clear_desk']);
+let claudeWorkingAt = -1e9;
 function runWorldTool(name, input) {
+  claudeWorkingAt = performance.now();
   if (name === 'list_windows') {
     return JSON.stringify(panels.filter(p => p.visible).map(p => ({
       id: p.userData.browserId ? 'browser:' + p.userData.browserId : (p.userData.id ||= 'w' + (++claude.windowCount)),   // every window gets an id Claude can use
@@ -3081,10 +3143,12 @@ function runWorldTool(name, input) {
     hudMessage.lines = ['J.A.R.V.I.S.', ...(input.lines || []).slice(0, 3).map(String)]; hudMessage.t = 0; hud.visible = true;
     return 'Shown.';
   }
-  if (name === 'list_study_tools') return JSON.stringify([...CONNECTOR_TOOLS, ...Object.keys(thesisTools.tools)]);
+  if (name === 'list_study_tools') return JSON.stringify({ tools: [...CONNECTOR_TOOLS, ...Object.keys(thesisTools.tools)],
+    how_to_use_newer_tools: thesisTools.help, note: 'Call any of these with use_study_tool({ name, input }).' });
   if (thesisTools?.tools[name]) {
     blip(1300, 0.08);
     return Promise.resolve(thesisTools.tools[name](input || {})).then(result => {
+      claudeWorkingAt = performance.now();
       if (result && typeof result === 'object' && result.image) return JSON.stringify({ __image: result.image, text: result.text || '' });
       flyOrbTo(result);
       return result;
@@ -3114,10 +3178,16 @@ thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touch
   canvasTexture, blip, jarvisSay, closeWindow, restorers, markDirty, getMode: () => mode, bridge: () => browserBridge, viewerPosition,
   openWindow, setWindowContent, findWindow, readJSON, writeJSON, timerInfo: () => ({ running: timer.running, phase: timer.phase, left: timer.left }),
   draw, stashWindow, revealWindow: p => { if (stash.includes(p)) unstash([p]); p.visible = true; },
+  // What Claude is doing, for the avatar: listening (mic on), speaking (Claude's voice playing), working (using tools in the world)
+  claudeState: () => {
+    const voice = browserBridge?.claudeVoice?.() || {};
+    return { listening: voice.listening || claude.state === 'listening', speaking: voice.speaking || claude.state === 'speaking' || !!window.speechSynthesis?.speaking,
+      working: claude.state === 'thinking' || performance.now() - claudeWorkingAt < 2500 };
+  },
 });
 window.studyDebug.thesis = thesisTools;
 window.studyDebug.worldTool = runWorldTool;
-window.studyDebug.menu = { menu, thesisButton, thesisRows, thesisItems, breakButton, breakRows, breakServices, syncBreakMenu, updateMenu };
+window.studyDebug.menu = { menu, buttonRow, categories, toggleCategory, closeCategory, breakServices, syncBreakMenu, updateMenu, get openCategory() { return openCategory; } };
 {
   const saved = readJSON(DESK_KEY, null);
   if (saved?.items?.length) {

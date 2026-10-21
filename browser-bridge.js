@@ -198,7 +198,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
           if (media.microphone?.id === m.id && !['claude.ai','www.claude.ai','localhost','127.0.0.1'].includes(new URL(m.url).hostname)) media.stopMic();
         }
         if (m.type === 'viewport' && tabs.has(m.id)) { tabs.get(m.id).width = m.width; tabs.get(m.id).height = m.height; }
-        if (m.type === 'audio') media.play(m.id, m.data, m.rate);
+        if (m.type === 'audio') { media.play(m.id, m.data, m.rate); if (tabs.has(m.id)) tabs.get(m.id).soundAt = performance.now(); }
         if (m.type === 'audio-status' && tabs.has(m.id)) { const tab = tabs.get(m.id); tab.audioEnabled = m.enabled; tab.soundButton.userData.label(m.enabled ? 'Sound ON' : 'Sound'); if (!m.enabled) media.stopAudio(m.id); }
         if (m.type === 'mic-status') media.micReady(m.id, m.enabled);
         if (m.type === 'error') { if (media.microphone?.pending && (!m.id || m.id === media.microphone.id)) media.stopMic(); report(m.message); status(m.message); }
@@ -269,6 +269,15 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       return new Promise(resolve => { const reqId='info-'+(++descriptionCount); const timer=setTimeout(()=>{descriptions.delete(reqId);resolve({url:tab.url,title:tab.title,text:tab.text||'',stale:true});},5000); descriptions.set(reqId,{resolve,timer}); send({type:'page-info',id,reqId}); });
     },
     get microphoneState() { const mic = media.microphone; return mic ? { id: mic.id, pending: mic.pending } : null; },
+    // For Claude's avatar: is the mic shared with a Claude tab, and is a Claude tab playing sound (Claude's voice)?
+    claudeVoice() {
+      const claudeTabs = [...tabs].filter(([, t]) => /(^|\.)claude\.ai$/.test((() => { try { return new URL(t.url).hostname; } catch { return ''; } })()));
+      const mic = media.microphone;
+      return {
+        listening: !!mic && !mic.pending && claudeTabs.some(([id]) => id === mic.id),
+        speaking: claudeTabs.some(([, t]) => performance.now() - (t.soundAt || 0) < 400),
+      };
+    },
     open(url, saved) { if (!ready) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },

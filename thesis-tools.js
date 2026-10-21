@@ -3,7 +3,8 @@ import { environmentCamera, rawCamera, rawCameraImage } from './scanner-camera.j
 // Thesis and Jarvis tools for Sunnyvale Study: a file library, PDF reader with highlights, quote collector,
 // citation builder, video player with timestamp pins, frame grabs, side-by-side comparison, a live thesis
 // document, deadlines, a status strip (word count + next deadline), session summaries, morning briefings,
-// Claude's orb (it points at things), storyboards, presentations, counter-arguments, page scanning and a wake word.
+// Claude's avatar (the Claude spark: it points at things and shows when it listens, works and speaks), exam rehearsal,
+// comments beside thesis paragraphs, a shot log, a propaganda checklist, arranging the room, storyboards, presentations, counter-arguments, page scanning and a wake word.
 //
 // Everything you make is stored in this browser only (localStorage + IndexedDB), never on GitHub.
 const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs';
@@ -715,7 +716,7 @@ export function installThesisTools(ctx) {
     doc = { obj, view, sel: thesis.paras.length - 1, scroll: 0, layout: [] };
     obj.userData.id = 'thesis';
     obj.userData.save = () => ({ type: 'thesis' });
-    obj.userData.onClose = () => { doc = null; closeKeyboard(); };
+    obj.userData.onClose = () => { doc = null; commentCards = []; closeKeyboard(); };
     const y = -H / 2 - 0.035, b = (t, x, w, fn) => addButton(group, t, x, y, w, fn, { owner: obj });
     b('▲', -0.41, 0.05, () => { doc.scroll = Math.max(0, doc.scroll - 6); paintThesis(); });
     b('▼', -0.35, 0.05, () => { doc.scroll += 6; paintThesis(); });
@@ -731,7 +732,7 @@ export function installThesisTools(ctx) {
       if (line) { doc.sel = line.para; paintThesis(); }
       return true;
     }, move: () => {}, up: () => {} });
-    paintThesis();
+    paintThesis(); paintComments();
     return show(obj, 0.85, -0.02);
   }
   function paintThesis() {
@@ -757,8 +758,11 @@ export function installThesisTools(ctx) {
     const lineH = 44, top = Math.max(165, infoY + 50), per = Math.floor((H - top - 30) / lineH);
     doc.scroll = Math.max(0, Math.min(doc.scroll, Math.max(0, lines.length - per)));
     doc.layout = [];
+    const commented = new Set(comments().map(commentPara));
+    let marked = -1;
     lines.slice(doc.scroll, doc.scroll + per).forEach((l, k) => {
       const y = top + k * lineH;
+      if (commented.has(l.para) && marked !== l.para && !l.gap) { marked = l.para; g.fillStyle = '#d97757'; g.beginPath(); g.arc(30, y - 12, 9, 0, Math.PI * 2); g.fill(); }
       if (l.para === doc.sel && !l.gap) { g.fillStyle = stark ? 'rgba(255,180,70,0.18)' : 'rgba(255,214,0,0.25)'; g.fillRect(40, y - 34, W - 80, lineH); }
       g.fillStyle = l.hint ? accent() : ink(); g.font = l.heading ? '700 40px Georgia, serif' : '32px Georgia, serif';
       g.fillText(l.text, 60, y);
@@ -948,18 +952,42 @@ export function installThesisTools(ctx) {
     return w;
   }
 
-  // ================================================================ CLAUDE'S ORB: a visible presence that points at things
+  // ================================================================ CLAUDE'S AVATAR: the Claude spark, a visible presence that points at things
+  // Twelve coral rays round a bright centre, always turned towards you. The rays show what Claude is doing:
+  // waiting (a slow turn, gently breathing), listening (rays stretch out and pulse, with a ring round them),
+  // working (spins faster, with a light running round the rays), speaking (rays pulse with the voice) and
+  // pointing (the ray nearest the target stretches towards it, with a beam).
+  const CORAL = new THREE.Color(0xd97757), BRIGHT = new THREE.Color(0xffd9c2);
   const orb = new THREE.Group();
   const glowTex = canvasTexture(64, 64, g => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.3, 'rgba(255,160,110,0.8)'); r.addColorStop(1, 'rgba(255,90,40,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); });
-  const orbGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff8a5c, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-  orbGlow.scale.setScalar(0.12); orb.add(orbGlow);
-  const orbCore = new THREE.Mesh(new THREE.SphereGeometry(0.018, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe0d0 })); orb.add(orbCore);
-  const orbRing = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.002, 6, 40), new THREE.MeshBasicMaterial({ color: 0xff9a6a, transparent: true, blending: THREE.AdditiveBlending })); orb.add(orbRing);
+  const orbGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffb08a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  orbGlow.position.z = -0.01; orbGlow.scale.setScalar(0.13); orbGlow.material.opacity = 0.4; orb.add(orbGlow);
+  const spark = new THREE.Group(); orb.add(spark);
+  // Each ray is an even, round-ended stroke (like the strokes of the logo); its length changes with Claude's mood
+  const RAY_W = 0.0085;
+  function rayGeometry(length) {
+    const r = RAY_W / 2, shape = new THREE.Shape();
+    shape.moveTo(-r, r); shape.lineTo(-r, length - r); shape.absarc(0, length - r, r, Math.PI, 0, true);
+    shape.lineTo(r, r); shape.absarc(0, r, r, 0, Math.PI, true);
+    return new THREE.ShapeGeometry(shape, 8);
+  }
+  const RAY_LENGTHS = [1, 0.8, 0.94, 0.74, 1, 0.84, 0.9, 0.76, 0.97, 0.82, 0.88, 0.78];   // uneven, like the logo
+  const rays = RAY_LENGTHS.map((len, i) => {
+    const pivot = new THREE.Group(); pivot.rotation.z = i / RAY_LENGTHS.length * Math.PI * 2;
+    const mesh = new THREE.Mesh(rayGeometry(0.042 * len), new THREE.MeshBasicMaterial({ color: CORAL.clone(), side: THREE.DoubleSide, toneMapped: false }));
+    mesh.position.y = 0.004;
+    pivot.add(mesh); spark.add(pivot);
+    return { mesh, len, angle: Math.PI / 2 + pivot.rotation.z, now: 1 };
+  });
+  const sparkCore = new THREE.Mesh(new THREE.CircleGeometry(0.009, 24), new THREE.MeshBasicMaterial({ color: CORAL.clone(), toneMapped: false }));
+  sparkCore.position.z = 0.0005; spark.add(sparkCore);
+  const listenRing = new THREE.Mesh(new THREE.RingGeometry(0.06, 0.0625, 64), new THREE.MeshBasicMaterial({ color: 0xff9a6a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  listenRing.visible = false; orb.add(listenRing);
   scene.add(orb);
   const beamGeo = new THREE.BufferGeometry().setFromPoints([v3(), v3()]);
   const beam = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: 0xff9a6a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   beam.frustumCulled = false; beam.visible = false; scene.add(beam);
-  const orbState = { target: null, pointAt: null, anchor: null, pulse: null, home: true };
+  const orbState = { target: null, pointAt: null, anchor: null, pulse: null, home: true, mood: 'waiting' };
   orb.position.set(-0.5, 1.5, -0.4);
   function orbHome(out) {
     viewerPosition(out);
@@ -1007,9 +1035,39 @@ export function installThesisTools(ctx) {
     } else { orbState.anchor = null; orbState.home = true; orbState.target = orbHome(v3()); }
     orb.position.lerp(orbState.target || orb.position, Math.min(1, dt * 2.5));
     orb.position.y += Math.sin(t * 1.6) * 0.0006;
-    orbRing.rotation.x = t * 0.7; orbRing.rotation.y = t * 1.1;
-    orbGlow.material.opacity = 0.75 + Math.sin(t * 2.2) * 0.2;
+    viewerPosition(tmp); orb.lookAt(tmp);                       // the spark always faces you, like the logo
+    // What Claude is doing right now
+    const st = orbState.force || ctx.claudeState?.() || {};      // force: for testing a mood on the PC
+    const mood = st.speaking ? 'speaking' : st.listening ? 'listening' : st.working ? 'working' : 'waiting';
+    orbState.mood = mood;
+    const spin = { waiting: 0.25, listening: 0.35, speaking: 0.5, working: 2.4 }[mood];
+    spark.rotation.z -= dt * spin;
     const pointing = !!orbState.anchor;
+    let nearest = -1;
+    if (pointing) {                                              // which ray is closest to the thing Claude points at
+      spark.updateWorldMatrix(true, false);
+      const local = spark.worldToLocal(orbState.pointAt.clone()), aim = Math.atan2(local.y, local.x);
+      let best = Infinity;
+      rays.forEach((r, i) => { const d = Math.abs(Math.atan2(Math.sin(r.angle - aim), Math.cos(r.angle - aim))); if (d < best) { best = d; nearest = i; } });
+    }
+    const voice = 0.6 + 0.4 * Math.sin(t * 3.1);
+    rays.forEach((r, i) => {
+      let k = 1;
+      if (mood === 'waiting') k = 1 + 0.06 * Math.sin(t * 1.5);
+      else if (mood === 'listening') k = 1.15 + 0.13 * Math.sin(t * 6 - i * 0.52);
+      else if (mood === 'speaking') k = 1 + 0.3 * Math.abs(Math.sin(t * 9 + i * 1.7)) * voice;
+      else if (mood === 'working') k = 1 + 0.08 * Math.sin(t * 4 + i);
+      if (i === nearest) k = Math.max(k, 1.8);
+      r.now += (k - r.now) * Math.min(1, dt * 10);
+      r.mesh.scale.y = r.now;
+      // Working: a light runs round the rays
+      const glow = mood === 'working' ? Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 7)) ** 4 : i === nearest ? 0.6 : 0;
+      r.mesh.material.color.copy(CORAL).lerp(BRIGHT, glow);
+    });
+    listenRing.visible = mood === 'listening';
+    if (listenRing.visible) { const s = 1 + 0.08 * Math.sin(t * 6); listenRing.scale.setScalar(s); listenRing.material.opacity = 0.5 + 0.4 * Math.sin(t * 6); }
+    orbGlow.material.opacity = (mood === 'waiting' ? 0.25 : 0.45) + Math.sin(t * 2.2) * 0.08;
+    orbGlow.scale.setScalar(mood === 'speaking' ? 0.13 + 0.02 * voice : 0.13);
     beam.visible = pointing;
     if (pointing) { const a = beamGeo.attributes.position; a.setXYZ(0, orb.position.x, orb.position.y, orb.position.z); a.setXYZ(1, orbState.pointAt.x, orbState.pointAt.y, orbState.pointAt.z); a.needsUpdate = true; beam.material.opacity = 0.5 + Math.sin(t * 10) * 0.3; }
     const pu = orbState.pulse;
@@ -1114,6 +1172,239 @@ export function installThesisTools(ctx) {
   const lastSession = store.sessions().slice(-1)[0];
   if (lastSession && el('sessionSummary')) el('sessionSummary').textContent = 'Last session: ' + summaryText(lastSession).replace(/\n+/g, ' ');
 
+  // ================================================================ EXAM REHEARSAL (Claude plays your examiner)
+  // Claude asks one question at a time out loud; the window shows the question, a countdown and what to improve.
+  let exam = readJSON('sunnyvale.exam', null);
+  const saveExam = () => writeJSON('sunnyvale.exam', exam);
+  function examText() {
+    if (!exam) return '';
+    const left = Math.max(0, Math.round(exam.seconds - (Date.now() - exam.askedAt) / 1000));
+    const lines = exam.finished
+      ? ['FINISHED', '', exam.summary || '', '']
+      : [`QUESTION ${exam.asked.length} · ${fmtTime(left)} LEFT${left === 0 ? '  (time is up)' : ''}`, '', exam.asked.at(-1)?.q || 'Claude is about to ask the first question.', ''];
+    const tips = exam.asked.flatMap((a, i) => a.improve.map(t => `Q${i + 1}: ${t}`));
+    if (tips.length) lines.push('TO IMPROVE', ...tips);
+    return lines.join('\n');
+  }
+  function paintExam() {
+    if (!exam) return null;
+    let w = findWindow('exam');
+    const title = exam.finished ? `Exam rehearsal: ${exam.topic}` : `Exam rehearsal: ${exam.topic}`;
+    if (!w) { w = openWindow(title, examText()); w.userData.id = 'exam'; }
+    else setWindowContent(w, title, examText(), { keepScroll: true });
+    return w;
+  }
+  function startExam({ topic, minutes_per_question }) {
+    exam = { topic: clampText(topic || 'My thesis', 120), seconds: Math.round(Math.max(0.5, Math.min(10, +minutes_per_question || 2)) * 60), asked: [], askedAt: Date.now(), started: Date.now() };
+    saveExam(); const w = paintExam(); reveal(w); return w;
+  }
+  function askQuestion({ question, minutes }) {
+    if (!exam || exam.finished) startExam({ topic: 'My thesis' });
+    exam.asked.push({ q: clampText(question, 600), improve: [] });
+    exam.askedAt = Date.now(); if (minutes) exam.seconds = Math.round(Math.max(0.5, Math.min(10, +minutes)) * 60);
+    saveExam(); return paintExam();
+  }
+  function examFeedback({ improve, question }) {
+    if (!exam?.asked.length) throw Error('Ask a question first with exam_question.');
+    const k = question ? Math.max(1, Math.min(exam.asked.length, +question)) - 1 : exam.asked.length - 1;
+    exam.asked[k].improve.push(clampText(improve, 400)); saveExam(); return paintExam();
+  }
+  function endExam({ summary }) {
+    if (!exam) throw Error('No exam is running.');
+    exam.finished = true; exam.summary = clampText(summary || `${exam.asked.length} questions in ${Math.round((Date.now() - exam.started) / 60000)} minutes.`, 1500);
+    saveExam(); return paintExam();
+  }
+  let examTick = 0;
+  function updateExam(dt) {
+    if (!exam || exam.finished || !findWindow('exam')) return;
+    if ((examTick += dt) < 1) return; examTick = 0;
+    paintExam();
+  }
+
+  // ================================================================ COMMENTS BESIDE PARAGRAPHS (Claude's notes on your thesis)
+  // Small cards next to the thesis window. Tap ACCEPT to use Claude's suggested wording (undo works), or DISMISS.
+  const comments = () => readJSON('sunnyvale.thesis-comments', []);
+  const setComments = v => { writeJSON('sunnyvale.thesis-comments', v); paintComments(); if (doc) paintThesis(); };
+  // A paragraph may have moved since the comment was made: find it by its opening words, else by its number
+  function commentPara(c) {
+    const i = thesis.paras.findIndex(p => c.anchor && p.text.startsWith(c.anchor));
+    return i >= 0 ? i : (thesis.paras[c.para] ? c.para : -1);
+  }
+  function commentParagraph({ index, comment, suggestion }) {
+    const p = thesis.paras[+index];
+    if (!p) throw Error('No paragraph ' + index + '. Use read_thesis to see the paragraph numbers (from 0).');
+    const all = comments();
+    all.push({ id: uid('c'), para: +index, anchor: p.text.slice(0, 40), comment: clampText(comment, 500), suggestion: suggestion ? clampText(suggestion, 20000) : '', added: Date.now() });
+    if (!doc) openThesis();
+    setComments(all);
+    return all.at(-1);
+  }
+  let commentCards = [];
+  function paintComments() {
+    for (const c of commentCards) {
+      c.parent?.remove(c);
+      for (let i = touchables.length - 1; i >= 0; i--) if (touchables[i].mesh.parent === c || touchables[i].mesh === c) touchables.splice(i, 1);
+      c.traverse(o => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose(); });
+    }
+    commentCards = [];
+    if (!doc) return;
+    const all = comments().map(c => ({ ...c, at: commentPara(c) })).filter(c => c.at >= 0).sort((a, b) => a.at - b.at);
+    const W = 0.36, H = 0.15;
+    all.slice(0, 5).forEach((c, k) => {
+      const card = new THREE.Group();
+      const view = canvasPanel(W, H, 720, 300); card.add(view.mesh);
+      const { g, canvas, tex } = view;
+      frameBox(g, canvas.width, canvas.height, getMode() === 'stark');
+      g.fillStyle = accent(); g.font = '700 30px "Segoe UI", system-ui, sans-serif'; g.fillText(`¶ ${c.at}${c.suggestion ? '  · new wording ready' : ''}`, 24, 44);
+      g.fillStyle = ink(); g.font = '30px "Segoe UI", system-ui, sans-serif';
+      wrap(g, c.comment, canvas.width - 48).slice(0, 6).forEach((l, i) => g.fillText(l, 24, 88 + i * 36));
+      tex.needsUpdate = true;
+      addButton(card, c.suggestion ? '✓ ACCEPT' : '✓ DONE', -0.08, -H / 2 - 0.028, 0.15, () => {
+        const i = commentPara(c);
+        if (c.suggestion && i >= 0) { snapshotThesis(); thesis.paras[i].text = c.suggestion; saveThesis(); }
+        setComments(comments().filter(x => x.id !== c.id));
+      }, { owner: doc.obj, h: 0.04 });
+      addButton(card, '✕ DISMISS', 0.09, -H / 2 - 0.028, 0.15, () => setComments(comments().filter(x => x.id !== c.id)), { owner: doc.obj, h: 0.04 });
+      card.position.set(0.56 + W / 2, 0.3 - k * (H + 0.07), 0.01);
+      doc.obj.children[0].add(card);        // beside the page, moving with the thesis window
+      commentCards.push(card);
+    });
+    if (all.length > 5) {
+      const more = holoLabel(`+${all.length - 5} more comments`, { w: 0.3, h: 0.04 });
+      more.position.set(0.56 + W / 2, 0.3 - 5 * (H + 0.07) + 0.04, 0.01);
+      doc.obj.children[0].add(more); commentCards.push(more);
+    }
+  }
+
+  // ================================================================ SHOT LOG (Claude fills in a shot table while you watch)
+  const shotLogs = () => readJSON('sunnyvale.shot-logs', {});
+  const shotKey = name => String(name || 'Untitled').trim();
+  function shotLogText(film) {
+    const shots = (shotLogs()[film] || []).slice().sort((a, b) => (a.time ?? 0) - (b.time ?? 0));
+    if (!shots.length) return 'No shots logged yet. Ask Claude to log shots while the clip plays.';
+    return shots.map((s, i) => `${String(i + 1).padStart(2, '0')}  ${s.time !== undefined ? fmtTime(s.time) : '--:--'}  ${[s.shot_type, s.angle, s.movement].filter(Boolean).join(' · ')}${s.notes ? '\n      ' + s.notes : ''}`).join('\n');
+  }
+  function openShotLog(film) {
+    const id = 'shots-' + film.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+    let w = findWindow(id);
+    if (!w) { w = openWindow(`Shot log: ${film}`, shotLogText(film)); w.userData.id = id; }
+    else setWindowContent(w, `Shot log: ${film}`, shotLogText(film), { keepScroll: true });
+    return w;
+  }
+  function filmOf(video) {
+    if (video) { const p = [...players.values()].find(x => x.obj.userData.id === video); return p ? p.title : String(video); }
+    const playing = [...players.values()].find(x => !x.video.paused) || [...players.values()][0];
+    return playing?.title || 'Untitled';
+  }
+  function logShot({ video, time, shot_type, angle, movement, notes, frame_id }) {
+    const film = shotKey(filmOf(video));
+    const player = [...players.values()].find(x => x.title === film);
+    const logs = shotLogs();
+    (logs[film] ||= []).push({ time: Number.isFinite(+time) ? +time : player?.video.currentTime, shot_type: clampText(shot_type, 40), angle: clampText(angle, 40),
+      movement: clampText(movement, 40), notes: clampText(notes, 400), frame_id: frame_id || undefined });
+    writeJSON('sunnyvale.shot-logs', logs);
+    return openShotLog(film);
+  }
+  // Let Claude look at a frame grab (a small JPEG, sized for the headset connection)
+  async function viewFrame({ id, frame_id }) {
+    const f = id ? [...frames.values()].find(x => x.obj.userData.id === id) : null;
+    const rec = f?.rec || (frame_id ? await DB.get('frames', frame_id) : null);
+    if (!rec) throw Error('No frame like that. Use grab_frame first; it returns a frame_id.');
+    const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = rec.image; });
+    const c = document.createElement('canvas'); c.width = 640; c.height = Math.round(640 * img.height / img.width);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    let q = 0.8, data = c.toDataURL('image/jpeg', q).split(',')[1];
+    while (data.length > 42000 && q > 0.3) { q -= 0.1; data = c.toDataURL('image/jpeg', q).split(',')[1]; }
+    return { image: data, text: JSON.stringify({ frame_id: rec.id, caption: rec.caption, film: rec.source, time: rec.time }) };
+  }
+
+  // ================================================================ PROPAGANDA CHECKLIST (the same questions for every scene)
+  const CHECKLIST = [
+    ['enemy', 'How is the enemy shown?'],
+    ['music', 'What does the music do?'],
+    ['military', 'Military cooperation in the credits?'],
+    ['framing', 'Which heroic framing is used?'],
+    ['message', 'What does the scene want you to feel or believe?'],
+  ];
+  const checklists = () => readJSON('sunnyvale.checklists', []);
+  function checklistText(film) {
+    const rows = checklists().filter(c => !film || c.film.toLowerCase() === film.toLowerCase());
+    if (!rows.length) return 'No scenes checked yet. Ask Claude to fill in the checklist for a scene.\n\n' + CHECKLIST.map(([, q]) => '• ' + q).join('\n');
+    return rows.map(c => `${c.film.toUpperCase()}: ${c.scene}${c.time !== undefined ? ' (' + fmtTime(c.time) + ')' : ''}\n` +
+      CHECKLIST.map(([k, q]) => `  ${q} ${c.answers[k] || '—'}`).join('\n')).join('\n\n');
+  }
+  function openChecklist(film) {
+    let w = findWindow('checklist');
+    const title = film ? `Propaganda checklist: ${film}` : 'Propaganda checklist';
+    if (!w) { w = openWindow(title, checklistText(film)); w.userData.id = 'checklist'; }
+    else setWindowContent(w, title, checklistText(film), { keepScroll: true });
+    return w;
+  }
+  function fillChecklist({ film, scene, time, answers }) {
+    const all = checklists();
+    const a = {}; for (const [k] of CHECKLIST) if (answers?.[k]) a[k] = clampText(answers[k], 600);
+    const row = { film: clampText(film || filmOf(), 120), scene: clampText(scene, 200), time: Number.isFinite(+time) ? +time : undefined, answers: a, added: Date.now() };
+    const same = all.findIndex(c => c.film === row.film && c.scene === row.scene);
+    if (same >= 0) all[same] = { ...all[same], ...row, answers: { ...all[same].answers, ...a } }; else all.push(row);
+    writeJSON('sunnyvale.checklists', all);
+    return openChecklist(row.film);
+  }
+
+  // ================================================================ ARRANGE MY ROOM ("sources on the left, thesis in front")
+  // [degrees to your left, distance in metres, height above eye level - 0.1]
+  const PLACES = { front: [0, 1, 0], left: [72, 1.1, 0], right: [-72, 1.1, 0], 'far-left': [115, 1.15, 0], 'far-right': [-115, 1.15, 0],
+    behind: [180, 1.3, 0], above: [0, 1.1, 0.45], below: [0, 0.7, -0.5], desk: [0, 0.6, -0.48] };
+  function arrangeWindows({ layout }) {
+    if (!Array.isArray(layout) || !layout.length) throw Error('Give a layout: a list of { id, place }.');
+    const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+    const eye = viewerPosition(v3()), fwd = cam.getWorldDirection(v3()); fwd.y = 0; fwd.normalize();
+    const groups = {}, missing = [];
+    for (const { id, place } of layout) {
+      const p = findWindow(id); const where = PLACES[String(place).toLowerCase()];
+      if (!p) { missing.push(id); continue; }
+      if (!where) throw Error(`Unknown place "${place}". Use ${Object.keys(PLACES).join(', ')}.`);
+      (groups[String(place).toLowerCase()] ||= []).push(p);
+    }
+    for (const [place, list] of Object.entries(groups)) {
+      const [deg, dist, up] = PLACES[place];
+      const dir = fwd.clone().applyAxisAngle(v3().set(0, 1, 0), deg * Math.PI / 180);
+      const centre = eye.clone().addScaledVector(dir, dist); centre.y = eye.y - 0.1 + up;
+      const side = v3().crossVectors(v3().set(0, 1, 0), dir).normalize().negate();      // to your right, seen from here
+      const widths = list.map(p => (p.userData.size?.w || 0.8) * (p.userData.baseScale || 1));
+      const total = widths.reduce((a, b) => a + b, 0) + 0.06 * (list.length - 1);
+      let x = -total / 2;
+      list.forEach((p, i) => {
+        ctx.revealWindow?.(p);
+        p.position.copy(centre).addScaledVector(side, x + widths[i] / 2); x += widths[i] + 0.06;
+        p.userData.fly = p.userData.away = null;
+        faceViewer(p);
+        if (place === 'desk' || place === 'below') p.rotateX(-0.6);       // tilted up towards you, like a desk
+        if (place === 'above') p.rotateX(0.35);
+      });
+    }
+    markDirty();
+    return { moved: layout.length - missing.length, missing };
+  }
+
+  // How to use the newer tools (list_study_tools shows this to Claude)
+  const help = {
+    start_exam: { description: 'Start an exam rehearsal: you play the examiner. Ask questions out loud one at a time with exam_question, listen to the answer, then add what to improve with exam_feedback. Finish with end_exam.', input: { topic: 'string', minutes_per_question: 'number, optional (default 2)' } },
+    exam_question: { description: 'Show the next exam question (also ask it out loud) and restart the countdown.', input: { question: 'string', minutes: 'number, optional' } },
+    exam_feedback: { description: 'Add one concrete thing to improve about the answer (to the current question, or question = its number from 1).', input: { improve: 'string', question: 'number, optional' } },
+    end_exam: { description: 'Finish the rehearsal and show the summary plus the full list of things to improve.', input: { summary: 'string, optional' } },
+    comment_paragraph: { description: 'Pin a comment card beside one thesis paragraph (number from 0, see read_thesis). Optionally include suggestion = full replacement wording; the user taps ACCEPT to use it or DISMISS.', input: { index: 'number', comment: 'string', suggestion: 'string, optional' } },
+    list_comments: { description: 'List the open comment cards on the thesis.', input: {} },
+    clear_comments: { description: 'Remove all comment cards from the thesis.', input: {} },
+    log_shot: { description: 'Add a shot to the shot log of a video (the playing one if video is left out). time in seconds (default: where the video is now). Use view_frame to look at frame grabs first.', input: { video: 'window id, optional', time: 'number, optional', shot_type: 'e.g. Wide, Medium, Close-up, Extreme close-up, Insert', angle: 'e.g. Eye level, Low, High, Dutch, Bird\'s-eye', movement: 'e.g. Static, Pan, Tilt, Dolly, Handheld, Crane', notes: 'string, optional', frame_id: 'string, optional' } },
+    open_shot_log: { description: 'Open the shot log window of a video or film.', input: { video: 'window id or film title, optional' } },
+    list_shots: { description: 'List the logged shots of a film.', input: { video: 'window id or film title, optional' } },
+    view_frame: { description: 'Look at a frame grab (returns the picture). Use the frame window id, or the frame_id from grab_frame.', input: { id: 'frame window id, optional', frame_id: 'string, optional' } },
+    fill_checklist: { description: 'Fill in the propaganda checklist for one scene: enemy (how is the enemy shown?), music (what does the music do?), military (military cooperation in the credits?), framing (which heroic framing is used?), message (what does the scene want the viewer to feel or believe?). Calling again for the same film and scene updates it.', input: { film: 'string', scene: 'string', time: 'seconds, optional', answers: '{ enemy, music, military, framing, message } (strings, any can be left out)' } },
+    open_checklist: { description: 'Open the propaganda checklist window (for one film, or all).', input: { film: 'string, optional' } },
+    list_checklists: { description: 'List every checked scene with its answers.', input: {} },
+    arrange_windows: { description: `Move windows around the user. layout = list of { id, place } with place one of: ${Object.keys(PLACES).join(', ')}. Windows sharing a place stand side by side. Ids come from list_windows.`, input: { layout: '[{ id, place }]' } },
+  };
+
   // ================================================================ TOOLS (used by Claude through the connector)
   const ok = x => JSON.stringify({ ok: true, ...x });
   const tools = {
@@ -1164,13 +1455,30 @@ export function installThesisTools(ctx) {
     go_to_slide: ({ id, slide }) => { const p = findWindow(id); if (!p?.userData.go) throw Error('No presentation with that id.'); p.userData.go(slide); return ok({}); },
     add_counterargument: ({ claim, objection, response }) => ok({ id: addCounterargument(claim, objection, response).userData.id }),
     stash_window: ({ id }) => { const p = findWindow(id); if (!p) throw Error('No window with that id.'); stashWindow(p); return ok({}); },
+    start_exam: input => ok({ id: startExam(input).userData.id }),
+    exam_question: input => ok({ id: askQuestion(input).userData.id, question: exam.asked.length, seconds: exam.seconds }),
+    exam_feedback: input => ok({ id: examFeedback(input).userData.id }),
+    end_exam: input => ok({ id: endExam(input).userData.id, questions: exam.asked }),
+    comment_paragraph: input => ok({ comment: commentParagraph(input).id, id: 'thesis' }),
+    list_comments: () => JSON.stringify(comments().map(c => ({ ...c, paragraph: commentPara(c) }))),
+    clear_comments: () => { setComments([]); return ok({}); },
+    log_shot: input => ok({ id: logShot(input).userData.id }),
+    open_shot_log: ({ video }) => ok({ id: openShotLog(shotKey(filmOf(video))).userData.id }),
+    list_shots: ({ video }) => JSON.stringify(shotLogs()[shotKey(filmOf(video))] || []),
+    view_frame: input => viewFrame(input),
+    fill_checklist: input => ok({ id: fillChecklist(input).userData.id }),
+    open_checklist: ({ film }) => ok({ id: openChecklist(film).userData.id }),
+    list_checklists: () => JSON.stringify(checklists()),
+    arrange_windows: input => ok(arrangeWindows(input)),
   };
 
   return {
     tools,
+    help,
+    avatar: { orb, state: orbState },          // for testing on the PC
     addFiles,
     update(dt) {
-      updateOrb(dt); refreshStrip(); for (const p of players.values()) if (!p.video.paused) p.drawBar?.();
+      updateOrb(dt); updateExam(dt); refreshStrip(); for (const p of players.values()) if (!p.video.paused) p.drawBar?.();
       const camera=renderer.xr.isPresenting ? rawCamera(renderer) : null;rawScanReady=!!camera;
       if(rawCapture){rawCapture=null;try{if(!camera)throw Error('Camera unavailable');saveScan(rawCameraImage(renderer,camera)).catch(()=>scanUnavailable());}catch{scanUnavailable();}}
     },

@@ -1,6 +1,6 @@
 # Latest page update: Break logos (2026-10-21)
 
-The user confirmed Chrome extension 0.4.3 should be loaded (exact clicks, including zoomed sites; see HANDOVER); no repeat reload instruction. Current private Quest-link use and Claude connector replacement remain unconfirmed.
+Latest: Claude spark avatar, 5-category palm menu and 5 new Claude tools (exam rehearsal, paragraph comments, shot log, propaganda checklist, arrange_windows) are live; see HANDOVER newest. They work through use_study_tool until the bridge next restarts. The user confirmed Chrome extension 0.4.3 should be loaded (exact clicks, including zoomed sites; see HANDOVER); no repeat reload instruction. Current private Quest-link use and Claude connector replacement remain unconfirmed.
 
 The requested six official service logos replace text in the existing Break menu. PC visual/mouse/destination/Focus checks passed; see newest HANDOVER. Refresh Quest once the Pages build is built. No new bridge restart, addresses or extension reload for this update. Remaining headset/account checks and unapproved feature proposals below still apply.
 
