@@ -1,3 +1,20 @@
+# Next steps (22 Oct, after Claude's overnight reconciliation)
+
+1. **Voice first.** When Bastian approves publishing, deploy `gpt-fixes` (Codex's reviewed voice fix) as one planned transition.
+   - Mind the live watcher on F: (see HANDOVER): it restarts the bridge about 3 s after bridge files change.
+   - Then refresh the Quest and have him test a real Claude voice conversation. Nothing else goes live before that check.
+2. **Push the branch.** If `claude-features` isn't on GitHub yet, run `bridge/private/Save Claude branch to GitHub.bat` on the PC. It fetches the bundle and pushes only that branch.
+3. **After the voice check passes,** merge `claude-features`. It contains the avatar, HUD, stash delete, clean passthrough, fist polish, gesture log/coach, Propaganda Analyzer and soft spark. The bubble look is in the branch but stays off until he picks WORLD › LOOK.
+   - Run the PC-only tests first: test.mjs, test-http, test-extension, test-browser-input-ui, test-startup.
+4. **Real-headset checks still needed:**
+   - voice;
+   - avatar readability at 2 m;
+   - fist feel;
+   - the gesture coach with real hands;
+   - analyzer readability and tapping;
+   - bubble buttons growing near the hand.
+5. **Leave alone:** the same-Wi-Fi route (VOICE_FIX_REPORT.md) and AESTHETIC_IDEAS.md are proposals only.
+
 # Voice first: current continuation
 
 Read VOICE_FIX_REPORT.md and the newest HANDOVER checkpoint. Voice code is PC-tested (28/28), independently reviewed (9/10), and awaiting publication authorization under the earlier gpt-fixes-only rule. Do not deploy the recovered appearance source with this voice phase. No live bridge restart has occurred. After an authorized deployment, use one planned backend transition and one Quest refresh, then have the user confirm voice before resuming the other overnight work.

@@ -62,7 +62,8 @@ export function createConnector({ secret, getConnection, log }) {
         "Call list_windows to see what is open (and the ids) before changing things. When you talk about a window or a part of one, call point_at so your orb points at it. When walking the user through a timeline, point_at each event in turn (part = its number, starting at 0) and explain it.",
         "When the user argues a thesis point, raise the strongest objection and save it with add_counterargument. When the user says they're done for the day, call write_session_summary with what was done and what's next.",
         "If the user says 'this' or 'that' without saying what, call what_user_is_looking_at. Save quotable lines with highlight_passage (exact words from read_document) so they get a source and page.",
-        "For exam practice, use start_exam, then exam_question and exam_feedback one question at a time. For feedback on the thesis, pin comment_paragraph cards (with suggested wording when useful) instead of rewriting it. While watching a clip, view_frame on grabs and log_shot each shot; for propaganda analysis, fill_checklist per scene. When the user asks to tidy or set up the room, use arrange_windows.",
+        "For exam practice, use start_exam, then exam_question and exam_feedback one question at a time. For feedback on the thesis, pin comment_paragraph cards (with suggested wording when useful) instead of rewriting it. While watching a clip, view_frame on grabs and log_shot each shot; for propaganda analysis, fill_checklist per scene with scores, evidence (timestamps, frame grabs, quotes) and a counter-reading for each question, then show the board with open_checklist (film, scene or compare view). When the user asks to tidy or set up the room, use arrange_windows.",
+        "You can see the user's hand gestures with recent_gestures (including why an attempt didn't count). When the user asks how a gesture works or one isn't working, check recent_gestures and explain; to teach them, start gesture_tutorial and coach along. Pass seconds to show_message when a HUD message should stay longer.",
         "In browser windows, take a screenshot first and use its pixel coordinates for clicks. Ask the user before sending messages, posting, buying or submitting anything in a browser window."
       ].join(' ')
     });
@@ -107,9 +108,21 @@ export function createConnector({ secret, getConnection, log }) {
       title: 'Clear the desk', description: "Put every open window and study object away into the user's stash (they can bring them back from the menu).",
       inputSchema: {}
     }, () => world('clear_desk'));
+    server.registerTool('recent_gestures', {
+      title: 'Recent hand gestures', description: "What the user's hands just did in VR: the last gesture events (palm menu, pinch-grab, two-hand resize, fist group-move, beckon, flick-minimise), each started / done / ignored, with the reason an attempt was ignored (e.g. 'a bit too slow'). Also how each gesture works and the gesture tutorial's progress. Use it to explain or troubleshoot gestures.",
+      inputSchema: { count: z.number().int().min(1).max(60).optional() }, annotations: { readOnlyHint: true }
+    }, input => world('recent_gestures', input));
+    server.registerTool('gesture_tutorial', {
+      title: 'Gesture tutorial', description: "Start a guided gesture walkthrough in VR: a card shows a moving drawing of each gesture, waits until the user does it, shows why an attempt didn't count, and moves on. gesture: one of palm-menu, pinch-grab, two-hand-resize, fist-group-move, beckon, flick-minimise, or 'all' (default). stop: true ends it. Follow along with recent_gestures and coach the user by voice.",
+      inputSchema: { gesture: z.string().max(40).optional(), stop: z.boolean().optional() }
+    }, input => world('gesture_tutorial', input));
+    server.registerTool('delete_stashed', {
+      title: 'Delete from the stash', description: "Permanently delete items the user put away in the stash, by id or title (list_windows shows the stashed items), or all of them with all: true. Only when the user asks: this can't be undone. A stashed browser window's real Chrome tab is released too.",
+      inputSchema: { id: z.string().max(120).optional(), all: z.boolean().optional() }
+    }, input => world('delete_stashed', input));
     server.registerTool('show_message', {
-      title: 'Show a HUD message', description: 'Flash a short message on the Jarvis HUD in front of the user (up to 3 short lines).',
-      inputSchema: { lines: z.array(z.string().max(40)).min(1).max(3) }
+      title: 'Show a HUD message', description: 'Show a short message on the Jarvis HUD in front of the user (up to 3 short lines). It stays long enough to read (about 2.5 s + 0.3 s per word, 4-20 s); pass seconds to choose how long yourself, e.g. longer for something the user should keep in view while doing it.',
+      inputSchema: { lines: z.array(z.string().max(40)).min(1).max(3), seconds: z.number().min(1).max(60).optional() }
     }, input => world('show_message', input));
 
     // ---------- Thesis and Jarvis tools (they run inside the Sunnyvale page) ----------
@@ -168,8 +181,13 @@ export function createConnector({ secret, getConnection, log }) {
       ['open_shot_log', 'Open the shot log window of a video (window id) or film title.', { video: opt(str(200)) }],
       ['list_shots', 'List the logged shots of a video (window id) or film title.', { video: opt(str(200)) }, true],
       ['view_frame', 'Look at a frame grab (returns the picture). Use the frame window id, or the frame_id from grab_frame.', { id: opt(z.string()), frame_id: opt(str(40)) }, true],
-      ['fill_checklist', 'Fill in the propaganda checklist for one scene. answers: enemy (how is the enemy shown?), music (what does the music do?), military (military cooperation in the credits?), framing (which heroic framing is used?), message (what does the scene want the viewer to feel or believe?). The same film and scene again updates it.', { film: str(120), scene: str(200), time: opt(num), answers: z.object({ enemy: opt(str(600)), music: opt(str(600)), military: opt(str(600)), framing: opt(str(600)), message: opt(str(600)) }) }],
-      ['open_checklist', 'Open the propaganda checklist window (for one film, or all).', { film: opt(str(120)) }],
+      ['fill_checklist', 'Analyse one scene for propaganda (opens the analysis board on it). For each question: enemy (how is the enemy shown?), music (what does the music do?), military (military cooperation: credits, hardware, advisers?), framing (which heroic framing?), message (what should the viewer feel or believe?), give answers (text), scores (0-5: how strongly the scene does it), evidence (per question a list of { time in seconds, frame_id from grab_frame, quote, note }) and counter (the strongest counter-reading). The same film and scene again updates it.', { film: str(120), scene: str(200), time: opt(num),
+        answers: opt(z.object({ enemy: opt(str(600)), music: opt(str(600)), military: opt(str(600)), framing: opt(str(600)), message: opt(str(600)) })),
+        scores: opt(z.object({ enemy: opt(z.number().min(0).max(5)), music: opt(z.number().min(0).max(5)), military: opt(z.number().min(0).max(5)), framing: opt(z.number().min(0).max(5)), message: opt(z.number().min(0).max(5)) })),
+        evidence: opt(z.object(Object.fromEntries(['enemy', 'music', 'military', 'framing', 'message'].map(k => [k, opt(z.array(z.object({ time: opt(num), frame_id: opt(str(80)), quote: opt(str(400)), note: opt(str(160)) })).max(4))])))),
+        counter: opt(z.object({ enemy: opt(str(400)), music: opt(str(400)), military: opt(str(400)), framing: opt(str(400)), message: opt(str(400)) })) }],
+      ['open_checklist', 'Open the propaganda analysis board. view: film (radar of the averages + heat strip across the running time), scene (one scene in detail; the user can tap dots to change scores) or compare (two or three films on one radar, e.g. Top Gun vs Top Gun: Maverick).', { film: opt(str(120)), view: opt(z.enum(['film', 'scene', 'compare'])), films: opt(z.array(str(120)).max(3)), scene: opt(z.union([num, str(200)])) }],
+      ['export_checklist', 'Write the propaganda analysis into the thesis (one paragraph per scene, or a film summary plus every scene), with an in-text citation if the film is in the sources, and save quoted evidence to the quote list. Scenes already exported are skipped unless again is true. Ask the user first.', { film: str(120), scene: opt(z.union([num, str(200)])), again: opt(z.boolean()) }],
       ['list_checklists', 'List every checked scene with its answers.', {}, true],
       ['arrange_windows', 'Move windows around the user. place: front, left, right, far-left, far-right, behind, above, below or desk. Windows sharing a place stand side by side. Ids come from list_windows.', { layout: z.array(z.object({ id: z.string(), place: z.enum(['front', 'left', 'right', 'far-left', 'far-right', 'behind', 'above', 'below', 'desk']) })).max(20) }],
     ];

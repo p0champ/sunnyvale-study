@@ -54,7 +54,7 @@
 import * as THREE from 'three';
 import { installBrowserBridge } from './browser-bridge.js?v=voice-recovery-1';
 import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=gestures-1';
+import { installThesisTools } from './thesis-tools.js?v=claude-features-3';
 import { installBackup } from './backup.js?v=voice-recovery-1';
 let thesisTools;
 let browserBridge;
@@ -481,7 +481,7 @@ tarp.position.set(-0.6, 2.55, -0.5);
 tarp.rotation.x = -Math.PI / 2;
 tarp.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -0.13);   // high on the trailer side, low by the poles
 park.add(tarp);
-for (const z of [-3.1, 2.1]) cyl(0.03, 0.03, 2.3, 0x6a6a6a, 1.65, 1.15, z, scene, { metalness: 0.7 });
+for (const z of [-3.1, 2.1]) cyl(0.03, 0.03, 2.3, 0x6a6a6a, 1.65, 1.15, z, park, { metalness: 0.7 });
 
 // Milk-crate bookshelf: three real plastic crates on their sides (the cream books on top are the Bukowski crate)
 const bookColors = [[0xe6dccb, 0xd9cdb8, 0xe6dccb, 0xd9cdb8, 0xe6dccb], [0x6b1d1d, 0x2f4a2a, 0x6b4a2a, 0x1f2e22, 0x8a2a22], [0x4a3a20, 0x2a3b2a, 0x5a1a1a, 0x6b4a2a, 0x3a2a1a]];
@@ -580,8 +580,8 @@ for (let i = 0; i <= 22; i++) {
 }
 
 // ---------- Drive-in: bedsheet on a clothesline + projector on a lawn chair ----------
-cyl(0.03, 0.03, 2.8, 0x6a6a6a, -0.4, 1.4, -7, scene, { metalness: 0.7 });
-cyl(0.03, 0.03, 2.8, 0x6a6a6a, 3.2, 1.4, -7.4, scene, { metalness: 0.7 });
+cyl(0.03, 0.03, 2.8, 0x6a6a6a, -0.4, 1.4, -7, park, { metalness: 0.7 });
+cyl(0.03, 0.03, 2.8, 0x6a6a6a, 3.2, 1.4, -7.4, park, { metalness: 0.7 });
 const sheet = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.9, 10, 4), mat(0xddd6c6, { side: THREE.DoubleSide }));
 const sp = sheet.geometry.attributes.position;
 for (let i = 0; i < sp.count; i++) sp.setZ(i, Math.sin(sp.getX(i) * 3) * 0.04);
@@ -776,7 +776,44 @@ function readingTexture(title, body, W, H, scroll = 0) {
     drawScrolled(ctx, body, `${size}px ${READING_FONT}`, size, W, H, scroll);
   });
 }
-function bodyFont(p, size) { return p?.userData.reading ? `${size}px ${READING_FONT}` : `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`; }
+function bodyFont(p, size) { return p?.userData.reading || bubbleLook() ? `${size}px ${READING_FONT}` : `${size}px "Comic Sans MS", "Segoe Print", "Marker Felt", sans-serif`; }
+
+// ---------- Bubble look (22 Oct): windows like floating glass bubbles, buttons as small bubbles that grow when
+// your hand comes near. Off by default for now; WORLD > LOOK switches between the bubble and classic looks.
+// Prepared, not switched on: the default stays the classic look until Bastian has checked the voice fix in the headset
+var lookSetting = (() => { try { return localStorage.getItem('sunnyvale.look') || 'classic'; } catch { return 'classic'; } })();
+function bubbleLook() { return lookSetting === 'bubble'; }
+function bubbleTexture(title, body, W, H, scroll = 0) {
+  return sharpTexture(W, H, (ctx) => {
+    const r = 64, m = 10;
+    // frosted dark glass with a soft coral glow round the edge
+    for (let i = 4; i >= 1; i--) {                     // a soft outer glow (a few wide strokes, cheaper than a blur)
+      ctx.strokeStyle = `rgba(255,140,100,${0.07 * (5 - i) / 4})`; ctx.lineWidth = i * 5;
+      ctx.beginPath(); ctx.roundRect(m, m, W - 2 * m, H - 2 * m, r); ctx.stroke();
+    }
+    const fill = ctx.createLinearGradient(0, 0, 0, H);
+    fill.addColorStop(0, 'rgb(44,48,64)'); fill.addColorStop(1, 'rgb(18,20,30)');   // solid inside, so windows behind never show through
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(m, m, W - 2 * m, H - 2 * m, r); ctx.fill();
+    // a highlight across the top, like light on a curved surface
+    const shine = ctx.createLinearGradient(0, m, 0, H * 0.42);
+    shine.addColorStop(0, 'rgba(255,255,255,0.16)'); shine.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = shine; ctx.beginPath(); ctx.roundRect(m + 6, m + 6, W - 2 * m - 12, H * 0.42, [r - 6, r - 6, 24, 24]); ctx.fill();
+    // a thin bright rim, brighter at the top
+    const rim = ctx.createLinearGradient(0, 0, 0, H);
+    rim.addColorStop(0, 'rgba(255,255,255,0.75)'); rim.addColorStop(0.5, 'rgba(255,200,170,0.35)'); rim.addColorStop(1, 'rgba(255,150,110,0.55)');
+    ctx.strokeStyle = rim; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(m, m, W - 2 * m, H - 2 * m, r); ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    let shownTitle = title;
+    for (let ts = 60; ts > 28; ts -= 4) { ctx.font = `600 ${ts}px ${READING_FONT}`; if (ctx.measureText(title).width < W - 220) break; }
+    while (ctx.measureText(shownTitle).width > W - 220 && shownTitle.length > 4) shownTitle = shownTitle.slice(0, -2).trimEnd() + '…';
+    ctx.fillText(shownTitle, 60, 118);
+    const ul = ctx.createLinearGradient(60, 0, 260, 0); ul.addColorStop(0, '#ff9a72'); ul.addColorStop(1, 'rgba(255,154,114,0)');
+    ctx.fillStyle = ul; ctx.beginPath(); ctx.roundRect(60, 140, 200, 5, 3); ctx.fill();
+    ctx.fillStyle = 'rgba(238,242,255,0.95)';
+    const size = textSize(body);
+    drawScrolled(ctx, body, `${size}px ${READING_FONT}`, size, W, H, scroll);
+  });
+}
 
 function cardboardTexture(title, body, W, H, scroll = 0) {
   return sharpTexture(W, H, (ctx) => {
@@ -814,11 +851,12 @@ function setWindowContent(p, title, body, { keepScroll = false } = {}) {
   const perPage = Math.max(1, Math.floor((700 - 250) / (size * 1.38)));
   p.userData.scroll = Math.max(0, Math.min(p.userData.scroll || 0, lines.length - perPage));
   p.userData.scrollMax = Math.max(0, lines.length - perPage);
-  p.userData.cardboard.dispose(); p.userData.hologram.dispose(); p.userData.readingTex?.dispose();
-  p.userData.cardboard = cardboardTexture(title, body, 1024, 700, p.userData.scroll);
-  p.userData.hologram = hologramTexture(title, body, 1024, 700, p.userData.scroll);
-  p.userData.readingTex = p.userData.reading ? readingTexture(title, body, 1024, 700, p.userData.scroll) : null;
   p.userData.title = title; p.userData.body = body;
+  // Only the look on show is drawn (each is a large canvas); the others are redrawn when they're needed
+  p.userData.readingTex?.dispose(); p.userData.bubbleTex?.dispose(); p.userData.bubbleTex = null;
+  p.userData.readingTex = p.userData.reading ? readingTexture(title, body, 1024, 700, p.userData.scroll) : null;
+  if (bubbleLook() && !p.userData.reading) p.userData.bubbleTex = bubbleTexture(title, body, 1024, 700, p.userData.scroll);
+  p.userData.cardStale = p.userData.holoStale = true;                  // the classic look is redrawn when shown
   windowLook(p, mode === 'stark');
   updateScrollButtons(p);
   markDirty();
@@ -853,6 +891,7 @@ const glowXTex = canvasTexture(128, 128, (ctx) => {
   ctx.beginPath(); ctx.moveTo(46, 46); ctx.lineTo(82, 82); ctx.moveTo(82, 46); ctx.lineTo(46, 82); ctx.stroke();
 });
 const closeButtons = [];
+const bubbleCloseFor = classic => bubbleIcon(ctx => { ctx.beginPath(); ctx.moveTo(46, 46); ctx.lineTo(82, 82); ctx.moveTo(82, 46); ctx.lineTo(46, 82); ctx.stroke(); });
 
 // Little round buttons along the right edge of every window: lock, stash, and scroll arrows.
 const windowButtons = [];
@@ -887,6 +926,34 @@ const unlinkTex = sideIcon(ctx => {            // the chain broken: this window 
 });
 const upTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 76); ctx.lineTo(64, 50); ctx.lineTo(88, 76); ctx.stroke(); });
 const downTex = sideIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 52); ctx.lineTo(64, 78); ctx.lineTo(88, 52); ctx.stroke(); });
+// Bubble versions of the same icons: a clear glass bead with a highlight, a soft rim and a white symbol.
+// (Drawn by replaying the classic icon's symbol on a glass background.)
+function bubbleIcon(draw, active = false) {
+  return canvasTexture(128, 128, (ctx) => {
+    const g = ctx.createRadialGradient(52, 44, 6, 64, 64, 60);
+    g.addColorStop(0, active ? 'rgba(255,190,150,0.6)' : 'rgba(255,255,255,0.32)'); g.addColorStop(0.6, active ? 'rgba(255,130,90,0.35)' : 'rgba(150,170,210,0.16)'); g.addColorStop(1, 'rgba(120,140,190,0.08)');
+    ctx.fillStyle = 'rgba(20,22,32,0.6)'; ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.fill();   // dark core: readable on a white wall
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.ellipse(46, 36, 16, 8, -0.5, 0, Math.PI * 2); ctx.fill();   // the shine
+    ctx.strokeStyle = ctx.fillStyle = '#ffffff'; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    draw(ctx);
+  });
+}
+const BUBBLE_OF = new Map([
+  [lockOpenTex, bubbleIcon(ctx => { ctx.strokeRect(40, 62, 48, 36); ctx.beginPath(); ctx.arc(64, 50, 16, Math.PI, Math.PI * 1.9); ctx.stroke(); })],
+  [lockShutTex, bubbleIcon(ctx => { ctx.fillRect(38, 60, 52, 40); ctx.beginPath(); ctx.arc(64, 54, 16, Math.PI, 0); ctx.stroke(); }, true)],
+  [stashTex, bubbleIcon(ctx => { ctx.beginPath(); ctx.moveTo(64, 34); ctx.lineTo(64, 78); ctx.moveTo(46, 60); ctx.lineTo(64, 78); ctx.lineTo(82, 60); ctx.stroke(); ctx.strokeRect(40, 86, 48, 8); })],
+  [readTex, bubbleIcon(ctx => { ctx.font = '700 46px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Aa', 64, 80); })],
+  [readOnTex, bubbleIcon(ctx => { ctx.font = '700 46px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Aa', 64, 80); }, true)],
+  [linkTex, bubbleIcon(ctx => { ctx.save(); ctx.translate(64, 64); ctx.rotate(-Math.PI / 4); ctx.beginPath(); ctx.roundRect(-34, -11, 40, 22, 11); ctx.stroke(); ctx.beginPath(); ctx.roundRect(-6, -11, 40, 22, 11); ctx.stroke(); ctx.restore(); })],
+  [unlinkTex, bubbleIcon(ctx => { ctx.save(); ctx.translate(64, 64); ctx.rotate(-Math.PI / 4); ctx.beginPath(); ctx.roundRect(-40, -11, 34, 22, 11); ctx.stroke(); ctx.beginPath(); ctx.roundRect(6, -11, 34, 22, 11); ctx.stroke(); ctx.restore(); }, true)],
+  [upTex, bubbleIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 76); ctx.lineTo(64, 50); ctx.lineTo(88, 76); ctx.stroke(); })],
+  [downTex, bubbleIcon(ctx => { ctx.beginPath(); ctx.moveTo(40, 52); ctx.lineTo(64, 78); ctx.lineTo(88, 52); ctx.stroke(); })],
+]);
+BUBBLE_OF.set(burnTex, bubbleCloseFor(burnTex)); BUBBLE_OF.set(glowXTex, bubbleCloseFor(glowXTex));
+const CLASSIC_OF = new Map([...BUBBLE_OF].map(([c, b]) => [b, c]));
+const CLASSIC_BLEND = new Map([[glowXTex, THREE.AdditiveBlending]]);   // classic icons that glow
 function addWindowButtons(panel, { scroll = false } = {}) {
   const { w, h } = panel.userData.size;
   const make = (tex, y, action) => {
@@ -1107,6 +1174,7 @@ function grab(state) {
       state.held = panel; state.mode = 'near';
       state.offset.copy(panel.position).sub(p);
       setHeld(panel, true);
+      logGesture('pinch-grab', 'started', `holding "${panel.userData.title || panel.userData.kind || 'window'}" (close pinch)`);
       return;
     }
   }
@@ -1119,6 +1187,7 @@ function grab(state) {
     state.dist = hit.distance;
     state.offset.copy(hit.object.position).sub(hit.point);
     setHeld(hit.object, true);
+    logGesture('pinch-grab', 'started', `holding "${hit.object.userData.title || hit.object.userData.kind || 'window'}" (point and pinch)`);
     return;
   }
   // Nothing to grab and drawing is on: start a glowing line
@@ -1129,7 +1198,7 @@ function release(state) {
   markDirty();
   if (state.surface) { const sf = state.surface; state.surface = null; sf.up(surfaceUV(state, sf), state); return; }
   if (state.stroke) { state.stroke = null; return; }
-  if (state.held) setHeld(state.held, false);
+  if (state.held) { setHeld(state.held, false); logGesture('pinch-grab', 'done', `let go of "${state.held.userData.title || state.held.userData.kind || 'window'}"`); }
   state.held = null; state.mode = null;
 }
 
@@ -1205,6 +1274,15 @@ buttonRow.position.y = 0.22;                                      // high enough
 menu.add(buttonRow);
 const menuButtons = [];
 
+// The glass bead behind palm-menu icons (dark enough to read against a bright real room), and its shine
+function drawGlassDisc(ctx) {
+  const g = ctx.createRadialGradient(104, 92, 10, 128, 128, 122);
+  g.addColorStop(0, 'rgba(70,74,96,0.9)'); g.addColorStop(1, 'rgba(20,22,32,0.92)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
+  const rim = ctx.createLinearGradient(0, 8, 0, 248); rim.addColorStop(0, 'rgba(255,255,255,0.85)'); rim.addColorStop(1, 'rgba(255,150,110,0.6)');
+  ctx.strokeStyle = rim; ctx.lineWidth = 4; ctx.stroke();
+}
+function drawGlassShine(ctx) { ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.ellipse(92, 58, 34, 14, -0.45, 0, Math.PI * 2); ctx.fill(); }
 function makeButton(label, drawIcon, action, { showLabel = true } = {}) {
   const tex = canvasTexture(256, 256, (ctx) => {
     ctx.fillStyle = 'rgba(16, 14, 12, 0.85)';
@@ -1214,6 +1292,15 @@ function makeButton(label, drawIcon, action, { showLabel = true } = {}) {
     ctx.fillStyle = '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
     if (showLabel) ctx.fillText(label, 128, 206);
   });
+  // Bubble look: the same icon inside a dark glass bead with a soft rim and a shine
+  BUBBLE_OF.set(tex, canvasTexture(256, 256, (ctx) => {
+    drawGlassDisc(ctx);
+    ctx.save(); drawIcon(ctx); ctx.restore();
+    drawGlassShine(ctx);
+    ctx.fillStyle = '#f4f2ff'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+    if (showLabel) ctx.fillText(label, 128, 206);
+  }));
+  CLASSIC_OF.set(BUBBLE_OF.get(tex), tex);
   const b = new THREE.Mesh(new THREE.CircleGeometry(0.04, 32),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
   b.userData.action = action;
@@ -1294,11 +1381,12 @@ function updateMenu(dt) {
     if (found) {
       palm.upTime += dt; palm.downTime = 0;
       if (palm.upTime > 0.25) {
-        if (!menu.visible) { menu.visible = true; menu.scale.setScalar(0.01); }
+        if (!menu.visible) { menu.visible = true; menu.scale.setScalar(0.01); logGesture('palm-menu', 'done', 'opened the menu (palm up)'); }
         palm.state = found.s;
         menu.position.copy(found.info.center).addScaledVector(found.info.normal, 0.025);
       }
     } else {
+      if (palm.upTime > 0.08 && palm.upTime < 0.25 && !menu.visible) nearMiss('palm-menu', 'hold your palm up a moment longer');
       palm.upTime = 0; palm.downTime += dt;
       if (palm.downTime > 0.2) { menu.visible = false; palm.state = null; }
     }
@@ -1404,15 +1492,23 @@ const memoryKeys = {};
 function getKey(name) { return memoryKeys[name] || store.get(name); }
 
 // The Claude logo: a coral starburst
-function drawClaudeSpark(ctx, cx, cy, r, color = '#D97757') {
-  ctx.save(); ctx.translate(cx, cy); ctx.fillStyle = color;
-  for (let i = 0; i < 12; i++) {
-    const len = r * (i % 2 ? 0.78 : 1);
-    ctx.save(); ctx.rotate(i / 12 * Math.PI * 2);
-    ctx.beginPath(); ctx.moveTo(-r * 0.07, 0); ctx.lineTo(0, -len); ctx.lineTo(r * 0.07, 0); ctx.closePath(); ctx.fill();
+// The Claude spark, drawn soft like the real logo: twelve straight, round-ended rays of uneven length that
+// meet in one soft middle (no sharp points or hard outlines). glow > 0 adds a soft halo.
+const SPARK_RAYS = [[1, 0], [0.8, 0], [0.93, 0], [0.74, 0], [0.99, 0], [0.83, 0], [0.9, 0], [0.77, 0], [0.97, 0], [0.81, 0], [0.89, 0], [0.76, 0]];
+function drawClaudeSpark(ctx, cx, cy, r, color = '#D97757', glow = 0) {
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = r * 0.18 * glow; }
+  SPARK_RAYS.forEach(([len, bend], i) => {
+    const a = i / SPARK_RAYS.length * Math.PI * 2 + bend;
+    const L = r * len, w = r * 0.16;
+    ctx.save(); ctx.rotate(a);
+    // a soft, round-ended stroke (the rays of the real logo are rounded, never pointed)
+    ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.12); ctx.lineTo(0, -(L - w / 2)); ctx.stroke();
     ctx.restore();
-  }
-  ctx.beginPath(); ctx.arc(0, 0, r * 0.16, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.13, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -1442,9 +1538,9 @@ claudeBottle.add(bottleBody, bottleShoulder, bottleNeck, bottleCap, bottleLabel)
 
 // Stark mode: a glowing Claude orb
 const claudeOrb = new THREE.Group();
-const orbSparkTex = canvasTexture(256, 256, (ctx) => { drawClaudeSpark(ctx, 128, 128, 110, '#ffb08a'); });
+const orbSparkTex = canvasTexture(256, 256, (ctx) => { drawClaudeSpark(ctx, 128, 128, 104, '#d97757'); });
 const orbSpark = new THREE.Mesh(new THREE.CircleGeometry(0.045, 32),
-  new THREE.MeshBasicMaterial({ map: orbSparkTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  new THREE.MeshBasicMaterial({ map: orbSparkTex, transparent: true, depthWrite: false }));
 const orbRing = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.003, 8, 48),
   new THREE.MeshBasicMaterial({ color: 0xff8a5c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
 const orbGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSoft, color: 0xff7a4a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
@@ -1526,7 +1622,7 @@ function closeWindow(p) {
   p.userData.onClose?.();
   markDirty();
   for (const s of inputs) if (s.held === p) release(s);
-  p.userData.cardboard?.dispose(); p.userData.hologram?.dispose(); p.userData.readingTex?.dispose(); p.geometry.dispose(); p.material.dispose();
+  p.userData.cardboard?.dispose(); p.userData.hologram?.dispose(); p.userData.readingTex?.dispose(); p.userData.bubbleTex?.dispose(); p.geometry.dispose(); p.material.dispose();
   for (let i = touchables.length - 1; i >= 0; i--) { let x = touchables[i].mesh; while (x && x !== p) x = x.parent; if (x === p) touchables.splice(i, 1); }
   blip(500, 0.08);
 }
@@ -1809,14 +1905,23 @@ function jarvisSay(text, hudLines) {
       speechSynthesis.speak(u);
     }
   } catch (e) { /* no voice available */ }
-  if (hudLines && !trans.active) { hudMessage.lines = hudLines; hudMessage.t = 0; hud.visible = true; }
+  if (hudLines && !trans.active) showHud(hudLines);
 }
-const hudMessage = { lines: null, t: 0 };
+// How long a HUD message stays: Claude can choose (seconds), otherwise it depends on how much there is to read
+// (about 2.5 s + 0.3 s per word, at least 4 s, at most 20 s), then a 0.6 s fade.
+const hudMessage = { lines: null, t: 0, hold: 4 };
+function hudSeconds(lines, seconds) {
+  if (Number.isFinite(+seconds) && +seconds > 0) return Math.min(60, Math.max(1, +seconds));
+  const words = lines.slice(1).join(' ').split(/\s+/).filter(Boolean).length;
+  return Math.min(20, Math.max(4, 2.5 + 0.3 * words));
+}
+function showHud(lines, seconds) { hudMessage.lines = lines; hudMessage.t = 0; hudMessage.hold = hudSeconds(lines, seconds); hud.visible = true; }
 function updateHudMessage(dt) {
   if (!hudMessage.lines || trans.active) return;
   hudMessage.t += dt;
-  drawHud(hudMessage.t, hudMessage.lines, 1, hudMessage.t < 3.5 ? 1 : Math.max(0, 1 - (hudMessage.t - 3.5) / 0.6));
-  if (hudMessage.t > 4.1) { hudMessage.lines = null; hud.visible = false; }
+  const hold = hudMessage.hold;
+  drawHud(hudMessage.t, hudMessage.lines, 1, hudMessage.t < hold ? 1 : Math.max(0, 1 - (hudMessage.t - hold) / 0.6));
+  if (hudMessage.t > hold + 0.6) { hudMessage.lines = null; hud.visible = false; }
 }
 
 // Opening things outside the 3D world (claude.ai, WhatsApp): leave the headset view first
@@ -2099,6 +2204,132 @@ function eraseDrawings() {
   for (const l of [...drawings.children]) { l.geometry.dispose(); drawings.remove(l); }
 }
 
+// ---------- Gesture log: Claude can see what your hands did (recent_gestures) and teach gestures (gesture_tutorial)
+const gestureLog = [];
+const gestureNear = {};                                  // near-misses are logged at most once a second per gesture
+// A near-miss is only worth logging while the coach teaches that gesture, or when it was clearly an attempt
+function nearMiss(gesture, detail, clearAttempt = false) {
+  if (clearAttempt || (coach.card && coach.steps[coach.i] === gesture)) logGesture(gesture, 'ignored', detail);
+}
+function logGesture(gesture, outcome, detail = '') {
+  if (outcome === 'ignored') { const t = performance.now(); if (t - (gestureNear[gesture] || 0) < 1000) return; gestureNear[gesture] = t; }
+  gestureLog.push({ time: new Date().toISOString().slice(11, 19), gesture, outcome, detail });
+  if (gestureLog.length > 60) gestureLog.shift();
+  gestureTutorialSaw?.(gesture, outcome);
+}
+// ---------- Gesture coach: a guided walkthrough Claude can start (gesture_tutorial) ----------
+// A floating card shows a looping drawing of the gesture, says how to do it, waits until you do it, tells you
+// what went wrong if an attempt is ignored ("a bit too slow"), and moves on. Claude follows along with
+// recent_gestures.
+const GESTURES = {
+  'palm-menu': { title: 'Open the menu', how: 'Turn one hand palm-up in front of you and hold it there for a moment.', done: 'done' },
+  'pinch-grab': { title: 'Grab a window', how: 'Point at a window (or touch it), pinch thumb and index finger, move it, then let go.', done: 'done' },
+  'two-hand-resize': { title: 'Resize with two hands', how: 'Pinch the same window with both hands, then pull your hands apart (or together).', done: 'done' },
+  'fist-group-move': { title: 'Move all windows', how: 'Make a fist (palm away from you) and hold it briefly. Move the fist to move every window, turn your wrist to turn them. Open your hand to drop them.', done: 'done' },
+  'beckon': { title: 'Bring a window closer', how: 'Palm facing you, curl your fingers in and open them again ("come here"). The window you look at comes closer.', done: 'done' },
+  'flick-minimise': { title: 'Flick a window away', how: 'Open hand, held open for a moment. Point at or look at a window, then flick your fingers sharply away from you. It goes to the stash.', done: 'done' },
+};
+const coach = { steps: [], i: 0, card: null, tex: null, ctx: null, t: 0, tries: 0, hint: '', doneAt: 0, completed: [], started: 0 };
+function drawHandGlyph(g, x, y, scale, pose, alpha = 1) {
+  // a simple glowing hand: palm + five fingers; pose: open | fist | pinch | curl | palmup
+  g.save(); g.translate(x, y); g.scale(scale, scale); g.globalAlpha = alpha;
+  g.strokeStyle = '#ffe3c4'; g.fillStyle = 'rgba(255,190,140,0.25)'; g.lineWidth = 9; g.lineCap = 'round'; g.shadowColor = '#ff9a6a'; g.shadowBlur = 18;
+  if (pose === 'palmup') { g.beginPath(); g.ellipse(0, 0, 60, 26, 0, 0, Math.PI * 2); g.fill(); g.stroke(); for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(-36 + k * 24, -14); g.lineTo(-44 + k * 26, -58); g.stroke(); } g.restore(); return; }
+  g.beginPath(); g.roundRect(-38, -30, 76, 70, 22); g.fill(); g.stroke();
+  const fingers = [[-27, -30, -32, -96], [-9, -30, -10, -112], [9, -30, 10, -106], [27, -30, 32, -88]];
+  for (const [x0, y0, x1, y1] of fingers) {
+    g.beginPath(); g.moveTo(x0, y0);
+    if (pose === 'fist') g.lineTo(x0, y0 - 12);
+    else if (pose === 'curl') g.quadraticCurveTo(x1, y0 - 40, x0 + (x1 - x0) * 0.4, y0 - 22);
+    else if (pose === 'pinch' && x0 < 0 && y1 < -100) g.lineTo(x0 + 22, y0 - 60);
+    else g.lineTo(x1, y1);
+    g.stroke();
+  }
+  g.beginPath(); g.moveTo(-38, 10); g.lineTo(pose === 'pinch' ? -18 : pose === 'fist' ? -30 : -72, pose === 'pinch' ? -82 : pose === 'fist' ? -10 : -26); g.stroke();
+  g.restore();
+}
+function drawCoach() {
+  const step = coach.steps[coach.i], info = GESTURES[step], g = coach.ctx, W = 1024, H = 640, t = coach.t;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = 'rgba(18,10,8,0.94)'; g.beginPath(); g.roundRect(6, 6, W - 12, H - 12, 40); g.fill();
+  g.strokeStyle = 'rgba(255,200,150,0.6)'; g.lineWidth = 3; g.stroke();
+  g.fillStyle = '#ffb08a'; g.font = '600 30px system-ui, sans-serif'; g.fillText(`GESTURE COACH   ${coach.i + 1} / ${coach.steps.length}`, 44, 64);
+  g.fillStyle = '#fff2e6'; g.font = '600 48px system-ui, sans-serif'; g.fillText(info.title, 44, 128);
+  // the moving drawing (left)
+  const cx = 250, cy = 380, k = (t % 2.2) / 2.2, ease = x => x * x * (3 - 2 * x);
+  g.save(); g.beginPath(); g.roundRect(44, 170, 412, 420, 28); g.fillStyle = 'rgba(255,255,255,0.04)'; g.fill(); g.clip();
+  if (step === 'palm-menu') { const up = ease(Math.min(1, k * 2)); drawHandGlyph(g, cx, cy + 40 - up * 30, 1.4, up > 0.5 ? 'palmup' : 'open'); if (up > 0.9) { g.fillStyle = '#ffd27a'; for (let n = 0; n < 5; n++) { g.beginPath(); g.arc(cx - 100 + n * 50, cy - 90, 14, 0, 7); g.fill(); } } }
+  else if (step === 'pinch-grab') { const m = ease(Math.min(1, Math.max(0, (k - 0.25) * 2))); g.strokeStyle = '#ffd27a'; g.lineWidth = 4; g.strokeRect(cx - 120 + m * 60, cy - 170 - m * 20, 150, 95); drawHandGlyph(g, cx + 10 + m * 60, cy + 30 - m * 20, 1.2, k > 0.2 && k < 0.85 ? 'pinch' : 'open'); }
+  else if (step === 'two-hand-resize') { const m = ease(Math.min(1, Math.max(0, (k - 0.2) * 1.6))); const w = 140 + m * 120; g.strokeStyle = '#ffd27a'; g.lineWidth = 4; g.strokeRect(cx - w / 2, cy - 150, w, w * 0.6); drawHandGlyph(g, cx - w / 2 - 20, cy + 60, 0.9, 'pinch'); drawHandGlyph(g, cx + w / 2 + 20, cy + 60, 0.9, 'pinch'); }
+  else if (step === 'fist-group-move') { const m = ease(Math.min(1, Math.max(0, (k - 0.3) * 1.8))); g.strokeStyle = 'rgba(255,214,160,0.9)'; g.lineWidth = 4; for (const dx of [-110, 0, 110]) g.strokeRect(cx + dx - 45 + m * 50, cy - 175, 90, 60); drawHandGlyph(g, cx + m * 50, cy + 60, 1.2, k > 0.15 && k < 0.9 ? 'fist' : 'open'); }
+  else if (step === 'beckon') { const c = Math.sin(k * Math.PI * 2) > 0; const w = 90 + (k > 0.5 ? (k - 0.5) * 120 : 0); g.strokeStyle = '#ffd27a'; g.lineWidth = 4; g.strokeRect(cx - w / 2, cy - 180, w, w * 0.6); drawHandGlyph(g, cx, cy + 70, 1.2, c ? 'curl' : 'open'); }
+  else if (step === 'flick-minimise') { const f = k < 0.45 ? 0 : ease(Math.min(1, (k - 0.45) * 3)); g.globalAlpha = 1 - f; g.strokeStyle = '#ffd27a'; g.lineWidth = 4; g.strokeRect(cx - 70 + f * 160, cy - 180 - f * 80, 140, 85); g.globalAlpha = 1; g.save(); g.translate(cx, cy + 90); g.rotate(-f * 0.7); drawHandGlyph(g, 0, -60, 1.2, 'open'); g.restore(); }
+  g.restore();
+  // instructions (right)
+  g.fillStyle = '#f3e3d3'; g.font = '30px system-ui, sans-serif';
+  const words = info.how.split(' '); let line = '', y = 220;
+  for (const w of words) { if (g.measureText(line + w).width > 470) { g.fillText(line, 500, y); line = ''; y += 42; } line += w + ' '; }
+  g.fillText(line, 500, y);
+  if (coach.hint) {                                                     // wrapped, never squashed
+    g.fillStyle = '#ffb08a'; g.font = '600 30px system-ui, sans-serif';
+    const hintLines = []; let hl = '';
+    for (const w of ('Almost: ' + coach.hint).split(' ')) { if (g.measureText(hl + w).width > 470 && hl) { hintLines.push(hl); hl = ''; } hl += w + ' '; }
+    hintLines.push(hl);
+    if (hintLines.length > 2) { hintLines.length = 2; hintLines[1] = hintLines[1].trimEnd() + '…'; }
+    const hy = Math.min(Math.max(y + 64, 440), 520 - 38 * (hintLines.length - 1));   // stays above "Your turn"
+    hintLines.forEach((l, n) => g.fillText(l, 500, hy + n * 38));
+  }
+  if (coach.doneAt) { g.fillStyle = '#9ff0b0'; g.font = '700 46px system-ui, sans-serif'; g.fillText('✓ Nice!', 500, 570); }
+  else { g.fillStyle = 'rgba(255,240,220,0.55)'; g.font = '26px system-ui, sans-serif'; g.fillText('Your turn: try it now.', 500, 570); }
+  coach.tex.needsUpdate = true;
+}
+function startGestureTutorial(which) {
+  stopGestureTutorial();
+  const list = which && which !== 'all' ? [].concat(which).filter(n => GESTURES[n]) : Object.keys(GESTURES);
+  if (!list.length) throw Error('Unknown gesture. Use one of: ' + Object.keys(GESTURES).join(', ') + ', or all.');
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 640;
+  coach.ctx = c.getContext('2d'); coach.tex = new THREE.CanvasTexture(c); coach.tex.colorSpace = THREE.SRGBColorSpace;
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.35), new THREE.MeshBasicMaterial({ map: coach.tex, transparent: true, toneMapped: false }));
+  const group = new THREE.Group(); group.add(face);
+  coach.card = makeHoloObject(group, 0.56, 0.35, 'Gesture coach', 'gesture-coach');
+  coach.card.userData.onClose = () => { coach.card = null; coach.steps = []; };
+  placeInFront(coach.card, 0.75, 0.05);
+  Object.assign(coach, { steps: list, i: 0, t: 0, tries: 0, hint: '', doneAt: 0, completed: [], started: Date.now() });
+  drawCoach();
+  return { ok: true, steps: list.map(n => ({ gesture: n, title: GESTURES[n].title })) };
+}
+function stopGestureTutorial() {
+  if (coach.card) { const c = coach.card; coach.card = null; closeWindow(c); }
+  coach.steps = [];
+}
+// Called by logGesture: did you just do the gesture the coach is waiting for?
+function gestureTutorialSaw(gesture, outcome) {
+  const want = coach.card && coach.steps[coach.i];
+  if (!want || gesture !== want || coach.doneAt) return;
+  if (outcome === 'ignored') { coach.tries++; coach.hint = gestureLog[gestureLog.length - 1]?.detail || ''; return; }
+  if (outcome !== GESTURES[want].done) return;
+  coach.doneAt = performance.now(); coach.hint = ''; coach.completed.push(want);
+  blip(880, 0.12, 0.1);
+  jarvisSay('', ['J.A.R.V.I.S.', 'NICE!', GESTURES[want].title.toUpperCase().slice(0, 24)]);
+}
+function updateGestureCoach(dt) {
+  if (!coach.card || !coach.steps.length) return;
+  coach.t += dt;
+  if (coach.doneAt && performance.now() - coach.doneAt > 1600) {        // next gesture, or finished
+    coach.doneAt = 0; coach.i++; coach.t = 0; coach.tries = 0; coach.hint = '';
+    if (coach.i >= coach.steps.length) { stopGestureTutorial(); jarvisSay('', ['J.A.R.V.I.S.', 'ALL GESTURES DONE', 'WELL DONE']); return; }
+  }
+  if (!coach.hint && coach.t > 25 && !coach.doneAt) coach.hint = 'take your time, watch the drawing and copy it slowly first';
+  coach.redraw = (coach.redraw || 0) + dt;
+  if (coach.redraw > 1 / 12 && coach.card.visible) { coach.redraw = 0; drawCoach(); }   // the drawing moves at 12 fps
+}
+function tutorialState() {
+  if (!coach.card || !coach.steps.length) return { active: false };
+  const want = coach.steps[coach.i];
+  return { active: true, step: coach.i + 1, of: coach.steps.length, gesture: want, title: GESTURES[want].title, how: GESTURES[want].how,
+    ignored_attempts: coach.tries, last_hint: coach.hint || null, completed: coach.completed };
+}
+
 // ---------- Jarvis gestures ----------
 // Flick your open hand away ("go away")          -> minimises the window you point at (or look at) into the stash
 // Make a fist in the air and move it              -> moves your whole group of windows; turn the fist to turn them
@@ -2159,19 +2390,31 @@ function detectFlick(s, now) {
   if (!open) s.openSince = 0; else s.openSince ||= now;
   if (s.held) s.releasedAt = now;
   if (s.held || s.groupMove || now < (s.flickCooldown || 0) || s.flickTrack.length < 3) return;
-  if (!open || now - s.openSince < 300 || (s.releasedAt && now - s.releasedAt < 1000)) return;
   const a = s.flickTrack[0], dt = (now - a.t) / 1000;
   if (dt < 0.05) return;
+  const roughSpeed = tip.distanceTo(a.tip) / dt;
+  // only report real attempts: an open hand (or anything while the coach is teaching the flick)
+  // a clear attempt = an open hand flicked while pointing at a window
+  const near = why => { if (roughSpeed > 1.6) nearMiss('flick-minimise', why, open && !!pointedWindow(s)); };
+  if (!open) return near('hand was not fully open');
+  if (now - s.openSince < 300) return near('hand opened less than 0.3 s before the flick');
+  if (s.releasedAt && now - s.releasedAt < 1000) return near('just let go of a window (1 s pause)');
   const mid = s.flickTrack[Math.floor(s.flickTrack.length / 2)], dtMid = (now - mid.t) / 1000, dtFirst = (mid.t - a.t) / 1000;
-  if (dtMid <= 0 || dtFirst <= 0 || tip.distanceTo(mid.tip) / dtMid < 1.8 || mid.tip.distanceTo(a.tip) / dtFirst < 1.8) return;
+  if (dtMid <= 0 || dtFirst <= 0 || tip.distanceTo(mid.tip) / dtMid < 1.8 || mid.tip.distanceTo(a.tip) / dtFirst < 1.8) return near('not fast all the way through (flick sharply)');
   const vTip = tip.clone().sub(a.tip).divideScalar(dt), vWrist = wrist.clone().sub(a.wrist).divideScalar(dt);
   const speed = vTip.length();
   const eye = viewerPosition(new THREE.Vector3()), toViewer = eye.clone().sub(wrist).normalize();
   const inFront = wrist.y > eye.y - 0.55 && wrist.distanceTo(eye) < 0.8;
+  if (speed > 1.6 && speed <= 2.4) near('a bit too slow (flick faster)');
+  else if (speed > 2.4 && !(speed > vWrist.length() * 1.4 + 0.3)) near('whole arm moved; flick mostly from the wrist');
+  else if (speed > 2.4 && !(vTip.dot(toViewer) < 0.2 * speed)) near('flicked towards you; flick away from you');
+  else if (speed > 2.4 && !inFront) near('hand too low or far; flick in front of you at chest height');
   if (speed > 2.4 && speed > vWrist.length() * 1.4 + 0.3 && vTip.dot(toViewer) < 0.2 * speed && inFront) {
     const p = pointedWindow(s) || gazeWindow();
     s.flickCooldown = now + 1000; s.flickTrack = [];
-    if (!p) return;
+    if (!p) { logGesture('flick-minimise', 'ignored', 'no window pointed at or looked at'); return; }
+    if (p === coach.card) { logGesture('flick-minimise', 'done', 'flicked at the coach card (it stays so the lesson can go on)'); return; }
+    logGesture('flick-minimise', 'done', `minimised "${p.userData.title || p.userData.kind || 'window'}"`);
     stashWindow(p);
     p.userData.away = { v: vTip.normalize().multiplyScalar(1.2), t: 0 };     // it zips off the way you flicked
     jarvisSay('', ['J.A.R.V.I.S.', 'MINIMISED', 'BRING IT BACK FROM WORLD › STASH']);
@@ -2179,14 +2422,27 @@ function detectFlick(s, now) {
 }
 
 // --- Fist: move the whole group (starts after holding the fist briefly, so a quick finger curl isn't a grab)
-const groupOutlines = new Map();
-function outlineFor(p) {
-  let o = groupOutlines.get(p);
+// Polished (22 Oct: "works but looks rough"): the hand is smoothed (fast moves follow quickly, small jitter is
+// ignored), windows glide after it instead of jumping, the group lifts slightly with a soft glow when picked
+// up, and settles gently when you open your hand.
+const groupGlowTex = (() => {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 360;
+  const g = c.getContext('2d'), r = 46, pad = 40;
+  g.shadowColor = 'rgba(255,190,120,1)'; g.shadowBlur = 34;
+  g.strokeStyle = 'rgba(255,214,160,0.95)'; g.lineWidth = 6;
+  g.beginPath(); g.roundRect(pad, pad, c.width - pad * 2, c.height - pad * 2, r); g.stroke();
+  g.shadowBlur = 0; g.lineWidth = 2; g.strokeStyle = 'rgba(255,240,215,0.9)'; g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const groupGlows = new Map(), settling = new Map();             // panel -> settle state
+function glowFor(p) {
+  let o = groupGlows.get(p);
   if (!o) {
     const { w, h } = p.userData.size || { w: 0.8, h: 0.55 };
-    const pts = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => new THREE.Vector3(x * 1.03, y * 1.04, 0.005));
-    o = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.9, depthTest: false }));
-    o.renderOrder = 999; p.add(o); groupOutlines.set(p, o);
+    // the texture's soft frame sits 40 px inside its edge, so the plane is a bit larger than the window
+    o = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.19, h * 1.29), new THREE.MeshBasicMaterial({ map: groupGlowTex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    o.position.z = -0.002; o.renderOrder = 2; o.userData.want = 0; o.visible = false;
+    p.add(o); groupGlows.set(p, o);
   }
   return o;
 }
@@ -2195,34 +2451,174 @@ function wristYaw(s) {
   const f = new THREE.Vector3(0, 0, -1).applyQuaternion(j.getWorldQuaternion(new THREE.Quaternion()));
   return Math.atan2(f.x, f.z);
 }
+// One-euro style smoothing: steady hands are calm, quick moves still follow without lag
+function smoothHand(g, raw, yaw, dt, now) {
+  if (!g.hand) { g.hand = raw.clone(); g.yawS = yaw; return; }
+  const speed = raw.distanceTo(g.hand) / Math.max(dt, 1e-3);
+  const cutoff = 1.2 + 6 * speed;                                   // Hz
+  const a = 1 - Math.exp(-2 * Math.PI * cutoff * dt);
+  g.hand.lerp(raw, a);
+  let dy = yaw - g.yawS; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  const turnSpeed = Math.abs(dy) / Math.max(dt, 1e-3);              // fast turns follow quickly too
+  g.yawS += dy * (1 - Math.exp(-2 * Math.PI * (2.5 + 4 * turnSpeed) * dt));
+  (g.hist ||= []).push({ pos: raw.clone(), yaw, t: now }); if (g.hist.length > 12) g.hist.shift();
+}
 function detectGroupMove(s, now) {
-  const fist = isFist(s) && !s.held && !palmFacesViewer(s);
+  const dt = Math.min(0.05, (now - (s.groupT || now)) / 1000); s.groupT = now;
+  const curled = isFist(s) && !s.held, fist = curled && !palmFacesViewer(s);
+  if (curled && !fist && !s.groupMove && !s.fistFacingLogged) { nearMiss('fist-group-move', 'palm was facing you; turn the fist so the palm faces away'); s.fistFacingLogged = true; }
+  if (!curled) s.fistFacingLogged = false;
   if (fist && !s.fistSince) s.fistSince = now;
+  if (!fist && s.fistSince && !s.groupMove && now - s.fistSince < 200) nearMiss('fist-group-move', 'fist opened too quickly; hold it a moment before moving');
   if (!fist) s.fistSince = 0;
   if (fist && !s.groupMove && now - s.fistSince > 200) {
-    const items = groupWindows();
+    const heldByOther = new Set(inputs.map(o => o.held).filter(Boolean));
+    const items = groupWindows().filter(p => !heldByOther.has(p));
     if (!items.length) return;
-    s.groupMove = { start: jointPos(s, 'wrist'), yaw: wristYaw(s), eye: viewerPosition(new THREE.Vector3()),
-      items: items.map(p => ({ p, pos: p.position.clone(), q: p.quaternion.clone() })) };
-    for (const it of s.groupMove.items) { it.p.userData.fly = null; outlineFor(it.p).visible = true; }
+    s.groupMove = { start: jointPos(s, 'wrist'), yaw: wristYaw(s), eye: viewerPosition(new THREE.Vector3()), lift: 0,
+      // each window's own size (baseScale), not its current scale, which may still be mid-animation
+      items: items.map(p => { const st = settling.get(p); settling.delete(p);
+        return { p, pos: (st?.target || p.position).clone(), q: (st?.targetQ || p.quaternion).clone(), base: st?.base ?? p.userData.baseScale ?? (p.userData.popIn !== undefined ? 1 : p.scale.x) }; }) };
+    for (const it of s.groupMove.items) { it.p.userData.fly = null; it.p.userData.popIn = undefined; glowFor(it.p).userData.want = 1; }
     blip(520, 0.12, 0.12);
+    logGesture('fist-group-move', 'started', `moving ${items.length} window(s)`);
   }
   const g = s.groupMove;
-  if (g && !fist) {                                                 // open the hand: drop the group where it is
-    for (const it of g.items) { const o = groupOutlines.get(it.p); if (o) o.visible = false; }
-    s.groupMove = null; markDirty(); blip(700, 0.08);
-    return;
-  }
+  if (g && !fist) { endGroupMove(s); return; }                     // open the hand: the group settles where it is
   if (g) {
-    const move = jointPos(s, 'wrist').sub(g.start).multiplyScalar(1.5);      // a little amplified, so you don't have to reach far
-    let turn = wristYaw(s) - g.yaw; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    smoothHand(g, jointPos(s, 'wrist'), wristYaw(s), dt, now);
+    g.lift = Math.min(1, g.lift + dt / 0.18);
+    const move = g.hand.clone().sub(g.start).multiplyScalar(1.5);   // a little amplified, so you don't have to reach far
+    let turn = g.yawS - g.yaw; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
     const spin = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), turn);
+    const follow = 1 - Math.exp(-dt * 16);                          // windows glide after the hand
+    const ease = g.lift * g.lift * (3 - 2 * g.lift);
     for (const it of g.items) {
-      // turn around you, then move with your fist
-      it.p.position.copy(it.pos).sub(g.eye).applyQuaternion(spin).add(g.eye).add(move);
-      it.p.quaternion.copy(spin).multiply(it.q);
+      // turn around you, then move with your fist; lifted a little towards you while held
+      const target = it.pos.clone().sub(g.eye).applyQuaternion(spin).add(g.eye).add(move);
+      target.add(g.eye.clone().sub(target).setY(0).normalize().multiplyScalar(0.03 * ease));
+      it.p.position.lerp(target, follow);
+      it.p.quaternion.slerp(spin.clone().multiply(it.q), follow);
+      it.p.scale.lerp(new THREE.Vector3().setScalar(it.base * (1 + 0.035 * ease)), follow);   // eases (a window that was popping in doesn't jump)
     }
   }
+}
+// Where the group goes when you open your hand: from the hand's real position and turn just before the
+// fist opened (not the smoothed one, so a quick move or turn isn't cut short), without the pick-up lift.
+function releaseTargets(g) {
+  // the hand's raw pose over the last few frames the fist was still closed (averaged, so tracking noise doesn't jump)
+  const h = (g.hist || []).slice(-3);
+  if (!h.length) return;
+  const last = { pos: h.reduce((a, e) => a.add(e.pos), new THREE.Vector3()).divideScalar(h.length),
+    yaw: Math.atan2(h.reduce((a, e) => a + Math.sin(e.yaw), 0), h.reduce((a, e) => a + Math.cos(e.yaw), 0)) };
+  const move = last.pos.clone().sub(g.start).multiplyScalar(1.5);
+  let turn = last.yaw - g.yaw; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+  const spin = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), turn);
+  for (const it of g.items) { it.target = it.pos.clone().sub(g.eye).applyQuaternion(spin).add(g.eye).add(move); it.targetQ = spin.clone().multiply(it.q); }
+}
+function endGroupMove(s) {
+  const g = s.groupMove; if (!g) return;
+  releaseTargets(g);
+  // the windows finish gliding to where the hand left them (no lost last bit of a quick throw), then settle
+  for (const it of g.items) { const o = groupGlows.get(it.p); if (o) o.userData.want = 0; settling.set(it.p, { base: it.base, settle: 0, target: it.target?.clone(), targetQ: it.targetQ?.clone() }); }
+  s.groupMove = null; markDirty(); blip(700, 0.08);
+  logGesture('fist-group-move', 'done', `placed ${g.items.length} window(s)`);
+}
+// Glows fade in and out; dropped windows ease back to their own size
+// ---------- Bubble look, every frame: glass icons, buttons that grow when a hand comes near, a gentle float
+const tipTmp = new THREE.Vector3(), colTmp = new THREE.Vector3(), hitTmp = new THREE.Vector3(), tipList = [], tipVecs = [], plane = new THREE.Plane(), nrm = new THREE.Vector3(), qTmp = new THREE.Quaternion();
+function swapIcon(m) {
+  const classic = CLASSIC_OF.get(m.map) || m.map, want = bubbleLook() ? (BUBBLE_OF.get(classic) || classic) : classic;
+  if (m.map !== want) {
+    // glass icons are never additive; the classic ones get their own blending back (the Stark X glows)
+    m.blending = want !== classic ? THREE.NormalBlending : (CLASSIC_BLEND.get(classic) ?? THREE.NormalBlending);
+    m.map = want; m.needsUpdate = true;
+  }
+}
+function updateBubbleUI(dt) {
+  const bubble = bubbleLook(), xr = renderer.xr.isPresenting;
+  for (const b of menuButtons) if (b.material?.map) swapIcon(b.material);
+  // Which windows is a hand reaching for or a pointer aiming at (near their buttons)? A window stays "near"
+  // for 0.4 s after, so the buttons don't flicker while you move between them.
+  const now = performance.now();
+  if (bubble && xr) {
+    tipList.length = 0;
+    for (const s of inputs) {
+      if (s.held) s.held.userData.nearUntil = now + 400;
+      const tip = s.isHand && s.hand.visible && s.hand.joints['index-finger-tip'];
+      if (tip) tipList.push(tip.getWorldPosition(tipVecs[tipList.length] ||= new THREE.Vector3()));
+      if (s.ray?.visible && (!s.isHand || s.hand.visible)) {
+        const { origin, dir } = rayFrom(s); raycaster.set(origin, dir);
+        const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
+        if (hit) { const local = hit.object.worldToLocal(hitTmp.copy(hit.point)); const w = hit.object.userData.size?.w || 0.8; if (local.x > w / 2 - 0.16) hit.object.userData.nearUntil = now + 400; }
+        // aiming just beside the window, where the buttons are, also counts (the gap there hits nothing)
+        for (const p of panels) {
+          if (!p.visible || !p.userData.windowButtons) continue;
+          const { w, h } = p.userData.size || { w: 0.8, h: 0.55 };
+          plane.setFromNormalAndCoplanarPoint(nrm.set(0, 0, 1).applyQuaternion(p.getWorldQuaternion(qTmp)), p.getWorldPosition(colTmp));
+          if (!raycaster.ray.intersectPlane(plane, hitTmp)) continue;
+          const local = p.worldToLocal(hitTmp);
+          if (local.x > w / 2 - 0.02 && local.x < w / 2 + 0.09 && Math.abs(local.y) < h / 2 + 0.03) p.userData.nearUntil = now + 400;
+        }
+        const bh = raycaster.intersectObjects([...windowButtons, ...closeButtons].filter(shown), false)[0];
+        if (bh) bh.object.userData.window.userData.nearUntil = now + 400;
+      }
+    }
+    for (const p of panels) {
+      if (!p.visible || !p.userData.windowButtons || !tipList.length) continue;
+      const { w, h } = p.userData.size || { w: 0.8, h: 0.55 };
+      // distance from the fingertip to the whole button column (top to bottom), not just its middle
+      for (const t of tipList) {
+        const local = p.worldToLocal(colTmp.copy(t));
+        const dy = Math.max(0, Math.abs(local.y) - h / 2), dx = local.x - (w / 2 + 0.034);
+        if (Math.hypot(dx, dy, local.z) * (p.scale.x || 1) < 0.17) { p.userData.nearUntil = now + 400; break; }
+      }
+    }
+  }
+  const k = Math.min(1, dt * 10);
+  for (const p of panels) {
+    if (!p.visible) continue;
+    const btns = [...(p.userData.windowButtons || []), ...(p.userData.closeButton ? [p.userData.closeButton] : [])];
+    if (!btns.length) continue;
+    if ((!bubble || !xr) && (p.userData.btnOpen ?? 1) === 1) { if (p.userData.iconLook !== bubble) { btns.forEach(b => swapIcon(b.material)); p.userData.iconLook = bubble; } continue; }   // nothing to animate
+    const open = !bubble || !xr || now < (p.userData.nearUntil || 0);   // on the computer they always stay full size
+    p.userData.btnOpen = (p.userData.btnOpen ?? 1) + ((open ? 1 : 0) - (p.userData.btnOpen ?? 1)) * k;
+    if (Math.abs((open ? 1 : 0) - p.userData.btnOpen) < 1e-3) p.userData.btnOpen = open ? 1 : 0;
+    const e = p.userData.btnOpen, sc = 0.42 + 0.58 * e;
+    for (const b of btns) { swapIcon(b.material); b.scale.setScalar(sc); b.material.opacity = 0.5 + 0.5 * e; b.material.transparent = true; }
+  }
+}
+// The gentle float: added just before drawing and taken off right after, so moving, saving and aiming
+// always use the window's real position.
+const bobbed = [];
+function applyBob(t) {
+  if (!bubbleLook()) return;
+  const held = new Set(inputs.map(s => s.held).filter(Boolean));
+  for (const s of inputs) for (const it of s.groupMove?.items || []) held.add(it.p);
+  panels.forEach(p => {
+    if (!p.visible || held.has(p) || p.userData.fly || p.userData.away || settling.has(p) || !(p.userData.cardboard || p.userData.kind === 'browser')) return;
+    p.userData.bobPhase ??= Math.random() * Math.PI * 2;          // each window keeps its own rhythm
+    const dy = Math.sin(t * 0.7 + p.userData.bobPhase) * 0.008;
+    p.position.y += dy; bobbed.push([p, dy]);
+  });
+}
+function removeBob() { for (const [p, dy] of bobbed) { p.position.y -= dy; p.updateMatrixWorld(true); } bobbed.length = 0; }   // matrices too, so aiming and grabbing use the real position
+function updateGroupLook(dt) {
+  for (const [p, o] of groupGlows) {
+    const want = o.userData.want, m = o.material;
+    m.opacity += (want * (0.75 + 0.15 * Math.sin(performance.now() / 260)) - m.opacity) * Math.min(1, dt * 10);
+    o.visible = m.opacity > 0.01 && p.visible;
+  }
+  for (const [p, it] of settling) {
+    if (inputs.some(s => s.held === p) || p.userData.fly) { settling.delete(p); p.scale.setScalar(it.base); continue; }   // you grabbed it again, or it's flying to you
+    it.settle = Math.min(1, it.settle + dt / 0.25);
+    const k = 1 - it.settle * it.settle * (3 - 2 * it.settle);
+    if (it.target) p.position.lerp(it.target, Math.min(1, dt * 16));
+    if (it.targetQ) p.quaternion.slerp(it.targetQ, Math.min(1, dt * 16));
+    p.scale.setScalar(it.base * (1 + 0.035 * k));
+    if (it.settle >= 1) { if (it.target) p.position.copy(it.target); if (it.targetQ) p.quaternion.copy(it.targetQ); p.scale.setScalar(it.base); settling.delete(p); markDirty(); }
+  }
+  for (const p of groupGlows.keys()) if (!p.parent) { const o = groupGlows.get(p); o.geometry.dispose(); o.material.dispose(); groupGlows.delete(p); }   // closed windows
 }
 
 // --- Come here: palm facing you, fingers curl in and open again
@@ -2231,9 +2627,14 @@ function detectBeckon(s, now) {
   const reach = fingerReach(s);
   const b = (s.beckon ??= { open: reach, curled: false, at: 0 });
   b.open = Math.max(reach, b.open * 0.995);                         // slowly forget how open the hand was
+  b.minRatio = Math.min(b.minRatio ?? 1, reach / Math.max(b.open, 1e-3));
   if (!b.curled && b.open > 0.07 && reach < b.open * 0.62) b.curled = true;
+  if (!b.curled && reach > b.open * 0.9) {                        // fingers came back without curling enough
+    if (b.minRatio < 0.8 && b.minRatio >= 0.62) nearMiss('beckon', 'curl your fingers further in, then open them');
+    b.minRatio = 1;
+  }
   else if (b.curled && reach > b.open * 0.85) {
-    b.curled = false;
+    b.curled = false; b.minRatio = 1;
     if (now - b.at < 450) return;
     b.at = now;
     const eye = viewerPosition(new THREE.Vector3()), p = gazeWindow();
@@ -2244,26 +2645,35 @@ function detectBeckon(s, now) {
     };
     if (p) closer(p); else groupWindows().forEach(closer);
     blip(660, 0.1, 0.12);
+    logGesture('beckon', 'done', p ? `brought "${p.userData.title || 'window'}" closer` : 'brought the whole group closer');
   }
 }
 
+const resizing = new Set();
 function updateGestures(dt) {
   if (renderer.xr.isPresenting) {
     const now = performance.now();
     for (const s of inputs) {
+      if (s.groupMove && (!s.isHand || !s.hand.visible)) endGroupMove(s);   // hand lost from view: put the group down
       if (!s.isHand || !s.hand.visible || s === palm.state) continue;
       detectGroupMove(s, now); detectFlick(s, now); detectBeckon(s, now);
     }
   }
+  updateGroupLook(dt); updateGestureCoach(dt); updateBubbleUI(dt);
   // two hands holding the same thing: pull them apart to make it bigger
+  for (const p of resizing) if (!inputs.some(s => s.held === p) && p.userData.resize) {   // both hands let go together
+    logGesture('two-hand-resize', 'done', `size ${Math.round((p.userData.baseScale || 1) * 100)} %`); p.userData.resize = null;
+  }
+  resizing.clear();
   const holders = new Map();
   for (const s of inputs) if (s.held) { if (!holders.has(s.held)) holders.set(s.held, []); holders.get(s.held).push(s); }
   for (const [p, hs] of holders) {
-    if (hs.length < 2) { p.userData.resize = null; continue; }
+    if (hs.length < 2) { if (p.userData.resize) logGesture('two-hand-resize', 'done', `size ${Math.round((p.userData.baseScale || 1) * 100)} %`); p.userData.resize = null; continue; }
     const a = grabPoint(hs[0]), b = grabPoint(hs[1]);
     if (!a || !b) continue;
     const d = a.distanceTo(b);
-    if (!p.userData.resize) p.userData.resize = { d0: d, s0: p.userData.baseScale || 1 };
+    if (!p.userData.resize) { p.userData.resize = { d0: d, s0: p.userData.baseScale || 1 }; logGesture('two-hand-resize', 'started', `resizing "${p.userData.title || 'window'}"`); }
+    resizing.add(p);
     p.userData.baseScale = THREE.MathUtils.clamp(p.userData.resize.s0 * d / Math.max(0.05, p.userData.resize.d0), 0.35, 3);
     p.scale.setScalar(p.userData.baseScale * 1.05);
   }
@@ -2340,22 +2750,63 @@ function openStashPicker() {
 function refreshStashPicker() {
   if (!stashPicker) return;
   const content = stashPicker.children[0];
+  content.userData.confirming = null;
   for (const c of [...content.children]) { content.remove(c); c.geometry?.dispose(); c.material?.map?.dispose(); c.material?.dispose(); }
   for (let i = touchables.length - 1; i >= 0; i--) if (touchables[i].owner === stashPicker) touchables.splice(i, 1);
   const head = holoLabel(stash.length ? `STASH: ${stash.length} PUT AWAY` : 'STASH IS EMPTY', { w: 0.4, h: 0.06, fill: 'rgba(110,10,10,0.75)' });
   head.position.set(0, 0.2, 0); content.add(head);
   const items = stash.slice(-10);
   items.forEach((p, i) => {
-    const label = holoLabel(`${p.userData.title || p.userData.kind || 'Window'}`.slice(0, 40), { w: 0.27, h: 0.05 });
-    label.position.set(i % 2 ? 0.145 : -0.145, 0.12 - Math.floor(i / 2) * 0.062, 0.004);
+    const x = i % 2 ? 0.145 : -0.145, y = 0.12 - Math.floor(i / 2) * 0.062;
+    const label = holoLabel(`${p.userData.title || p.userData.kind || 'Window'}`.slice(0, 32), { w: 0.22, h: 0.05 });
+    label.position.set(x - 0.025, y, 0.004);
     content.add(label);
-    touchables.push({ mesh: label, w: 0.27, h: 0.05, owner: stashPicker, action: () => unstash([p], 1) });
+    touchables.push({ mesh: label, w: 0.22, h: 0.05, owner: stashPicker, action: () => unstash([p], 1) });
+    // Delete for good: tap the small X, then tap DELETE? within 3 s to confirm (so it can't happen by accident)
+    const del = holoLabel('✕', { w: 0.045, h: 0.05, fill: 'rgba(90,20,20,0.75)', color: '#ffd0c8' });
+    del.position.set(x + 0.112, y, 0.004); content.add(del);
+    touchables.push({ mesh: del, w: 0.045, h: 0.05, owner: stashPicker, action: () => askDeleteStashed(p, x, y, content) });
   });
   if (stash.length) {
     const all = holoLabel('BRING ALL BACK', { w: 0.3, h: 0.055, fill: 'rgba(40,60,90,0.7)', color: '#dff8ff' });
     all.position.set(0, -0.21, 0.004); content.add(all);
     touchables.push({ mesh: all, w: 0.3, h: 0.055, owner: stashPicker, action: () => { restoreStash(); } });
   }
+}
+function askDeleteStashed(p, x, y, content) {
+  if (content.userData.confirming) return;                   // one question at a time
+  content.userData.confirming = p;
+  // The question appears on the stash's header line, away from every other button, so neither a finger resting
+  // on the X nor a tap on a title can confirm by accident. It goes away by itself after 4 s.
+  const name = String(p.userData.title || p.userData.kind || 'Window').slice(0, 22);
+  const sure = holoLabel(`DELETE "${name}"?`, { w: 0.36, h: 0.06, fill: 'rgba(170,30,30,0.95)', color: '#fff' });
+  sure.position.set(-0.07, 0.2, 0.01); content.add(sure);
+  const keep = holoLabel('KEEP', { w: 0.12, h: 0.06, fill: 'rgba(40,60,90,0.95)', color: '#dff8ff' });
+  keep.position.set(0.19, 0.2, 0.01); content.add(keep);
+  const cleanup = () => {
+    if (content.userData.confirming !== p) return;
+    content.userData.confirming = null;
+    for (const [m, e] of [[keep, keepEntry], [sure, sureEntry]]) {
+      const i = touchables.indexOf(e); if (i >= 0) touchables.splice(i, 1);
+      content.remove(m); m.geometry?.dispose(); m.material?.map?.dispose(); m.material?.dispose();
+    }
+  };
+  const keepEntry = { mesh: keep, w: 0.12, h: 0.06, owner: stashPicker, action: cleanup };
+  const sureEntry = { mesh: sure, w: 0.36, h: 0.06, owner: stashPicker, action: () => { cleanup(); deleteStashed(p); } };
+  touchables.unshift(keepEntry, sureEntry);
+  blip(300, 0.06);
+  setTimeout(cleanup, 4000);
+}
+// Remove a stashed item for good (it won't come back after a restart; the desk save no longer has it)
+function deleteStashed(p) {
+  if (!stash.includes(p)) return false;
+  const title = p.userData.title || p.userData.kind || 'Window';
+  closeWindow(p);
+  saveDeskNow?.();
+  refreshStashPicker();
+  if (stashPicker && !stash.length) { closeWindow(stashPicker); stashPicker = null; }
+  jarvisSay('', ['J.A.R.V.I.S.', 'DELETED', String(title).toUpperCase().slice(0, 22)]);
+  return true;
 }
 function clearDesk() {
   if (stashPicker) { closeWindow(stashPicker); stashPicker = null; }
@@ -2555,15 +3006,18 @@ function drawStashIcon(ctx, n) {
   if (n) ctx.fillText(String(n), 128, 136);
 }
 function updateStashButton() {
-  stashButton.material.map.dispose();
-  stashButton.material.map = canvasTexture(256, 256, (ctx) => {
-    ctx.fillStyle = 'rgba(16, 14, 12, 0.85)'; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 6; ctx.stroke();
-    drawStashIcon(ctx, stash.length);
-    ctx.fillStyle = '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+  // the count changes: redraw the classic and the glass versions on their own canvases (no new textures)
+  const classic = CLASSIC_OF.get(stashButton.material.map) || stashButton.material.map, glass = BUBBLE_OF.get(classic);
+  const redraw = (tex, look) => {
+    const ctx = tex.image.getContext('2d'); ctx.clearRect(0, 0, 256, 256);
+    if (look === 'glass') drawGlassDisc(ctx); else { ctx.fillStyle = 'rgba(16, 14, 12, 0.85)'; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 6; ctx.stroke(); }
+    ctx.save(); drawStashIcon(ctx, stash.length); ctx.restore();
+    if (look === 'glass') drawGlassShine(ctx);
+    ctx.fillStyle = look === 'glass' ? '#f4f2ff' : '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('STASH', 128, 206);
-  });
-  stashButton.material.needsUpdate = true;
+    tex.needsUpdate = true;
+  };
+  redraw(classic, 'classic'); if (glass) redraw(glass, 'glass');
 }
 
 // Icons, drawn (no text abbreviations)
@@ -2678,6 +3132,18 @@ const studyButtons = [studyTool('LIBRARY', 'library'), studyTool('THESIS', 'thes
   studyTool('DEADLINES', 'deadlines'), studyTool('BRIEFING', 'briefing')];
 const spacesButton = makeButton('SPACES', icon.spaces, () => { closeCategory(); openSpacesPicker(); });
 const scanButton = makeButton('SCAN', icon.scan, () => { closeCategory(); thesisTools.menu.scan(); });
+const lookButton = makeButton('LOOK', (ctx) => {                 // a bubble: switches the bubble / classic look
+  ctx.strokeStyle = '#f4f0ff'; ctx.lineWidth = 7; ctx.beginPath(); ctx.arc(128, 104, 46, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.beginPath(); ctx.ellipse(110, 84, 14, 7, -0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ff9a72'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(176, 150, 16, 0, Math.PI * 2); ctx.stroke();
+}, () => setLook(bubbleLook() ? 'classic' : 'bubble'));
+function setLook(look) {
+  lookSetting = look === 'classic' ? 'classic' : 'bubble';
+  try { localStorage.setItem('sunnyvale.look', lookSetting); } catch { /* private mode */ }
+  for (const p of [...panels, ...stash]) if (p.userData.cardboard) setWindowContent(p, p.userData.title, p.userData.body, { keepScroll: true });
+  blip(bubbleLook() ? 880 : 620, 0.06);
+  if (mode === 'stark') showHud(['J.A.R.V.I.S.', 'LOOK: ' + (bubbleLook() ? 'BUBBLES' : 'CLASSIC')], 2.5);
+}
 const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); thesisTools.menu.logOff(); window.studyDebug.backup?.backupNow('logoff'); });
 
 const breakServices = [
@@ -2707,9 +3173,9 @@ const breakButtons = breakServices.map(([label, file, url]) => {
   }, { showLabel: false });
   b.name = label; b.userData.service = label;
   logo.onload = () => {
-    const texture = b.material.map;
-    drawLogo(texture.image.getContext('2d'));
-    texture.needsUpdate = true; b.userData.logoLoaded = true;
+    const classic = CLASSIC_OF.get(b.material.map) || b.material.map;      // draw the logo into both looks
+    for (const texture of [classic, BUBBLE_OF.get(classic)].filter(Boolean)) { const c = texture.image.getContext('2d'); drawLogo(c); if (texture !== classic) drawGlassShine(c); texture.needsUpdate = true; }
+    b.userData.logoLoaded = true;
   };
   logo.src = './assets/logos/' + file;
   return b;
@@ -2720,7 +3186,7 @@ const categories = {
   study: { button: makeButton('STUDY', icon.study, () => toggleCategory('study')), items: studyButtons },
   create: { button: makeButton('CREATE', icon.create, () => toggleCategory('create')), items: [drawButton, eraseButton, cardsButton, mapButton, timelineButton] },
   // Sunnyvale and Stark mode are one switch: only the mode you can go to is showing
-  world: { button: makeButton('WORLD', icon.world, () => toggleCategory('world')), items: [reactorButton, bubblesButton, spacesButton, stashButton, scanButton, logOffButton] },
+  world: { button: makeButton('WORLD', icon.world, () => toggleCategory('world')), items: [reactorButton, bubblesButton, spacesButton, stashButton, lookButton, scanButton, logOffButton] },
   break: { button: makeButton('BREAK', icon.coffee, () => { if (!isFocusActive()) toggleCategory('break'); }), items: breakButtons },
 };
 for (const [key, c] of Object.entries(categories)) {
@@ -2936,26 +3402,38 @@ function setMode(next) {
   starkFX.visible = stark;
   if (stark) placeBench();
   dissolve.uOn.value = 0;
-  if (panels[0] && (panels[0].material.map === panels[0].userData.hologram) !== stark) applyWindows(stark);
+  if (panels.some(p => p.userData.lookMode !== mode)) applyWindows(stark);   // every window follows the mode (also in the bubble look)
 }
 
 // Swap the windows between cardboard and hologram; holograms build up with a scan line
 function applyWindows(stark) { for (const p of panels) lookFor(p, stark); }
 // Which texture a window shows: reading mode wins over the Sunnyvale (cardboard) and Stark (hologram) looks
+// Redraw only the classic texture the current mode shows (cardboard in Sunnyvale, hologram in Stark);
+// the other one is redrawn when the mode changes.
+function refreshClassic(p, stark = mode === 'stark') {
+  const u = p.userData;
+  if (stark) { u.hologram?.dispose(); u.hologram = hologramTexture(u.title || '', u.body || '', 1024, 700, u.scroll || 0); u.holoStale = false; }
+  else { u.cardboard?.dispose(); u.cardboard = cardboardTexture(u.title || '', u.body || '', 1024, 700, u.scroll || 0); u.cardStale = false; }
+}
 function windowLook(p, stark) {
   const reading = !!(p.userData.reading && p.userData.readingTex);
-  p.material.map = reading ? p.userData.readingTex : stark ? p.userData.hologram : p.userData.cardboard;
-  p.material.transparent = stark && !reading;
-  p.material.depthWrite = !stark || reading;
+  const bubble = !reading && bubbleLook() && p.userData.cardboard;
+  if (!bubble && !reading && (stark ? p.userData.holoStale : p.userData.cardStale)) refreshClassic(p, stark);
+  if (bubble && !p.userData.bubbleTex) p.userData.bubbleTex = bubbleTexture(p.userData.title || '', p.userData.body || '', 1024, 700, p.userData.scroll || 0);
+  p.material.map = reading ? p.userData.readingTex : bubble ? p.userData.bubbleTex : stark ? p.userData.hologram : p.userData.cardboard;
+  p.material.transparent = (stark || bubble) && !reading;
+  p.material.depthWrite = !(stark || bubble) || reading;
   p.material.needsUpdate = true;
 }
 function lookFor(p, stark) {
+  p.userData.lookMode = stark ? 'stark' : 'sunnyvale';
   if (p.userData.kind && !['browser', 'browser-keyboard'].includes(p.userData.kind)) return;
   {
     if (p.userData.closeButton) {
       p.userData.closeButton.material.map = stark ? glowXTex : burnTex;
       p.userData.closeButton.material.blending = stark ? THREE.AdditiveBlending : THREE.NormalBlending;
       p.userData.closeButton.material.needsUpdate = true;
+      swapIcon(p.userData.closeButton.material);                         // bubble look: straight to the glass X
     }
     windowLook(p, stark);
     if (p.userData.kind) return;
@@ -3307,7 +3785,7 @@ scene.traverse(o => { if (o.isMesh && !o.material.isMeshBasicMaterial) { o.castS
 window.studyDebug.claudeTool = runClaudeTool;   // for testing Claude's windows on the computer
 
 // Commands from the user's Claude (through the Claude connector on the PC bridge)
-const CONNECTOR_TOOLS = new Set(['open_window', 'update_window', 'close_window', 'add_note', 'create_mind_map', 'create_timeline', 'make_flashcards', 'clear_desk']);
+const CONNECTOR_TOOLS = new Set(['open_window', 'update_window', 'close_window', 'add_note', 'create_mind_map', 'create_timeline', 'make_flashcards', 'clear_desk', 'delete_stashed', 'recent_gestures', 'gesture_tutorial']);
 let claudeWorkingAt = -1e9;
 function runWorldTool(name, input) {
   claudeWorkingAt = performance.now();
@@ -3317,11 +3795,38 @@ function runWorldTool(name, input) {
       type: p.userData.kind || 'window',
       title: p.userData.title || '',
       text: String(p.userData.body || '').slice(0, 800)
-    })).concat(stash.length ? [{ type: 'stash', text: stash.length + ' item(s) put away in the stash' }] : []));
+    })).concat(stash.length ? [{ type: 'stash', text: stash.length + ' item(s) put away in the stash',
+      items: stash.map(p => ({ id: p.userData.browserId ? 'browser:' + p.userData.browserId : (p.userData.id ||= 'w' + (++claude.windowCount)), type: p.userData.kind || 'window', title: p.userData.title || '' })) }] : []));
+  }
+  if (name === 'recent_gestures') {
+    const n = Math.max(1, Math.min(60, +input?.count || 30));
+    return JSON.stringify({ events: gestureLog.slice(-n), tutorial: tutorialState(),
+      how_each_gesture_works: Object.fromEntries(Object.entries(GESTURES).map(([k, v]) => [k, v.how])),
+      note: 'outcome: started / done / ignored (detail says why an attempt was ignored). Times are UTC.' });
+  }
+  if (name === 'gesture_tutorial') {
+    if (input?.stop) { stopGestureTutorial(); return JSON.stringify({ ok: true, stopped: true }); }
+    return JSON.stringify(startGestureTutorial(input?.gesture || 'all'));
+  }
+  if (name === 'delete_stashed') {
+    // Permanently delete stashed items (by id or title), or all of them with all: true
+    const idOf = p => p.userData.browserId ? 'browser:' + p.userData.browserId : p.userData.id;
+    const want = String(input?.id ?? '').trim();
+    let targets = input?.all ? [...stash] : stash.filter(p => want && want === idOf(p));
+    if (!targets.length && want) {                       // by title only when exactly one item has that title
+      const byTitle = stash.filter(p => want.toLowerCase() === String(p.userData.title || '').toLowerCase());
+      if (byTitle.length > 1) return JSON.stringify({ ok: false, error: 'Several stashed items have that title. Use one of these ids.', candidates: byTitle.map(p => ({ id: idOf(p), title: p.userData.title || '' })) });
+      targets = byTitle;
+    }
+    if (!targets.length) return JSON.stringify({ ok: false, error: 'Nothing in the stash matches. list_windows shows the stashed items with their ids.' });
+    const titles = targets.map(p => p.userData.title || p.userData.kind || 'Window');
+    for (const p of targets) deleteStashed(p);
+    return JSON.stringify({ ok: true, deleted: titles });
   }
   if (name === 'show_message') {
-    hudMessage.lines = ['J.A.R.V.I.S.', ...(input.lines || []).slice(0, 3).map(String)]; hudMessage.t = 0; hud.visible = true;
-    return 'Shown.';
+    const lines = ['J.A.R.V.I.S.', ...(input.lines || []).slice(0, 3).map(String)];
+    showHud(lines, input.seconds);
+    return `Shown for ${Math.round(hudMessage.hold)} s.`;
   }
   if (name === 'list_study_tools') return JSON.stringify({ tools: [...CONNECTOR_TOOLS, ...Object.keys(thesisTools.tools)],
     how_to_use_newer_tools: thesisTools.help, note: 'Call any of these with use_study_tool({ name, input }).' });
@@ -3368,14 +3873,16 @@ thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touch
     const voice = browserBridge?.claudeVoice?.() || {};
     return { offline: !!browserBridge?.wanted && !browserBridge.isReady(),
       listening: voice.listening || claude.state === 'listening', speaking: voice.speaking || claude.state === 'speaking' || !!window.speechSynthesis?.speaking,
-      working: claude.state === 'thinking' || performance.now() - claudeWorkingAt < 2500 };
+      working: claude.state === 'thinking' || performance.now() - claudeWorkingAt < 2500,
+      level: voice.speaking ? voice.level : undefined };
   },
 });
 // Safety net: your study work is backed up to the PC (Google Drive) through the bridge
 window.studyDebug.backup = installBackup({ bridge: () => browserBridge, jarvisSay });
 window.studyDebug.thesis = thesisTools;
 window.studyDebug.worldTool = runWorldTool;
-window.studyDebug.gestures = { detectFlick, detectGroupMove, detectBeckon, isFist, isOpenHand, fingerReach, palmFacesViewer, groupWindows, toggleLink, stash };
+window.studyDebug.style = { setLook, bubbleLook };
+window.studyDebug.gestures = { logGesture, gestureLog, startGestureTutorial, tutorialState, detectFlick, detectGroupMove, detectBeckon, updateGroupLook, groupGlows, isFist, isOpenHand, fingerReach, palmFacesViewer, groupWindows, toggleLink, stash };
 window.studyDebug.menu = { menu, buttonRow, categories, toggleCategory, closeCategory, breakServices, syncBreakMenu, updateMenu, get openCategory() { return openCategory; } };
 {
   const saved = readJSON(DESK_KEY, null);
@@ -3424,7 +3931,8 @@ renderer.setAnimationLoop(window.studyDebug.animate = () => {
   updatePanels(dt);
   updateTransition(dt);
   if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
-  renderer.render(scene, camera);
+  applyBob(t);
+  try { renderer.render(scene, camera); } finally { removeBob(); }
 });
 </script>
 </body>

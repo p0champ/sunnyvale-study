@@ -19,7 +19,7 @@ export function installThesisTools(ctx) {
   const today = () => now().toISOString().slice(0, 10);
   const uid = p => p + Math.random().toString(36).slice(2, 8);
   const clampText = (t, n) => String(t ?? '').slice(0, n);
-  const fmtTime = t => { t = Math.max(0, t || 0); const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; };
+  const fmtTime = t => { t = Math.max(0, t || 0); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = Math.floor(t % 60); return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`; };
 
   // ---------------------------------------------------------------- storage
   const DB = (() => {
@@ -964,7 +964,7 @@ export function installThesisTools(ctx) {
   orbGlow.position.z = -0.01; orbGlow.scale.setScalar(0.13); orbGlow.material.opacity = 0.4; orb.add(orbGlow);
   const spark = new THREE.Group(); orb.add(spark);
   // Each ray is an even, round-ended stroke (like the strokes of the logo); its length changes with Claude's mood
-  const RAY_W = 0.0085;
+  const RAY_W = 0.011;
   function rayGeometry(length) {
     const r = RAY_W / 2, shape = new THREE.Shape();
     shape.moveTo(-r, r); shape.lineTo(-r, length - r); shape.absarc(0, length - r, r, Math.PI, 0, true);
@@ -1041,7 +1041,8 @@ export function installThesisTools(ctx) {
     // Offline (the PC bridge is unreachable, so Claude's tools can't reach the world): grey and still
     const mood = st.offline ? 'offline' : st.speaking ? 'speaking' : st.listening ? 'listening' : st.working ? 'working' : 'waiting';
     orbState.mood = mood;
-    const spin = { offline: 0, waiting: 0.25, listening: 0.35, speaking: 0.5, working: 2.4 }[mood];
+    // Moods are made to read clearly from 2 m away (21 Oct: "the avatar barely reacts")
+    const spin = { offline: 0, waiting: 0.3, listening: 0.06, speaking: 0.45, working: 2.6 }[mood];   // listening holds almost still
     spark.rotation.z -= dt * spin;
     const pointing = !!orbState.anchor;
     let nearest = -1;
@@ -1051,26 +1052,40 @@ export function installThesisTools(ctx) {
       let best = Infinity;
       rays.forEach((r, i) => { const d = Math.abs(Math.atan2(Math.sin(r.angle - aim), Math.cos(r.angle - aim))); if (d < best) { best = d; nearest = i; } });
     }
-    const voice = 0.6 + 0.4 * Math.sin(t * 3.1);
+    // Speaking follows the real loudness of Claude's voice (0-1) when it's known
+    const level = st.level ?? (0.6 + 0.4 * Math.sin(t * 3.1));
+    // a voice envelope: rises in ~60 ms, falls over ~250 ms, so it pulses with words, not every syllable
+    const prev = orbState.level || 0; orbState.level = prev + (level - prev) * Math.min(1, dt / (level > prev ? 0.06 : 0.25));
+    const lv = orbState.level;
+    // The whole spark grows and breathes with the mood
+    const size = mood === 'offline' ? 0.85
+      : mood === 'listening' ? 1.2 + 0.12 * Math.sin(t * 2.4)                     // slow, deep breathing
+      : mood === 'speaking' ? 1.12 + 0.3 * lv                                        // swells with each word
+      : mood === 'working' ? 1.1 + 0.05 * Math.sin(t * 12)
+      : 1 + 0.04 * Math.sin(t * 1.5);
+    orbState.size = (orbState.size || 1) + (size - (orbState.size || 1)) * Math.min(1, dt * (mood === 'speaking' ? 10 : 5));
+    spark.scale.setScalar(orbState.size);
     rays.forEach((r, i) => {
       let k = 1;
-      if (mood === 'waiting') k = 1 + 0.06 * Math.sin(t * 1.5);
-      else if (mood === 'listening') k = 1.15 + 0.13 * Math.sin(t * 6 - i * 0.52);
-      else if (mood === 'speaking') k = 1 + 0.3 * Math.abs(Math.sin(t * 9 + i * 1.7)) * voice;
-      else if (mood === 'working') k = 1 + 0.08 * Math.sin(t * 4 + i);
-      else if (mood === 'offline') k = 0.7;
-      if (i === nearest) k = Math.max(k, 1.8);
-      r.now += (k - r.now) * Math.min(1, dt * 10);
+      if (mood === 'waiting') k = 1 + 0.08 * Math.sin(t * 1.5 + i * 0.5);
+      else if (mood === 'listening') k = 1.2 + 0.25 * Math.sin(t * 2.4 - i * 0.52);   // a wave travels round the rays
+      else if (mood === 'speaking') k = 0.95 + lv * (0.45 + 0.25 * Math.abs(Math.sin(t * 5 + i * 1.7)));
+      else if (mood === 'working') k = 1 + 0.18 * Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 4)) ** 2;
+      else if (mood === 'offline') k = 0.6;
+      if (i === nearest) k = Math.max(k, 2.6);
+      r.now += (k - r.now) * Math.min(1, dt * 14);
       r.mesh.scale.y = r.now;
-      // Working: a light runs round the rays
-      const glow = mood === 'working' ? Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 7)) ** 4 : i === nearest ? 0.6 : 0;
+      // Working: a bright light runs round the rays; speaking: rays light up with the voice
+      const glow = mood === 'working' ? Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 4)) ** 3
+        : mood === 'speaking' ? lv * 0.7 : mood === 'listening' ? 0.25 + 0.25 * Math.sin(t * 2.4 - i * 0.52) : i === nearest ? 0.8 : 0;
       if (mood === 'offline') r.mesh.material.color.copy(GREY); else r.mesh.material.color.copy(CORAL).lerp(BRIGHT, glow);
     });
-    sparkCore.material.color.copy(mood === 'offline' ? GREY : CORAL);
+    sparkCore.material.color.copy(mood === 'offline' ? GREY : CORAL).lerp(BRIGHT, mood === 'speaking' ? lv * 0.8 : 0);
+    // Listening: rings ripple outwards (like sound coming in)
     listenRing.visible = mood === 'listening';
-    if (listenRing.visible) { const s = 1 + 0.08 * Math.sin(t * 6); listenRing.scale.setScalar(s); listenRing.material.opacity = 0.5 + 0.4 * Math.sin(t * 6); }
-    orbGlow.material.opacity = mood === 'offline' ? 0 : (mood === 'waiting' ? 0.25 : 0.45) + Math.sin(t * 2.2) * 0.08;
-    orbGlow.scale.setScalar(mood === 'speaking' ? 0.13 + 0.02 * voice : 0.13);
+    if (listenRing.visible) { const ph = (t * 0.7) % 1; listenRing.scale.setScalar(0.9 + ph * 1.1); listenRing.material.opacity = 0.9 * (1 - ph); }
+    orbGlow.material.opacity = mood === 'offline' ? 0 : mood === 'speaking' ? 0.5 + 0.3 * lv : mood === 'working' ? 0.55 + 0.1 * Math.sin(t * 5) : mood === 'listening' ? 0.5 + 0.15 * Math.sin(t * 2.4) : 0.25 + Math.sin(t * 2.2) * 0.06;
+    orbGlow.scale.setScalar(0.15 * orbState.size * (mood === 'speaking' ? 1 + 0.2 * lv : mood === 'working' ? 1.15 : 1));
     beam.visible = pointing;
     if (pointing) { const a = beamGeo.attributes.position; a.setXYZ(0, orb.position.x, orb.position.y, orb.position.z); a.setXYZ(1, orbState.pointAt.x, orbState.pointAt.y, orbState.pointAt.z); a.needsUpdate = true; beam.material.opacity = 0.5 + Math.sin(t * 10) * 0.3; }
     const pu = orbState.pulse;
@@ -1321,36 +1336,294 @@ export function installThesisTools(ctx) {
     return { image: data, text: JSON.stringify({ frame_id: rec.id, caption: rec.caption, film: rec.source, time: rec.time }) };
   }
 
-  // ================================================================ PROPAGANDA CHECKLIST (the same questions for every scene)
+  // ================================================================ PROPAGANDA ANALYZER (was a plain checklist window)
+  // Every scene is scored 0-5 on five questions, each score backed by evidence (a timestamp, a frame grab or a
+  // quote) and paired with the strongest counter-reading. The board shows a radar of the film's averages, a
+  // heat strip across the film's running time (where the propaganda is strongest), one scene in detail
+  // (tap the dots to change a score by hand), and two or three films compared on one radar. EXPORT writes the
+  // analysis into the thesis with a citation and saves the quotes to the quote list.
   const CHECKLIST = [
-    ['enemy', 'How is the enemy shown?'],
-    ['music', 'What does the music do?'],
-    ['military', 'Military cooperation in the credits?'],
-    ['framing', 'Which heroic framing is used?'],
-    ['message', 'What does the scene want you to feel or believe?'],
+    ['enemy', 'Enemy', 'How is the enemy shown?'],
+    ['music', 'Music', 'What does the music do?'],
+    ['military', 'Military', 'Military cooperation (credits, hardware, advisers)?'],
+    ['framing', 'Framing', 'Which heroic framing is used?'],
+    ['message', 'Message', 'What should the viewer feel or believe?'],
   ];
+  const CAT_COLORS = ['#ff7a59', '#ffc35a', '#8fd16a', '#5ab8ff', '#c792ff'];
+  const FILM_COLORS = ['#ff8a5c', '#5ab8ff', '#9be27a'];
   const checklists = () => readJSON('sunnyvale.checklists', []);
-  function checklistText(film) {
-    const rows = checklists().filter(c => !film || c.film.toLowerCase() === film.toLowerCase());
-    if (!rows.length) return 'No scenes checked yet. Ask Claude to fill in the checklist for a scene.\n\n' + CHECKLIST.map(([, q]) => '• ' + q).join('\n');
-    return rows.map(c => `${c.film.toUpperCase()}: ${c.scene}${c.time !== undefined ? ' (' + fmtTime(c.time) + ')' : ''}\n` +
-      CHECKLIST.map(([k, q]) => `  ${q} ${c.answers[k] || '—'}`).join('\n')).join('\n\n');
+  const scoreOf = (row, k) => Number.isFinite(+row.scores?.[k]) ? Math.max(0, Math.min(5, +row.scores[k])) : null;
+  const totalOf = row => CHECKLIST.reduce((a, [k]) => a + (scoreOf(row, k) ?? 0), 0);
+  const isScored = row => CHECKLIST.some(([k]) => scoreOf(row, k) !== null);   // rows saved before scores existed have none
+  const filmsList = () => [...new Set(checklists().map(c => c.film))];
+  const scenesOf = film => checklists().filter(c => c.film.toLowerCase() === String(film || '').toLowerCase())
+    .sort((a, b) => (a.time ?? 1e9) - (b.time ?? 1e9) || a.added - b.added);
+  function averages(film) {
+    const rows = scenesOf(film).filter(isScored);
+    return CHECKLIST.map(([k]) => { const v = rows.map(r => scoreOf(r, k)).filter(x => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; });
   }
-  function openChecklist(film) {
-    let w = findWindow('checklist');
-    const title = film ? `Propaganda checklist: ${film}` : 'Propaganda checklist';
-    if (!w) { w = openWindow(title, checklistText(film)); w.userData.id = 'checklist'; }
-    else setWindowContent(w, title, checklistText(film), { keepScroll: true });
-    return w;
+  function checklistText(film) {                              // plain text (for list_checklists / old callers)
+    const rows = film ? scenesOf(film) : checklists();
+    if (!rows.length) return 'No scenes analysed yet.';
+    return rows.map(c => `${c.film}: ${c.scene}${c.time !== undefined ? ' (' + fmtTime(c.time) + ')' : ''}  total ${totalOf(c)}/25\n` +
+      CHECKLIST.map(([k, name]) => `  ${name} ${scoreOf(c, k) ?? '-'}/5: ${c.answers?.[k] || '—'}${c.counter?.[k] ? '  [counter: ' + c.counter[k] + ']' : ''}`).join('\n')).join('\n\n');
   }
-  function fillChecklist({ film, scene, time, answers }) {
+  const board = { obj: null, view: 'film', film: '', films: [], scene: 0, hits: [] };
+  const BW = 0.96, BH = 0.6, PX = 1600, PY = 1000;
+  const toLocal = (px, py) => [(px / PX - 0.5) * BW, (0.5 - py / PY) * BH];
+  function boardHit(px, py, pw, ph, action) {                 // an invisible tap area over part of the drawing
+    const [x, y] = toLocal(px + pw / 2, py + ph / 2), w = pw / PX * BW, h = ph / PY * BH;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ visible: false }));
+    m.position.set(x, y, 0.004); board.group.add(m);
+    const entry = { mesh: m, w, h, owner: board.obj, action: () => { blip(1150, 0.05); action(); } };
+    touchables.push(entry); board.hits.push(entry);
+  }
+  function clearHits() {
+    for (const e of board.hits) { const i = touchables.indexOf(e); if (i >= 0) touchables.splice(i, 1); board.group.remove(e.mesh); e.mesh.geometry.dispose(); }
+    board.hits = [];
+  }
+  function radar(g, cx, cy, r, series) {                      // series: [{ values: [0..5 x5], color }]
+    g.save(); g.lineWidth = 2;
+    for (let ring = 1; ring <= 5; ring++) {
+      g.beginPath();
+      CHECKLIST.forEach((_, i) => { const a = -Math.PI / 2 + i / 5 * Math.PI * 2, rr = r * ring / 5; g[i ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); });
+      g.closePath(); g.strokeStyle = 'rgba(255,255,255,' + (ring === 5 ? 0.35 : 0.12) + ')'; g.stroke();
+    }
+    g.font = '600 30px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    CHECKLIST.forEach(([, name], i) => {
+      const a = -Math.PI / 2 + i / 5 * Math.PI * 2;
+      g.strokeStyle = 'rgba(255,255,255,0.15)'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); g.stroke();
+      g.fillStyle = CAT_COLORS[i]; g.fillText(name, cx + Math.cos(a) * (r + 52), cy + Math.sin(a) * (r + 34));
+    });
+    for (const s of series) {
+      g.beginPath();
+      s.values.forEach((v, i) => { const a = -Math.PI / 2 + i / 5 * Math.PI * 2, rr = r * v / 5; g[i ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); });
+      g.closePath(); g.fillStyle = s.color + '40'; g.fill(); g.strokeStyle = s.color; g.lineWidth = 4; g.stroke();
+      s.values.forEach((v, i) => { const a = -Math.PI / 2 + i / 5 * Math.PI * 2, rr = r * v / 5; g.beginPath(); g.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 7, 0, 7); g.fillStyle = s.color; g.fill(); });
+    }
+    g.restore();
+  }
+  const evidenceText = e => [e.time !== undefined && e.time !== null && e.time !== '' ? '⏱ ' + fmtTime(+e.time) : '', e.frame_id ? '🖼 frame' : '', e.quote ? '“' + String(e.quote).slice(0, 60) + (String(e.quote).length > 60 ? '…”' : '”') : '', e.note || ''].filter(Boolean).join('  ');
+  function paintBoard() {
+    if (!board.obj) return;
+    const { g, tex } = board.view$; clearHits();
+    g.clearRect(0, 0, PX, PY);
+    g.fillStyle = 'rgba(16,10,9,0.95)'; g.beginPath(); g.roundRect(4, 4, PX - 8, PY - 8, 36); g.fill();
+    g.strokeStyle = 'rgba(255,190,140,0.5)'; g.lineWidth = 3; g.stroke();
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#ffb08a'; g.font = '600 28px system-ui, sans-serif'; g.fillText('PROPAGANDA ANALYSIS', 48, 62);
+    const rows = scenesOf(board.film);
+    if (board.view === 'compare') {
+      const films = (board.films.length ? board.films : filmsList().slice(0, 3)).slice(0, 3);
+      g.fillStyle = '#fff1e6'; g.font = '600 46px system-ui, sans-serif'; g.fillText('Compare: ' + (films.join('  vs  ') || 'no films yet'), 48, 120, PX - 96);
+      radar(g, 470, 560, 300, films.map((f, i) => ({ values: averages(f), color: FILM_COLORS[i] })));
+      g.font = '600 30px system-ui, sans-serif';
+      films.forEach((f, i) => { g.fillStyle = FILM_COLORS[i]; g.fillRect(900, 220 + i * 54, 26, 26); g.fillStyle = '#fff1e6'; const n = scenesOf(f).filter(isScored).length; g.fillText(`${f}  (${n} scored scene${n === 1 ? '' : 's'})`, 942, 243 + i * 54, PX - 990); });
+      // table of averages
+      const ty = 420; g.font = '26px system-ui, sans-serif';
+      CHECKLIST.forEach(([, name], c) => {
+        g.fillStyle = CAT_COLORS[c]; g.fillText(name, 900, ty + c * 56);
+        films.forEach((f, i) => { g.fillStyle = FILM_COLORS[i]; g.fillText(averages(f)[c].toFixed(1), 1110 + i * 150, ty + c * 56); });
+      });
+      g.fillStyle = '#fff1e6'; g.font = '600 26px system-ui, sans-serif'; g.fillText('Total', 900, ty + 5 * 56 + 10);
+      films.forEach((f, i) => { g.fillStyle = FILM_COLORS[i]; g.fillText((averages(f).reduce((a, b) => a + b, 0)).toFixed(1) + '/25', 1110 + i * 150, ty + 5 * 56 + 10); });
+    } else if (board.view === 'scene' && rows.length) {
+      board.scene = Math.max(0, Math.min(rows.length - 1, board.scene));
+      const row = rows[board.scene];
+      g.fillStyle = '#fff1e6'; g.font = '600 44px system-ui, sans-serif';
+      g.fillText(`${row.film}: ${row.scene}`, 48, 120, PX - 380);
+      g.font = '28px system-ui, sans-serif'; g.fillStyle = 'rgba(255,240,225,0.7)';
+      g.fillText(`Scene ${board.scene + 1} of ${rows.length}${row.time !== undefined ? '  ·  ' + fmtTime(row.time) : ''}`, 48, 162);
+      g.textAlign = 'right'; g.fillStyle = '#ffb08a'; g.font = '700 54px system-ui, sans-serif'; const nScored = CHECKLIST.filter(([k]) => scoreOf(row, k) !== null).length;
+      g.fillText(!nScored ? 'not scored' : nScored === 5 ? `${totalOf(row)}/25` : `${totalOf(row)}/${nScored * 5} (${nScored} of 5)`, PX - 48, 130); g.textAlign = 'left';
+      CHECKLIST.forEach(([k, name, q], c) => {
+        const y = 200 + c * 150;
+        g.fillStyle = CAT_COLORS[c]; g.font = '600 32px system-ui, sans-serif'; g.fillText(name, 48, y + 36);
+        const sc = scoreOf(row, k);
+        for (let d = 0; d < 5; d++) {
+          g.beginPath(); g.arc(70 + d * 44, y + 78, 15, 0, 7);
+          if (sc !== null && d < sc) { g.fillStyle = CAT_COLORS[c]; g.fill(); } else { g.strokeStyle = CAT_COLORS[c] + 'aa'; g.lineWidth = 3; g.stroke(); }
+          const dd = d; boardHit(70 + d * 44 - 22, y + 56, 44, 44, () => setScore(row, k, sc === dd + 1 ? dd : dd + 1));
+        }
+        // up to 4 lines per question: the answer, then evidence, then the counter-reading (never squashed;
+        // cut lines end with an ellipsis)
+        const maxW = PX - 400, out = [];
+        g.font = '29px system-ui, sans-serif';
+        for (const l of wrap(g, row.answers?.[k] || q + '  (not answered yet)', maxW)) out.push(['29px system-ui, sans-serif', '#f3e3d3', l]);
+        const ev = (row.evidence?.[k] || []).map(evidenceText).join('   ');
+        if (ev) { g.font = '26px system-ui, sans-serif'; for (const l of wrap(g, ev, maxW)) out.push(['26px system-ui, sans-serif', '#ffd27a', l]); }
+        if (row.counter?.[k]) { g.font = 'italic 26px system-ui, sans-serif'; for (const l of wrap(g, 'Counter-reading: ' + row.counter[k], maxW)) out.push(['italic 26px system-ui, sans-serif', 'rgba(160,210,255,0.9)', l]); }
+        const room = 4, shown = out.slice(0, room);
+        if (out.length > room) shown[room - 1] = [...shown[room - 1].slice(0, 2), shown[room - 1][2].replace(/\s*\S*$/, '') + '…'];
+        shown.forEach(([font, color, l], n) => { g.font = font; g.fillStyle = color; g.fillText(l, 340, y + 30 + n * 32); });
+      });
+    } else {
+      board.view = 'film';
+      g.fillStyle = '#fff1e6'; g.font = '600 46px system-ui, sans-serif';
+      g.fillText(board.film || 'No film yet', 48, 120, PX - 96);
+      if (!rows.length) {
+        g.font = '30px system-ui, sans-serif'; g.fillStyle = '#f3e3d3';
+        wrap(g, 'No scenes analysed yet. Ask Claude: "analyse this scene for propaganda" while a clip plays. Each scene gets a 0-5 score per question, with evidence and a counter-reading.', PX - 140).forEach((l, n) => g.fillText(l, 48, 200 + n * 42));
+      } else {
+        const avg = averages(board.film), scored = rows.filter(isScored).length;
+        radar(g, 400, 520, 250, scored ? [{ values: avg, color: '#ff8a5c' }] : []);
+        const strongest = avg.indexOf(Math.max(...avg));
+        g.font = '30px system-ui, sans-serif'; g.fillStyle = 'rgba(255,240,225,0.8)';
+        g.fillText(`${rows.length} scene${rows.length === 1 ? '' : 's'}` + (scored ? ` · strongest: ${CHECKLIST[strongest][1]} (${avg[strongest].toFixed(1)}/5)` : ' · not scored yet (ask Claude to score them)'), 48, 170);
+        // Heat strip across the film: one column per scene (in running order), stacked by question
+        const x0 = 780, x1 = PX - 60, top = 250, colH = 420, n = rows.length, cw = Math.max(16, Math.min(110, (x1 - x0) / n));
+        g.font = '600 26px system-ui, sans-serif'; g.fillStyle = '#ffb08a'; g.fillText('WHERE IT IS STRONGEST (tap a scene)', x0, 225);
+        const every = Math.ceil(76 / cw);                                 // with many scenes, label every few columns
+        rows.slice(0, Math.floor((x1 - x0) / cw)).forEach((row, i) => {   // up to ~48 scenes fit; more are in the list below
+          const x = x0 + i * cw, scoredRow = isScored(row);
+          CHECKLIST.forEach(([k], c) => {
+            const v = scoreOf(row, k);
+            g.fillStyle = scoredRow && v !== null ? CAT_COLORS[c] : '#777'; g.globalAlpha = scoredRow && v !== null ? 0.15 + 0.85 * v / 5 : 0.18;
+            g.fillRect(x + 3, top + c * (colH / 5) + 3, cw - 6, colH / 5 - 6);
+          });
+          g.globalAlpha = 1;
+          if (i % every === 0) {
+            g.fillStyle = '#fff1e6'; g.font = '600 28px system-ui, sans-serif'; g.textAlign = 'center';
+            g.fillText(scoredRow ? String(totalOf(row)) : '–', x + cw / 2, top + colH + 36);
+            g.font = '24px system-ui, sans-serif'; g.fillStyle = 'rgba(255,240,225,0.65)';
+            g.fillText(row.time !== undefined ? fmtTime(row.time) : '#' + (i + 1), x + cw / 2, top + colH + 66);
+          }
+          g.textAlign = 'left';
+          boardHit(x, top, cw, colH + 70, () => { board.view = 'scene'; board.scene = i; paintBoard(); });
+        });
+        // the three strongest scenes
+        const best = rows.filter(isScored).map((r, i) => [r, i]).sort((a, b) => totalOf(b[0]) - totalOf(a[0])).slice(0, 3);
+        g.font = '28px system-ui, sans-serif';
+        best.forEach(([r], n) => { g.fillStyle = '#f3e3d3'; g.fillText(`${n + 1}. ${r.scene} (${totalOf(r)}/25)`, x0, top + colH + 130 + n * 36, x1 - x0); });
+      }
+    }
+    tex.needsUpdate = true;
+  }
+  function setScore(row, k, v) {
+    const all = checklists(), r = all.find(c => c.film === row.film && c.scene === row.scene);
+    if (!r) return;
+    (r.scores ||= {})[k] = Math.max(0, Math.min(5, v));
+    writeJSON('sunnyvale.checklists', all); paintBoard();
+  }
+  function openChecklist(film, view, films, scene) {
+    if (film) board.film = film; else if (!board.film) board.film = filmsList().at(-1) || '';
+    if (view) board.view = view;
+    if (films) board.films = films;
+    if (Number.isFinite(+scene)) board.scene = +scene;
+    else if (typeof scene === 'string') { const i = scenesOf(board.film).findIndex(r => r.scene.toLowerCase() === scene.toLowerCase()); if (i >= 0) board.scene = i; }
+    if (!board.obj) {
+      const old = findWindow('checklist'); if (old) closeWindow(old);   // an old plain-text checklist window
+      board.group = new THREE.Group();
+      board.view$ = canvasPanel(BW, BH, PX, PY); board.group.add(board.view$.mesh);
+      board.obj = makeHoloObject(board.group, BW + 0.02, BH + 0.1, 'Propaganda analysis', 'propaganda');
+      board.obj.userData.id = 'checklist';
+      board.obj.userData.save = () => ({ type: 'propaganda', film: board.film, view: board.view, films: board.films, scene: board.scene });
+      board.obj.userData.onClose = () => { clearHits(); board.obj = null; };
+      const by = -BH / 2 - 0.03;
+      addButton(board.group, 'FILM', -0.38, by, 0.13, () => { board.view = 'film'; paintBoard(); }, { owner: board.obj });
+      addButton(board.group, 'SCENE', -0.23, by, 0.13, () => { board.view = 'scene'; paintBoard(); }, { owner: board.obj });
+      addButton(board.group, 'COMPARE', -0.07, by, 0.15, () => { board.view = 'compare'; paintBoard(); }, { owner: board.obj });
+      addButton(board.group, '◀', 0.08, by, 0.07, () => { if (board.view === 'scene') board.scene--; else cycleFilm(-1); paintBoard(); }, { owner: board.obj });
+      addButton(board.group, '▶', 0.16, by, 0.07, () => { if (board.view === 'scene') board.scene++; else cycleFilm(1); paintBoard(); }, { owner: board.obj });
+      // EXPORT asks once ("SURE?") before writing into the thesis
+      let exportAsk = 0;
+      const exportBtn = addButton(board.group, 'EXPORT', 0.33, by, 0.15, () => {
+        if (performance.now() - exportAsk > 3000) { exportAsk = performance.now(); relabel(exportBtn, 'SURE?', { fill: 'rgba(150,40,20,0.85)', color: '#fff' }); setTimeout(() => relabel(exportBtn, 'EXPORT'), 3000); return; }
+        exportAsk = 0; relabel(exportBtn, 'EXPORT');
+        try { exportChecklist({ film: board.film, scene: board.view === 'scene' ? board.scene : undefined }); } catch (e) { jarvisSay('', ['J.A.R.V.I.S.', String(e.message).toUpperCase().slice(0, 40)]); }
+      }, { owner: board.obj });
+      show(board.obj, 0.95, 0);
+    } else if (!panels.includes(board.obj) || !board.obj.visible) reveal(board.obj);       // stashed or hidden: bring it back
+    paintBoard();
+    return board.obj;
+  }
+  function cycleFilm(step) {
+    const list = filmsList(); if (!list.length) return;
+    const i = list.findIndex(f => f.toLowerCase() === board.film.toLowerCase());
+    board.film = list[(i + step + list.length) % list.length]; board.scene = 0;
+  }
+  restorers.propaganda = item => openChecklist(item.film, item.view, item.films, item.scene);
+  function fillChecklist({ film, scene, time, answers, scores, evidence, counter }) {
     const all = checklists();
-    const a = {}; for (const [k] of CHECKLIST) if (answers?.[k]) a[k] = clampText(answers[k], 600);
-    const row = { film: clampText(film || filmOf(), 120), scene: clampText(scene, 200), time: Number.isFinite(+time) ? +time : undefined, answers: a, added: Date.now() };
-    const same = all.findIndex(c => c.film === row.film && c.scene === row.scene);
-    if (same >= 0) all[same] = { ...all[same], ...row, answers: { ...all[same].answers, ...a } }; else all.push(row);
+    const pick = (obj, f) => { const o = {}; for (const [k] of CHECKLIST) if (obj?.[k] !== undefined && obj[k] !== null && obj[k] !== '') o[k] = f(obj[k]); return o; };
+    const a = pick(answers, v => clampText(v, 600)), s = pick(scores, v => Math.max(0, Math.min(5, Math.round(+v) || 0)));
+    const c = pick(counter, v => clampText(v, 400));
+    const ev = pick(evidence, list => [].concat(list).slice(0, 4).map(e => ({ time: Number.isFinite(+e?.time) ? +e.time : undefined, frame_id: e?.frame_id ? String(e.frame_id).slice(0, 80) : undefined, quote: e?.quote ? clampText(e.quote, 400) : undefined, note: e?.note ? clampText(e.note, 160) : undefined })));
+    const row = { film: clampText(film || filmOf(), 120), scene: clampText(scene, 200), time: Number.isFinite(+time) ? +time : undefined, answers: a, scores: s, evidence: ev, counter: c, added: Date.now() };
+    const same = all.findIndex(x => x.film === row.film && x.scene === row.scene);
+    if (same >= 0) { const o = all[same]; all[same] = { ...o, time: row.time ?? o.time, answers: { ...o.answers, ...a }, scores: { ...o.scores, ...s }, evidence: { ...o.evidence, ...ev }, counter: { ...o.counter, ...c } }; }
+    else all.push(row);
     writeJSON('sunnyvale.checklists', all);
-    return openChecklist(row.film);
+    const idx = scenesOf(row.film).findIndex(x => x.scene === row.scene);
+    return openChecklist(row.film, 'scene', undefined, idx);
+  }
+  // Write a finished analysis into the thesis (with an in-text citation when the film is in the sources),
+  // and save each quoted piece of evidence to the quote list.
+  function exportChecklist({ film, scene, again = false }) {
+    film = film || board.film;
+    const rows = scenesOf(film);
+    if (!rows.length) throw Error('Nothing analysed for that film yet.');
+    const src = store.sources().find(s => s.title && s.title.toLowerCase() === film.toLowerCase());
+    const cite = src ? ' ' + inText(src) : '';
+    let picked = rows;
+    if (scene !== undefined && scene !== null && scene !== '') {
+      const i = Number.isFinite(+scene) ? +scene : rows.findIndex(r => r.scene.toLowerCase() === String(scene).toLowerCase());
+      if (!rows[i]) throw Error('No scene like that for this film.');
+      picked = [rows[i]];
+    }
+    // Each analysis paragraph remembers which scene it describes (para.analysis = film|scene). Exporting
+    // again REPLACES that paragraph in place (after a rescore the thesis never holds two versions), and an
+    // unchanged paragraph is left alone. Quotes are saved separately, each once. again: true appends anyway.
+    const sentence = t => { t = String(t).trim(); return /[.!?…]["”']?$/.test(t) ? t : t + '.'; };
+    const keyOf = r => 'scene|' + r.film.toLowerCase() + '|' + r.scene.toLowerCase();
+    let quotes = 0;
+    const known = new Set(store.quotes().map(q => q.text));
+    for (const r of picked) for (const [k] of CHECKLIST) for (const e of r.evidence?.[k] || []) if (e.quote && !known.has(e.quote)) {
+      addQuote({ text: e.quote, sourceId: src?.id, note: `${film}, ${r.scene}${e.time !== undefined ? ' at ' + fmtTime(e.time) : ''}` }, true); known.add(e.quote); quotes++;
+    }
+    const scoreLine = r => {
+      const scored = CHECKLIST.map(([k]) => scoreOf(r, k)).filter(v => v !== null);
+      if (!scored.length) return '';
+      return scored.length === 5 ? `scores ${totalOf(r)} out of 25 on the propaganda checklist. `
+        : `scores ${totalOf(r)} out of ${scored.length * 5} on the ${scored.length} checklist questions scored so far. `;
+    };
+    const texts = picked.map(r => {
+      const parts = CHECKLIST.filter(([k]) => r.answers?.[k] || scoreOf(r, k) !== null).map(([k, name]) =>
+        sentence(`${name}${scoreOf(r, k) !== null ? ` (${scoreOf(r, k)}/5)` : ''}${r.answers?.[k] ? ': ' + r.answers[k] : ''}`) + (r.counter?.[k] ? ' ' + sentence(`A counter-reading: ${r.counter[k]}`) : ''));
+      const where = `In ${film}${cite}, the scene "${r.scene}"${r.time !== undefined ? ` (${fmtTime(r.time)})` : ''}`;
+      const line = scoreLine(r);
+      return [keyOf(r), (line ? `${where} ${line}` : `${where}: `) + parts.join(' ')];
+    });
+    const scoredRows = rows.filter(isScored);
+    const summaryKey = 'summary|' + film.toLowerCase();
+    if (scoredRows.length && (picked.length > 1 || thesis.paras.some(x => x.analysis === summaryKey))) {
+      const avg = averages(film), strongest = avg.indexOf(Math.max(...avg));
+      texts.unshift([summaryKey, `Across ${scoredRows.length} scored scene${scoredRows.length === 1 ? '' : 's'} of ${film}${cite}, the strongest propaganda device is ${CHECKLIST[strongest][1].toLowerCase()} (average ${avg[strongest].toFixed(1)} out of 5).`]);
+    }
+    let added = 0, replaced = 0, unchanged = 0, kept = 0, snapshotted = false;
+    const snap = () => { if (!snapshotted) { snapshotThesis(); snapshotted = true; } };   // one undo step for the whole export
+    for (const [key, text] of texts) {
+      if (again) { snap(); thesis.paras.push({ text, heading: false }); added++; continue; }   // an extra, untagged copy
+      const at = thesis.paras.findIndex(x => x.analysis === key);
+      if (at >= 0 && thesis.paras[at].text === text) { unchanged++; continue; }
+      snap();
+      if (at >= 0 && thesis.paras[at].analysisText !== undefined && thesis.paras[at].text !== thesis.paras[at].analysisText) {
+        // you rewrote that paragraph yourself: keep your version, and put the updated analysis right after it
+        delete thesis.paras[at].analysis; delete thesis.paras[at].analysisText;
+        thesis.paras.splice(at + 1, 0, { text, heading: false, analysis: key, analysisText: text }); kept++; added++;
+      } else if (at >= 0) { Object.assign(thesis.paras[at], { text, analysisText: text }); replaced++; }
+      else { thesis.paras.push({ text, heading: false, analysis: key, analysisText: text }); added++; }
+    }
+    if (snapshotted) { saveThesis(); if (!doc) openThesis(); else paintThesis(); }
+    if (!added && !replaced) {
+      jarvisSay('', ['J.A.R.V.I.S.', 'ALREADY IN THE THESIS', quotes ? `+${quotes} QUOTE${quotes === 1 ? '' : 'S'} SAVED` : 'NOTHING CHANGED']);
+      return { ok: true, added: 0, replaced: 0, unchanged, quotes_saved: quotes, note: 'The thesis already has this analysis, unchanged.' };
+    }
+    // the thesis opens beside the board, not on top of it
+    const th = findWindow('thesis');
+    if (th && board.obj?.visible) { const right = v3().set(1, 0, 0).applyQuaternion(board.obj.quaternion); th.position.copy(board.obj.position).addScaledVector(right, (BW + 0.9) / 2 + 0.06); th.quaternion.copy(board.obj.quaternion); th.userData.popIn = undefined; markDirty(); }
+    jarvisSay('', ['J.A.R.V.I.S.', added && replaced ? `THESIS: +${added}, ${replaced} UPDATED` : added ? `THESIS: +${added} PARAGRAPH${added === 1 ? '' : 'S'}` : `THESIS: ${replaced} UPDATED`, quotes ? `+${quotes} QUOTE${quotes === 1 ? '' : 'S'}` : (src ? 'WITH CITATION' : 'NO CITATION YET')]);
+    return { ok: true, added, replaced, unchanged, kept_your_edits: kept, quotes_saved: quotes, cited: !!src, note: src ? undefined : 'The film is not in the sources yet, so there is no citation. add_source with kind "film" adds it.' };
   }
 
   // ================================================================ ARRANGE MY ROOM ("sources on the left, thesis in front")
@@ -1402,8 +1675,9 @@ export function installThesisTools(ctx) {
     open_shot_log: { description: 'Open the shot log window of a video or film.', input: { video: 'window id or film title, optional' } },
     list_shots: { description: 'List the logged shots of a film.', input: { video: 'window id or film title, optional' } },
     view_frame: { description: 'Look at a frame grab (returns the picture). Use the frame window id, or the frame_id from grab_frame.', input: { id: 'frame window id, optional', frame_id: 'string, optional' } },
-    fill_checklist: { description: 'Fill in the propaganda checklist for one scene: enemy (how is the enemy shown?), music (what does the music do?), military (military cooperation in the credits?), framing (which heroic framing is used?), message (what does the scene want the viewer to feel or believe?). Calling again for the same film and scene updates it.', input: { film: 'string', scene: 'string', time: 'seconds, optional', answers: '{ enemy, music, military, framing, message } (strings, any can be left out)' } },
-    open_checklist: { description: 'Open the propaganda checklist window (for one film, or all).', input: { film: 'string, optional' } },
+    fill_checklist: { description: 'Analyse one scene for propaganda. For each question (enemy: how is the enemy shown; music: what does the music do; military: military cooperation in credits/hardware; framing: which heroic framing; message: what the viewer should feel or believe) give answers (text), scores (0-5, how strongly the scene does it), evidence (a list per question of { time (seconds), frame_id, quote, note }) and counter (the strongest counter-reading). The same film and scene again updates it. Opens the analysis board on that scene.', input: { film: 'string', scene: 'string', time: 'seconds, optional', answers: '{ enemy, music, military, framing, message } (text)', scores: '{ same keys: 0-5 }', evidence: '{ same keys: [{ time, frame_id, quote, note }] }', counter: '{ same keys: text }' } },
+    open_checklist: { description: 'Open the propaganda analysis board: view film (radar + heat strip across the film), scene (one scene in detail) or compare (two or three films on one radar).', input: { film: 'string, optional', view: 'film | scene | compare', films: 'list of film titles for compare', scene: 'scene index or name, optional' } },
+    export_checklist: { description: 'Write the analysis into the thesis (one paragraph per scene, or a film summary plus every scene), with an in-text citation if the film is in the sources, and save quoted evidence to the quote list.', input: { film: 'string', scene: 'scene index or name, optional (leave out for the whole film)', again: 'true to write scenes that are already in the thesis again' } },
     list_checklists: { description: 'List every checked scene with its answers.', input: {} },
     arrange_windows: { description: `Move windows around the user. layout = list of { id, place } with place one of: ${Object.keys(PLACES).join(', ')}. Windows sharing a place stand side by side. Ids come from list_windows.`, input: { layout: '[{ id, place }]' } },
   };
@@ -1470,8 +1744,9 @@ export function installThesisTools(ctx) {
     list_shots: ({ video }) => JSON.stringify(shotLogs()[shotKey(filmOf(video))] || []),
     view_frame: input => viewFrame(input),
     fill_checklist: input => ok({ id: fillChecklist(input).userData.id }),
-    open_checklist: ({ film }) => ok({ id: openChecklist(film).userData.id }),
-    list_checklists: () => JSON.stringify(checklists()),
+    open_checklist: ({ film, view, films, scene }) => ok({ id: openChecklist(film, view, films, scene).userData.id }),
+    export_checklist: input => ok(exportChecklist(input || {})),
+    list_checklists: () => JSON.stringify(checklists().map(r => ({ ...r, total: totalOf(r) }))),
     arrange_windows: input => ok(arrangeWindows(input)),
   };
 

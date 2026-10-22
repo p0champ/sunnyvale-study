@@ -1,5 +1,78 @@
 # Sunnyvale Study: handover notes
 
+## NEWEST: Claude's recovered overnight work, branch `claude-features` (22 Oct 2026, early morning)
+
+**Nothing here is merged, deployed or activated.** Main is untouched, the real bridge was not restarted, and the voice deployment (`gpt-fixes`) is unchanged.
+
+- Branch `claude-features` sits on top of Codex's reviewed voice fix `gpt-fixes` a01bcee. The six voice files (browser-bridge.js, browser-media.js, browser-voice-link.js, bridge/server.mjs, bridge/voice-channel.mjs, backup.js) are byte-identical to a01bcee.
+- Changed files: index.html, thesis-tools.js, bridge/connector.mjs, bridge/tool-annotations.mjs, AESTHETIC_IDEAS.md.
+- Commits: be37387 (recovery onto gpt-fixes), 9a01a93 (review round 2 fixes), dcba350 (round 3 polish), plus the docs commit.
+
+**Recovery.** Claude's cloud workspace was still available, so the complete source of the earlier local commits (a7f84df, 37e8ef7, ebb253d, plus the last untested edits as a191a73) was recovered. This is the full source, not only the HTML, and it has now been tested and reviewed. `bridge/private/recovered-index.html` is superseded by this branch. Claude's older experimental voice code (its own `/bridge-audio` design) was NOT carried over; Codex's reviewed implementation is kept.
+
+**Codex details preserved:**
+- `beginSelect` / `endSelect` / `cancelSelect` select routing
+- `hit(raycaster, 0, state)`
+- the XR pointerdown guard
+- the speech-aware 3 s autosave guard
+- the voice-recovery cache versions for browser-bridge.js and backup.js
+
+**What is in the branch:**
+1. **Avatar.** Distinct moods: listening holds almost still with rippling rings; speaking swells with real playback level (60 ms attack, 250 ms release) from Codex's `claudeVoice()`; working is a slow chasing light; pointing stretches one ray; offline is grey.
+2. **HUD.** `show_message` takes `seconds`. The default is 2.5 s + 0.3 s/word, clamped to 4–20 s (`showHud`, `hudSeconds`).
+3. **Stash deletion.** Each item has a ✕, then a DELETE/KEEP question on the header line, which times out after 4 s.
+   - `delete_stashed` takes an exact id, or a title only when it is unique (otherwise it returns the candidates), or `all`.
+   - Deletion saves the desk at once (`saveDeskNow`), even while voice pauses the autosave, so a reload or reconnect doesn't bring items back.
+   - Restoring an OLDER backup on purpose brings back whatever was in that backup, including items deleted since. Reviewer note for Codex: a restore can be overwritten by the `pagehide` desk save before the reload. That is in backup.js/index.html from a01bcee and was not changed here.
+4. **Passthrough.** Three park poles were attached to `scene` instead of `park`. Now only study objects stay visible in Stark mode (verified by listing every visible object).
+5. **Fist group-move.**
+   - Smoothing: one-euro style for position, adaptive for turn.
+   - Feel: glide, a 3.5 % lift with a soft glow, then a settle.
+   - Release lands where the hand really was (the last 3 closed-fist frames, averaged), with no lift.
+   - No drift and no scale growth after repeated grabs (fake-hand tests: 0 mm / 0°).
+   - It won't grab a window held by the other hand.
+6. **Gestures.**
+   - `logGesture` records started / done / ignored-with-reason. `recent_gestures` returns the last events plus tutorial progress.
+   - Near-misses are logged only while the coach teaches that gesture, or for a clear flick attempt at a pointed window.
+   - `gesture_tutorial` opens a coach card: an animated drawing (12 fps), a hint, a "Nice!" confirmation, then the next gesture.
+   - Browser pinch protections are untouched.
+7. **Propaganda Analyzer** (replaces the plain checklist).
+   - Each scene gets 0–5 scores on five questions, plus evidence (time, frame, quote) and a counter-reading.
+   - Board views: film (radar and heat strip), scene (tap the dots to rescore), compare.
+   - EXPORT asks "SURE?". Each analysis paragraph is tagged (`para.analysis`) and replaced in place on re-export, never duplicated. If the user rewrote a paragraph, their version is kept and the update goes right after it.
+   - Quotes are saved once each, and one export is one undo step.
+   - Legacy rows stay unscored. Partial scores read as "x/10 (2 of 5)".
+8. **Soft Claude spark.** Twelve straight, round-ended rays in #d97757 for the bottle label and the Stark orb (normal blending, separate glow sprite).
+9. **Bubble look: prepared, OFF by default** (`lookSetting` defaults to 'classic'; WORLD › LOOK switches).
+   - Solid dark-glass windows with a soft rim.
+   - Glass icons via `BUBBLE_OF` / `CLASSIC_OF` / `swapIcon`, with blending taken from the icon.
+   - In XR, buttons shrink until a fingertip is within 17 cm of the button column or a pointer aims beside them (0.4 s hold).
+   - A float of about 8 mm, applied only around `renderer.render`, with matrices restored.
+   - Only the visible texture is drawn on each update.
+10. **AESTHETIC_IDEAS.md:** 30 ideas, top 5 first. Suggestions only.
+
+**Tests and review.** In Claude's cloud sandbox, 11 suites pass:
+- test-media, test-study-utils, test-connector, test-scanner, test-connection-settings, test-browser-input, test-backup
+- test-voice-channel, test-voice-playback, test-voice-ordering, test-voice-network
+
+These suites must be run on the PC, because they hang in that sandbox even on untouched gpt-fixes:
+- test.mjs, test-http.mjs, test-extension.mjs, test-browser-input-ui.mjs
+- test-startup (Windows only)
+
+Independent reviewers, final scores:
+- Batch A (avatar, HUD, stash): 8
+- Batch B (functional): 7 → 8
+- Batch C (appearance): 6.5 → 8
+
+Round-3 polish followed the last review and was verified with targeted harness tests: export edge cases, fist drift, looks.
+
+**Deployment notes (important).**
+- F: `bridge/server.mjs` is d9221b6 plus Claude's early file watcher (uncommitted). The running bridge restarts itself about 3 s after any bridge .mjs file on F: changes, and that early version doesn't wait for a quiet moment. So checking out gpt-fixes or claude-features on F: WILL restart the live bridge. Do it only when the user is ready.
+- gpt-fixes / claude-features do not contain that watcher. The bridge then relies on Codex's Windows-login supervisor and the .bat loop.
+- Suggested order: (1) the user approves, and the voice deployment (gpt-fixes) goes live; (2) a Quest voice test; (3) only then merge claude-features (bubble stays off until the user picks it in WORLD › LOOK).
+
+**Pushing the branch.** Claude's sandbox can't push to GitHub, so the branch was delivered as a git bundle into the private folder: `F:\QuestStudySpace\bridge\private\claude-features.bundle`, with `Save Claude branch to GitHub.bat` next to it. The .bat only fetches the bundle into a local `claude-features` branch and pushes that branch. It doesn't touch main or the working tree.
+
 ## Current voice continuation (22 October 2026, branch only)
 
 Voice fixes are PC-ready on `gpt-fixes`; nothing is merged or deployed. Read VOICE_FIX_REPORT.md first. The complete PC suite passed 28/28; independent voice review reached 9/10 after three rounds. The real bridge, canonical F: code and Chrome sessions were left alone. Actual Quest listening confirmation is pending, so do not claim the reported cut-outs are 100% fixed yet.
