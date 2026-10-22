@@ -1,3 +1,13 @@
+# Current update: voice is PC-ready, not live yet
+
+The voice fixes passed all 28 PC tests and scored 9/10 in independent review. The stress test delivered every one of 95 generated audio packets with no playback gaps or dropped pieces while pictures and study builds were busy. See VOICE_FIX_REPORT.md for the precise test scope and limits. Actual Quest listening is still pending.
+
+Changes remain on gpt-fixes. Nothing new has been merged/deployed and the real bridge was not restarted. No new extension reload is needed beyond the published 0.4.5. Publication needs the user to lift the earlier no-main-merge restriction. Voice must be confirmed before moving on to the appearance work.
+
+Claude did build more in its separate workspace and updated its handover/report, but its final edits were untested and unpublished. The final HTML is recovered privately; the remaining batches have not been applied or certified in this continuation. Do not follow the obsolete setup instructions in the historical report below.
+
+---
+
 # Good morning! Here's what got built overnight ☕
 
 I worked through your whole list. Almost everything is built, tested on the PC, and live at your usual link. A few things can't be done from a web app, and I explain those at the bottom.

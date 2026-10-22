@@ -1,5 +1,16 @@
 # Sunnyvale Study: handover notes
 
+## Current voice continuation (22 October 2026, branch only)
+
+Voice fixes are PC-ready on `gpt-fixes`; nothing is merged or deployed. Read VOICE_FIX_REPORT.md first. The complete PC suite passed 28/28; independent voice review reached 9/10 after three rounds. The real bridge, canonical F: code and Chrome sessions were left alone. Actual Quest listening confirmation is pending, so do not claim the reported cut-outs are 100% fixed yet.
+
+The implementation adds a session-bound audio connection, ordered/acknowledged delivery and bounded replay, speech-based picture throttling across all windows, measured RTT pacing, playback catch-up without whole-queue flushes, deferred automatic backups/snapshots, and yielding between world builds. Sound OFF and closed tabs stay silent. Input waits for screenshot capture to finish, preserving the existing pinch fix. No additional extension update beyond published 0.4.5 is required.
+
+Claude's original cloud session was read successfully. Recorded commits a7f84df, 37e8ef7 and ebb253d exist only in that separate workspace; do not claim they are on GitHub. It successfully updated HANDOVER and MORNING_REPORT near the end, then made seven more untested index edits before the usage cutoff. The full final HTML was recovered from the viewer into private staging, but is NOT applied. Earlier claims that no tracking files were written were incomplete; the Windows/GitHub copies simply had not received them.
+
+The user's original voice-first stop instruction remains the phase gate: publish/activate only after resolving the existing no-main-merge restriction, then have the user test voice on Quest before continuing appearance work. Other overnight items remain pending reconciliation/review, not completed. Keep private recovery data out of Git. The faster same-Wi-Fi route in VOICE_FIX_REPORT is a proposal only.
+
+
 ## GPT fixes checkpoint (2026-10-21, branch only)
 
 Work is on `gpt-fixes`, based on main `3d76373`; it is NOT merged or deployed. Claude's Jarvis gesture section, link buttons and `studyDebug.gestures` were left unchanged. Do not restart the current bridge or connect a competing PC Sunnyvale page while the headset test is running.

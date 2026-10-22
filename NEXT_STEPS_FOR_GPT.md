@@ -1,3 +1,9 @@
+# Voice first: current continuation
+
+Read VOICE_FIX_REPORT.md and the newest HANDOVER checkpoint. Voice code is PC-tested (28/28), independently reviewed (9/10), and awaiting publication authorization under the earlier gpt-fixes-only rule. Do not deploy the recovered appearance source with this voice phase. No live bridge restart has occurred. After an authorized deployment, use one planned backend transition and one Quest refresh, then have the user confirm voice before resuming the other overnight work.
+
+The older checkpoint below is historical where it differs.
+
 # Current continuation (2026-10-21)
 
 Read the newest HANDOVER checkpoint and GPT_FIXES_REPORT.md first. The branch `gpt-fixes` is separate from main; no merge or deployment is authorized during Claude's gesture test.

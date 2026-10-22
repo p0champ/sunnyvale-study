@@ -1,6 +1,14 @@
+# Voice continuation: tested, awaiting publication
+
+The new voice transport/player is on gpt-fixes only. Read ../VOICE_FIX_REPORT.md for protocol, tests, 9/10 independent review, deployment prerequisites and the proposal for a future same-Wi-Fi route. All 28 PC tests pass. The latest published Chrome extension is already 0.4.5; no further extension change is part of this voice phase. No production bridge restart or competing PC frontend was used.
+
+The matching frontend announces audioProtocol:1 and receives a per-headset session key. /bridge-audio requires that key plus normal private pairing and the allowed origin. Sequence numbers and cumulative audio-ack control delivery over both transports; migration replays unacknowledged packets and the client orders/de-duplicates them. Legacy clients retain their existing main-stream audio path. Packet-window/memory limits explicitly reconnect stalled sessions; this cannot guarantee speech under arbitrary outages.
+
+Keep appearance work in staging until the user confirms voice. Earlier setup/history below is superseded where it conflicts with this checkpoint.
+
 # Current branch checkpoint
 
-`gpt-fixes` is not merged. See ../GPT_FIXES_REPORT.md and the newest ../HANDOVER.md. Real Chrome remains extension 0.4.4; no extension reload is needed. Current connector health/authentication and 73 tools passed. Browser pinch coalescing and stricter backup completion checks are branch changes, not live updates. The current bridge was started once only because it was down, using preserved recovery settings; next-login startup targets canonical F:. Do not restart it during the headset test.
+`gpt-fixes` is not merged. See ../GPT_FIXES_REPORT.md and the newest ../HANDOVER.md. Real Chrome remains at the published extension 0.4.5; no extension reload is needed. Current connector health/authentication and 73 tools passed. Browser pinch coalescing and stricter backup completion checks are branch changes, not live updates. The current bridge was started once only because it was down, using preserved recovery settings; next-login startup targets canonical F:. Do not restart it during the headset test.
 
 ## Optional cloud copies later
 
