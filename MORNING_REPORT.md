@@ -1,3 +1,11 @@
+# Evening update (22 Oct)
+
+- **Voice fix is live** (main 3c95623, approved by Bastian). Headset check: "sound is way better now", slight lag left.
+- **Open voice issue: Claude sometimes sounds high-pitched.** Cause found: when audio falls behind, `browser-media.js` catches up by playing pieces at 1.08× or 1.15× (`source.playbackRate`), and in Web Audio that raises the pitch too. Fix still to do, as its own small voice change with a headset check: catch up without changing pitch, e.g. skip the silent gaps instead, or keep 1.0× and trim only the oldest backlog.
+- **The claude-features work is now switched on** (merge dad4b68, approved by Bastian after the voice check). The voice files are unchanged. The bubble look stays off until you choose it (WORLD › LOOK).
+
+---
+
 # Good morning: where things stand (22 Oct)
 
 **Nothing went live overnight.** Main, the running bridge and your headset setup are untouched. Everything is saved on two branches, waiting for your OK.
