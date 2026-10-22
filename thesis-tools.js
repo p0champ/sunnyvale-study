@@ -1,4 +1,5 @@
 import { formatReference, speechLanguage } from './study-utils.js?v=round2-voice-3';
+import { createLecturePlayer } from './lecture-player.js?v=build-a-1';
 import { environmentCamera, rawCamera, rawCameraImage } from './scanner-camera.js?v=round2-camera-4';
 // Thesis and Jarvis tools for Sunnyvale Study: a file library, PDF reader with highlights, quote collector,
 // citation builder, video player with timestamp pins, frame grabs, side-by-side comparison, a live thesis
@@ -578,7 +579,9 @@ export function installThesisTools(ctx) {
     const f=store.library().at(-1);openImage({fileId:f.id,title:f.name});
     jarvisSay('', ['SCAN','PAGE SAVED IN YOUR LIBRARY']);
   }
+  const scanners = new Set(); let mediaGeneration = 0;
   async function openScanner() {
+    const generation = mediaGeneration;
     if (rawScanReady) {
       const obj=openWindow('Real page camera', 'Point the headset at the page, then tap Capture. This captures one real camera image; it does not record a video.');obj.userData.noSave=true;
       addButton(obj,'CAPTURE PAGE',0,-.29,.28,()=>{rawCapture=obj;});
@@ -587,14 +590,17 @@ export function installThesisTools(ctx) {
     let stream;
     try { stream = await environmentCamera(); }
     catch { return scanUnavailable(); }
+    if (generation !== mediaGeneration) { stream.getTracks().forEach(t => t.stop()); return; }
     const video = document.createElement('video'); video.srcObject = stream; video.playsInline = true; video.muted = true;
     try { await video.play(); } catch { stream.getTracks().forEach(t=>t.stop()); return scanUnavailable(); }
+    if (generation !== mediaGeneration) { stream.getTracks().forEach(t => t.stop()); video.pause(); return; }
     const group = new THREE.Group();
     const tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.SRGBColorSpace;
     group.add(new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.4), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })));
     const obj = makeHoloObject(group, 0.72, 0.5, 'Page scanner', 'scanner');
     obj.userData.noSave = true;
-    obj.userData.onClose = () => stream.getTracks().forEach(t => t.stop());
+    scanners.add(obj);
+    obj.userData.onClose = () => { stream.getTracks().forEach(t => t.stop()); video.pause(); scanners.delete(obj); };
     addButton(group, 'CAPTURE PAGE', 0, -0.23, 0.26, async () => {
       const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
       c.getContext('2d').drawImage(video, 0, 0);
@@ -657,36 +663,78 @@ export function installThesisTools(ctx) {
   restorers.storyboard = item => createStoryboard(item.title, item.shots || []);
 
   // ================================================================ TEACHER MODE: presentations
+  let activeLecture = null;
   function createPresentation(title, slides) {
+    if (!Array.isArray(slides) || !slides.length || slides.length > 40) throw Error('Use 1–40 slides.');
+    const measure = document.createElement('canvas').getContext('2d');
+    const layouts = slides.map((s, index) => {
+      const width = s.frame_id || s.image_id ? 820 : 1700;
+      for (const size of [52, 46, 40, 36, 32]) {
+        measure.font = `${size}px "Segoe UI", system-ui, sans-serif`;
+        const lines = (s.bullets || []).flatMap(b => wrap(measure, '•  ' + b, width));
+        if (lines.length * size * 1.35 <= 630) return {lines, size};
+      }
+      throw Error(`Slide ${index + 1} has too much text${s.frame_id || s.image_id ? ' beside its image' : ''}. Split it into shorter slides; no text was removed.`);
+    });
     const W = 1.6, H = 0.9;
     const group = new THREE.Group();
     const view = canvasPanel(W, H, 1920, 1080); group.add(view.mesh);
-    const obj = makeHoloObject(group, W + 0.04, H + 0.16, title, 'slides');
+    const obj = makeHoloObject(group, W + 0.04, H + 0.5, title, 'slides');
     const st = { i: 0, started: Date.now() };
+    const images = new Map(), imageStatus = new Map(); let closed = false;
+    async function loadSlideImage(s, i) {
+      let src, temporary;
+      try {
+        if (s.frame_id) { const rec = await DB.get('frames', s.frame_id); if (!rec) throw Error(); src = rec.image; }
+        else if (s.image_id) { temporary = URL.createObjectURL(await fileBlob(s.image_id)); src = temporary; }
+        else return;
+        const img = new Image();
+        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = src; });
+        if (!closed) { images.set(i, img); imageStatus.set(i, ''); if (st.i === i) paint(); }
+      } catch { if (!closed) { imageStatus.set(i, 'Image unavailable'); if (st.i === i) paint(); } }
+      finally { if (temporary) URL.revokeObjectURL(temporary); }
+    }
     const notes = holoLabel('', { w: 0.9, h: 0.06 }); notes.position.set(0, -H / 2 - 0.05, 0.006); group.add(notes);
     const paint = () => {
       const { g, canvas, tex } = view, s = slides[st.i] || {};
       frameBox(g, canvas.width, canvas.height, getMode() === 'stark');
-      g.fillStyle = accent(); g.font = '700 84px "Segoe UI", system-ui, sans-serif'; g.fillText(String(s.title || title).slice(0, 40), 90, 170);
-      g.fillStyle = ink(); g.font = '52px "Segoe UI", system-ui, sans-serif';
+      g.fillStyle = accent(); g.font = '700 64px "Segoe UI", system-ui, sans-serif';
+      wrap(g, String(s.title || title), 1740).forEach((line, i) => g.fillText(line, 90, 120 + i * 74));
+      const layout = layouts[st.i];
+      g.fillStyle = ink(); g.font = `${layout.size}px "Segoe UI", system-ui, sans-serif`;
+      const hasImage = !!(s.frame_id || s.image_id), img = images.get(st.i);
       let y = 300;
-      for (const b of s.bullets || []) for (const [k, l] of wrap(g, '•  ' + b, canvas.width - 220).entries()) { g.fillText(k ? '    ' + l : l, 100, y); y += 70; }
+      for (const line of layout.lines) { g.fillText(line, 100, y); y += layout.size * 1.35; }
+      if (img) { const scale = Math.min(800 / img.width, 650 / img.height); g.drawImage(img, 1020 + (800-img.width*scale)/2, 260 + (650-img.height*scale)/2, img.width*scale, img.height*scale); }
+      else if (hasImage) { g.font = '32px sans-serif'; g.fillText(imageStatus.get(st.i) || 'Loading image…', 1040, 540); }
       g.font = '32px "Segoe UI", system-ui, sans-serif'; g.globalAlpha = 0.6;
       g.fillText(`${st.i + 1} / ${slides.length}`, canvas.width - 200, canvas.height - 50); g.globalAlpha = 1;
       tex.needsUpdate = true;
       relabel(notes, s.notes ? 'NOTES: ' + String(s.notes).slice(0, 90) : 'NO SPEAKER NOTES');
       obj.userData.body = `Slide ${st.i + 1} of ${slides.length}: ${s.title || ''}. ${(s.bullets || []).join('; ')}`;
     };
-    const go = i => { st.i = Math.max(0, Math.min(slides.length - 1, i)); paint(); markDirty(); };
+    const go = (i, automatic = false) => {
+      if (!Number.isInteger(i)) throw Error('Slide must be a whole number from 0.');
+      if (!automatic) player.stop();
+      st.i = Math.max(0, Math.min(slides.length - 1, i)); paint(); markDirty();
+    };
+    const player = createLecturePlayer({ speech: window.speechSynthesis, Utterance: window.SpeechSynthesisUtterance, go, slides,
+      language: speechLanguage(), notice: text => relabel(notes, text) });
+    const play = () => { activeLecture?.stop(); activeLecture = player; return player.start(st.i); };
     addButton(group, '◀ BACK', -0.3, -H / 2 - 0.12, 0.14, () => go(st.i - 1), { owner: obj });
     addButton(group, 'NEXT ▶', 0.3, -H / 2 - 0.12, 0.14, () => go(st.i + 1), { owner: obj });
+    addButton(group, 'PLAY LECTURE', -0.16, -H / 2 - 0.20, 0.24, play, { owner: obj });
+    addButton(group, 'STOP', 0.18, -H / 2 - 0.20, 0.14, () => player.stop(), { owner: obj });
     obj.userData.go = go;
+    obj.userData.playLecture = play;
+    obj.userData.onClose = () => { closed = true; player.stop(); images.clear(); };
     obj.userData.save = () => ({ type: 'slides', title, slides, at: st.i });
     obj.userData.update = () => {
       const s = Math.floor((Date.now() - st.started) / 1000);
       if (s !== st.lastSec) { st.lastSec = s; }
     };
     paint();
+    slides.forEach(loadSlideImage);
     return show(obj, 2.0, 0.05);
   }
   restorers.slides = item => { const o = createPresentation(item.title, item.slides || []); o.userData.go(item.at || 0); return o; };
@@ -923,9 +971,14 @@ export function installThesisTools(ctx) {
   }
   // The LOG OFF button: show the summary, then leave the headset view
   function logOff() {
+    mediaGeneration++; rawCapture = null;
+    activeLecture?.stop(); window.speechSynthesis?.cancel();
+    if (wake) { const old = wake; wake = null; old.onend = null; old.stop(); }
+    for (const p of [...players.values()].map(p => p.obj).concat([...scanners])) closeWindow(p);
+    bridge()?.disconnect?.();
     const s = sessionSummary();
     const w = openWindow('Session summary', summaryText(s)); w.userData.id = 'summary';
-    jarvisSay(`Session complete. ${s.minutes} minutes, ${s.wordsEnd - s.wordsStart} new words. Good work.`,
+    jarvisSay('',
       ['J.A.R.V.I.S.', 'SESSION COMPLETE', `${s.minutes} MIN · ${Math.max(0, s.wordsEnd - s.wordsStart)} NEW WORDS · ${s.quotes} QUOTES`]);
     setTimeout(() => { finishSession(); renderer.xr.getSession()?.end().catch(() => {}); }, 9000);
   }
@@ -1729,6 +1782,7 @@ export function installThesisTools(ctx) {
     what_user_is_looking_at: () => whatUserSees(),
     create_storyboard: ({ title, shots }) => ok({ id: createStoryboard(title, shots).userData.id }),
     make_presentation: ({ title, slides }) => ok({ id: createPresentation(title, slides).userData.id }),
+    present_slides: ({ title, slides }) => { const p = createPresentation(title, slides); const started = p.userData.playLecture(); return ok({ id: p.userData.id, started, voice: 'device voice; if paused, tap PLAY LECTURE once' }); },
     go_to_slide: ({ id, slide }) => { const p = findWindow(id); if (!p?.userData.go) throw Error('No presentation with that id.'); p.userData.go(slide); return ok({}); },
     add_counterargument: ({ claim, objection, response }) => ok({ id: addCounterargument(claim, objection, response).userData.id }),
     stash_window: ({ id }) => { const p = findWindow(id); if (!p) throw Error('No window with that id.'); stashWindow(p); return ok({}); },

@@ -57,7 +57,11 @@ export function createVoiceChannel({ allowedOrigins, validToken, getOwner }) {
           alive = false; audio.ping();
         }, 5000);
         audio.on('pong', () => { alive = true; });
-        audio.on('message', () => { audio.close(1008, 'Audio channel is receive only'); });
+        audio.on('message', raw => {
+          let packet; try { packet = JSON.parse(raw); } catch { audio.close(1008); return; }
+          if (packet.type === 'audio-ack') acknowledge(owner, packet.seq);
+          else audio.close(1008, 'Only audio acknowledgements allowed');
+        });
         audio.on('close', () => {
           clearInterval(heartbeat);
           owner.removeListener('close', ownerClosed);

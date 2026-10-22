@@ -20,7 +20,7 @@ test('a three-second speech burst retains every word-sized piece and catches up 
   const { media, sources, tone } = fixture();
   for (let n = 0; n < 30; n++) media.play('claude', tone, 24000);
   assert.equal(media.voiceStats.dropped, 0); assert.equal(sources.length, 30);
-  assert.ok(sources.every(source => !source.stopped)); assert.ok(sources.some(source => source.playbackRate.value > 1));
+  assert.ok(sources.every(source => !source.stopped)); assert.ok(sources.every(source => source.playbackRate.value === 1), 'Speech pitch must never change during catch-up');
   for (let n = 1; n < sources.length; n++) assert.ok(sources[n].at >= sources[n - 1].at + .1 / sources[n - 1].playbackRate.value - .00001);
   assert.equal(media.speakingNow('unshared'), false);
   assert.equal(media.speakingNow('claude'), false, 'Scheduled speech does not animate the avatar before playback starts');
@@ -38,8 +38,20 @@ test('only genuine silence is skipped behind speech, and stopping one tab preser
 });
 
 test('exceptional overflow trims oldest pending pieces rather than erasing all queued speech', () => {
-  const { media, tone } = fixture();
+  const { media, tone, sources } = fixture();
   for (let n = 0; n < 110; n++) media.play('claude', tone, 24000);
   assert.ok(media.voiceStats.dropped > 0); assert.ok(media.voiceStats.dropped < 40);
   assert.ok(media.timelines.get('claude').length > 50); assert.ok(media.nextAudio.get('claude') < media.context.currentTime + 9);
+  assert.ok(sources.every(source => source.playbackRate.value === 1), 'Retained overflow pieces also keep their pitch');
+});
+
+test('first packets wait for audio unlock; mute and disconnect clear them', async () => {
+  const {media, context, tone, sources} = fixture();
+  context.state = 'suspended'; context.resume = async () => { context.state = 'running'; };
+  media.play('claude', tone, 24000); assert.equal(sources.length, 0);
+  await media.unlock(); assert.equal(sources.length, 1); assert.equal(media.waitingAudio.length, 0);
+  context.state = 'suspended'; media.play('claude', tone, 24000); media.stopAudio('claude');
+  await media.unlock(); assert.equal(sources.length, 1);
+  context.state = 'suspended'; media.play('other', tone, 24000); media.stopAll();
+  await media.unlock(); assert.equal(sources.length, 1);
 });

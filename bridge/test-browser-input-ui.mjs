@@ -60,7 +60,11 @@ test('full app XR select, fingertip jitter and DOM pointer produce one real brow
     await until(()=>clicks.length===2);
     await page.evaluate(()=>{studyDebug.browserBridge.touch(testPoint(.1),testSource);studyDebug.browserBridge.touch(testPoint(0),testSource);studyDebug.browserBridge.touch(testPoint(.02),testSource);studyDebug.browserBridge.touch(testPoint(0),testSource);});
     await until(()=>clicks.length===3);await pause(150);assert.equal(clicks.length,3,'A separate direct tap remains one click');
-    await page.evaluate(()=>{studyDebug.renderer.xr.isPresenting=false;document.getElementById('bridgeDisconnect').click();});
+    await page.evaluate(()=>{studyDebug.renderer.xr.isPresenting=false;studyDebug.thesis.menu.logOff();});
+    assert.equal(await page.evaluate(()=>studyDebug.browserBridge.wanted),false);
+    assert.equal(await page.evaluate(()=>studyDebug.browserBridge.connected),false);
+    assert.equal(await page.evaluate(()=>!!studyDebug.desk.findWindow('browser')),false);
+    assert.ok((await fetch('http://127.0.0.1:18195/health')).ok,'Log off leaves the isolated PC bridge running');
     assert.deepEqual(errors,[]);
   }finally{
     await browser?.close();child?.kill();await new Promise(r=>setTimeout(r,250));app.close();fixture.close();

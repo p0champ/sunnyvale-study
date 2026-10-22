@@ -1,3 +1,13 @@
+# Build A checkpoint — 23 October 2026
+
+This entry supersedes historical status notes below. Work is on local **gpt-next**, based on **49e10f1**. Build A is built, PC-tested (**33/33**), independently reviewed (**7 → 8/10**, two rounds), and committed locally. It is **not pushed, merged or deployed**, and the canonical checkout/real bridge were not changed or restarted. No Quest checks have been performed. Builds B–D remain unstarted and require Bastian's go-ahead after Quest testing.
+
+Read **BUILD_A_REPORT.md** for changes, evidence, limitations and the eight-step headset checklist. Voice pitch is fixed at 1.0×; audio acknowledgements have a separate return path; suspended startup audio waits for unlock; heavy canvas drawing yields; teacher mode supports frame/library images and a whole-deck device-voice lecture; log off disconnects media/browser/voice without stopping the PC bridge; decorative passthrough workbench/rings/dust are removed. Existing HUD, stash, fist glow and orb states were verified. Thinking/building still share working. Immediate disconnect means use Back up now before Log off for a final PC backup; local desk save and existing backups remain.
+
+Quest must confirm first/last words, reconnects, long lectures, permissions and rendering under load. The CPU-only benchmark (rendering paused) improves the longest timer gap from 150 to 64 ms and takes longer overall; it is not headset GPU evidence. Separate slow-network simulation delivered 95/95 packets without underruns/drops. All private data stayed out of the change. Do not activate this branch without explicit chat approval.
+
+---
+
 # Evening update (22 Oct)
 
 - **Voice fix is live** (main 3c95623, approved by Bastian). Headset check: "sound is way better now", slight lag left.

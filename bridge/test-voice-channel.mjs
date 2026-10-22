@@ -43,3 +43,19 @@ test('speech activity excludes silent packets and unrelated websites', () => {
   assert.equal(isClaudePage('https://claude.ai/new'), true); assert.equal(isClaudePage('https://www.claude.ai/chat/fixture'), true);
   for (const url of ['https://claude.ai.example.com/', 'https://youtube.com/', 'invalid']) assert.equal(isClaudePage(url), false);
 });
+
+test('audio acknowledgements keep speech flowing when the picture connection cannot acknowledge', async () => {
+  const owner = new EventEmitter(), clients = [], received = [];
+  owner.readyState = WebSocket.OPEN; owner.reliableAudio = true; owner.audioKey = 'fixture-key'; owner.send = () => {};
+  const channel = createVoiceChannel({allowedOrigins:new Set(['http://localhost:18123']),validToken:t=>t==='fixture-token',getOwner:()=>owner});
+  const server = http.createServer();server.on('upgrade',(req,socket,head)=>channel.upgrade(req,socket,head));
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  try {
+    const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/bridge-audio`,{origin:'http://localhost:18123'});clients.push(socket);
+    socket.on('message',raw=>{const p=JSON.parse(raw);if(p.type==='audio'){received.push(p.seq);socket.send(JSON.stringify({type:'audio-ack',seq:p.seq}));}});
+    await once(socket,'open');const ready=once(socket,'message');socket.send(JSON.stringify({type:'pair-audio',token:'fixture-token',key:owner.audioKey}));await ready;
+    for(let i=0;i<45;i++)channel.send(owner,{type:'audio',id:'fixture',data:'AAAA',rate:24000});
+    for(let i=0;i<100&&received.length<45;i++)await new Promise(r=>setTimeout(r,5));
+    assert.deepEqual(received,Array.from({length:45},(_,i)=>i+1));
+  } finally { owner.emit('close');for(const socket of clients)socket.terminate();channel.close();await new Promise(r=>server.close(r)); }
+});

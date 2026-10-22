@@ -31,10 +31,14 @@ export function openVoiceLink({ url, token, key, isCurrent, onAudio, Socket = We
     };
   }
   connect();
-  return () => {
+  const close = () => {
     stopped = true; clearTimeout(retry); clearTimeout(timeout);
     const current = socket; socket = null; current?.close();
   };
+  close.acknowledge = seq => {
+    if (!stopped && socket?.readyState === 1) socket.send(JSON.stringify({ type: 'audio-ack', seq }));
+  };
+  return close;
 }
 
 // Both transports feed this one receiver. On migration, the server replays

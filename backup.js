@@ -1,5 +1,5 @@
 // Safety net: backs up your study work to Google Drive on your PC, through the PC bridge.
-// Every 5 minutes while connected (only when something changed), right after connecting, and when you log off,
+// Every 5 minutes while connected (only when something changed), right after connecting, and when you press Back up now,
 // the page sends everything Sunnyvale keeps in this browser (thesis, quotes, sources, deadlines, highlights, pins,
 // shot logs, checklists, layouts, settings) plus each library file and frame grab once. The PC keeps dated copies.
 // "Restore from backup" on the page brings it all back, for example on a new headset or after clearing the browser.

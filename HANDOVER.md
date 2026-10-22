@@ -1,3 +1,13 @@
+# Build A checkpoint — 23 October 2026
+
+This entry supersedes historical status notes below. Work is on local **gpt-next**, based on **49e10f1**. Build A is built, PC-tested (**33/33**), independently reviewed (**7 → 8/10**, two rounds), and committed locally. It is **not pushed, merged or deployed**, and the canonical checkout/real bridge were not changed or restarted. No Quest checks have been performed. Builds B–D remain unstarted and require Bastian's go-ahead after Quest testing.
+
+Read **BUILD_A_REPORT.md** for changes, evidence, limitations and the eight-step headset checklist. Voice pitch is fixed at 1.0×; audio acknowledgements have a separate return path; suspended startup audio waits for unlock; heavy canvas drawing yields; teacher mode supports frame/library images and a whole-deck device-voice lecture; log off disconnects media/browser/voice without stopping the PC bridge; decorative passthrough workbench/rings/dust are removed. Existing HUD, stash, fist glow and orb states were verified. Thinking/building still share working. Immediate disconnect means use Back up now before Log off for a final PC backup; local desk save and existing backups remain.
+
+Quest must confirm first/last words, reconnects, long lectures, permissions and rendering under load. The CPU-only benchmark (rendering paused) improves the longest timer gap from 150 to 64 ms and takes longer overall; it is not headset GPU evidence. Separate slow-network simulation delivered 95/95 packets without underruns/drops. All private data stayed out of the change. Do not activate this branch without explicit chat approval.
+
+---
+
 # Sunnyvale Study: handover notes
 
 ## NEWEST: Claude's recovered overnight work, branch `claude-features` (22 Oct 2026, early morning)
@@ -124,7 +134,7 @@ This earlier checkpoint is superseded by the GPT fixes checkpoint above. The dat
 
 ### NEWEST (Claude, permanent address + staying connected + backups, 2026-10-21)
 - Cause of "connector hostname doesn't resolve": the claude.ai connector pointed at an old cloudflared quick-tunnel address, because each bridge restart made a new one (GPT 10:53, Claude 13:04). Nothing crashed.
-- PERMANENT ADDRESS: Tailscale (user's own account; PC renamed "sunnyvale") with Funnel on port 443 -> 127.0.0.1:8130: https://sunnyvale.tail438b9d.ts.net . server.mjs reads bridge/private/public-address.txt; when it's present, it runs `tailscale funnel --bg <port>` at start, writes Open Sunnyvale.url with that host and does NOT start cloudflared. make-connector-setup / check-connector accept any wss host. The connector URL and the Quest address no longer change on restart. Restarting the bridge is now harmless.
+- PERMANENT ADDRESS: Tailscale (user's own account; PC renamed "sunnyvale") with Funnel on port 443 -> 127.0.0.1:8130: [private connection detail removed] . server.mjs reads bridge/private/public-address.txt; when it's present, it runs `tailscale funnel --bg <port>` at start, writes Open Sunnyvale.url with that host and does NOT start cloudflared. make-connector-setup / check-connector accept any wss host. The connector URL and the Quest address no longer change on restart. Restarting the bridge is now harmless.
 - Start Browser Bridge.bat loops (restarts node 5 s after any exit). The bridge does not start at Windows login (not set up; ask the user first).
 - server.mjs heartbeat: pings headset WebSockets every 15 s and terminates ones that don't answer (frees the single-headset slot within ~30 s).
 - browser-bridge.js: after Connect, drops are retried on their own (2,4,8..30 s back-off) until Disconnect; open browser windows are remembered (url, pose, lock) and reopened after reconnecting. onConnection(connected) -> HUD "CLAUDE DISCONNECTED / RECONNECTING" and "CONNECTED". The spark has an 'offline' mood (grey, still, no glow) when browserBridge.wanted && !isReady(). Tested on PC with an isolated bridge (kill -> offline + retry; restart -> reconnected by itself; Disconnect stops retries).

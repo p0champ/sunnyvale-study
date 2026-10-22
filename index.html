@@ -37,7 +37,7 @@
   Testing on the computer: <b>M</b> shows the menu, <b>S</b> switches to Stark mode, <b>C</b> talks to Claude, <b>W</b> shows the wrist display.
   <details id="claudeSettings">
     <summary><b>Claude settings</b></summary>
-    <label>Barbera's WhatsApp number, with country code<input id="barberaNumber" type="tel" autocomplete="off" placeholder="+45 12 34 56 78"></label>
+    <label>Barbera's WhatsApp number, with country code<input id="barberaNumber" type="tel" autocomplete="off" placeholder="Country code and number"></label>
     <label>Optional: Claude API key, for talking to Claude inside the world. Without it, the Claude button opens claude.ai<input id="claudeKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
     <label>OpenAI key, optional (only for voice if this browser can't do speech-to-text)<input id="openaiKey" type="password" autocomplete="off" placeholder="sk-..."></label>
     <button id="saveKeys">Save</button> <button id="micTest">Allow microphone</button>
@@ -51,10 +51,12 @@
 </div>
 
 <script type="module">
+import { createTextureJobs } from './texture-jobs.js?v=build-a-1';
+const textureJobs = createTextureJobs();
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=voice-recovery-1';
+import { installBrowserBridge } from './browser-bridge.js?v=build-a-1';
 import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=claude-features-3';
+import { installThesisTools } from './thesis-tools.js?v=build-a-1';
 import { installBackup } from './backup.js?v=voice-recovery-1';
 let thesisTools;
 let browserBridge;
@@ -178,8 +180,8 @@ function sharpTexture(w, h, draw) {
 function canvasTexture(w, h, draw) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c);
+  textureJobs.enqueue(() => { draw(c.getContext('2d'), w, h); t.needsUpdate = true; });
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -2909,84 +2911,11 @@ function updateWrist(dt) {
   }
 }
 
-// ---------- The holo workbench, floor rings and floating dust (Stark mode only) ----------
+// Passthrough has no decorative workbench, floor rings or floating dust.
 const starkFX = new THREE.Group();
 starkFX.visible = false;
-scene.add(starkFX);
-const glowAdd = (color, opacity = 1) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-const bench = new THREE.Group();
-const benchDisc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 64), new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-  uniforms: { uTime: { value: 0 } },
-  vertexShader: 'varying vec2 vP; void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `varying vec2 vP; uniform float uTime;
-    void main() {
-      float r = length(vP);
-      vec2 g = abs(fract(vP * 22.0) - 0.5);
-      float grid = 1.0 - smoothstep(0.0, 0.06, min(g.x, g.y));
-      float sweep = smoothstep(0.9, 1.0, fract(atan(vP.y, vP.x) / 6.2832 - uTime * 0.15));
-      float edge = smoothstep(0.38, 0.42, r) * (1.0 - smoothstep(0.42, 0.425, r));
-      float a = (grid * 0.12 + sweep * 0.25) * (1.0 - smoothstep(0.3, 0.42, r)) + edge * 0.9;
-      gl_FragColor = vec4(mix(vec3(0.9, 0.2, 0.1), vec3(1.0, 0.75, 0.3), r * 2.0) * a, a);
-    }`
-}));
-benchDisc.rotation.x = -Math.PI / 2;
-bench.add(benchDisc);
-const benchRings = [0.46, 0.52, 0.3].map((r, i) => {
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.0025, 6, 96, Math.PI * (1.2 + i * 0.3)), glowAdd(i === 2 ? 0xffe0a0 : 0xffb347, 0.8));
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.01 + i * 0.012;
-  bench.add(ring);
-  return ring;
-});
-const benchBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.38, 0.5, 48, 1, true), new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: 'varying vec2 vUv; void main() { float a = pow(1.0 - vUv.y, 2.0) * 0.12; gl_FragColor = vec4(vec3(1.0, 0.6, 0.25) * a, a); }'
-}));
-benchBeam.position.y = 0.25;
-bench.add(benchBeam);
-starkFX.add(bench);
-
-const floorRings = new THREE.Group();
-const dashTex = canvasTexture(1024, 16, (ctx) => {
-  for (let x = 0; x < 1024; x += 32) { ctx.fillStyle = x % 128 ? 'rgba(255,190,100,0.7)' : 'rgba(255,230,170,1)'; ctx.fillRect(x, 0, 18, 16); }
-});
-dashTex.wrapS = THREE.RepeatWrapping;
-for (const [r, w] of [[0.55, 0.012], [0.85, 0.008], [1.25, 0.02]]) {
-  const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + w, 128, 1),
-    new THREE.MeshBasicMaterial({ map: dashTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-  ring.rotation.x = -Math.PI / 2;
-  floorRings.add(ring);
-}
-floorRings.position.y = 0.005;
-starkFX.add(floorRings);
-
-const dustGeo = new THREE.BufferGeometry();
-const dustPos = new Float32Array(260 * 3);
-for (let i = 0; i < 260; i++) { dustPos.set([(Math.random() - 0.5) * 5, 0.2 + Math.random() * 2.4, (Math.random() - 0.5) * 5], i * 3); }
-dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xffc070, size: 0.01, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }));
-starkFX.add(dust);
-
-function placeBench() {
-  viewerPosition(tmpVec);
-  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
-  const dir = cam.getWorldDirection(new THREE.Vector3()); dir.y = 0; dir.normalize();
-  bench.position.set(tmpVec.x + dir.x * 0.75, Math.max(0.7, tmpVec.y - 0.7), tmpVec.z + dir.z * 0.75);
-  dust.position.set(tmpVec.x, 0, tmpVec.z);
-}
-function updateStarkFX(dt) {
-  if (!starkFX.visible) return;
-  const t = performance.now() / 1000;
-  benchDisc.material.uniforms.uTime.value = t;
-  benchRings.forEach((r, i) => { r.rotation.z += dt * (i % 2 ? -0.3 : 0.45); });
-  viewerPosition(tmpVec);
-  floorRings.position.x += (tmpVec.x - floorRings.position.x) * Math.min(1, dt * 3);
-  floorRings.position.z += (tmpVec.z - floorRings.position.z) * Math.min(1, dt * 3);
-  floorRings.children.forEach((r, i) => { r.rotation.z += dt * (i % 2 ? 0.08 : -0.05); });
-  dust.rotation.y += dt * 0.02;
-}
+function placeBench() {}
+function updateStarkFX() {}
 
 // ---------- Menu: five categories on your palm; tap one to open its row of tools ----------
 // STUDY · CREATE · WORLD · BREAK · BARBERA. Only one row of tools is open at a time; tap the category again to close it.
@@ -3144,7 +3073,7 @@ function setLook(look) {
   blip(bubbleLook() ? 880 : 620, 0.06);
   if (mode === 'stark') showHud(['J.A.R.V.I.S.', 'LOOK: ' + (bubbleLook() ? 'BUBBLES' : 'CLASSIC')], 2.5);
 }
-const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); thesisTools.menu.logOff(); window.studyDebug.backup?.backupNow('logoff'); });
+const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); saveDeskNow(); thesisTools.menu.logOff(); });
 
 const breakServices = [
   ['YOUTUBE', 'youtube.png', 'https://www.youtube.com/'],
@@ -3399,7 +3328,7 @@ function setMode(next) {
   reactorButton.visible = !stark; bubblesButton.visible = stark;
   setClaudeLook(stark);
   thesisTools?.repaint();
-  starkFX.visible = stark;
+  starkFX.visible = false;
   if (stark) placeBench();
   dissolve.uOn.value = 0;
   if (panels.some(p => p.userData.lookMode !== mode)) applyWindows(stark);   // every window follows the mode (also in the bubble look)
@@ -3841,6 +3770,9 @@ function runWorldTool(name, input) {
   }
   if (!CONNECTOR_TOOLS.has(name)) throw Error('Unknown world tool ' + name);
   blip(1300, 0.08);
+  if (['create_mind_map', 'make_flashcards', 'create_timeline'].includes(name)) {
+    return textureJobs.build(() => runClaudeTool(name, input)).then(result => { flyOrbTo(result); return result; });
+  }
   const result = runClaudeTool(name, input);
   flyOrbTo(result);
   return result;

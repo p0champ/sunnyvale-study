@@ -15,16 +15,26 @@ export class BrowserMedia {
   context = null; microphone = null; workletReady = null; micGeneration = 0; nextAudio = new Map(); sources = new Map(); leads = new Map();
   timelines = new Map(); lastUnderrun = new Map(); audibleUntil = new Map(); spokenUntil = new Map();
   voiceStats = { packets: 0, underruns: 0, dropped: 0, maxGap: 0, lastAt: 0, lead: .3 };
+  waitingAudio = [];
   constructor(send, report) { this.send = send; this.report = report; }
   async unlock() {
     this.context ||= new AudioContext();
     await this.context.resume();
+    if (this.context.state === 'running') {
+      const waiting = this.waitingAudio.splice(0);
+      for (const packet of waiting) this.play(...packet);
+    }
   }
   // Claude's voice arrives in 0.1 s pieces. Network and headset hiccups make pieces arrive in bursts, so the
   // player keeps a small lead. Each time it runs dry (a gap you'd hear), it keeps a bit more lead for the
   // rest of the conversation (0.3 s up to 1.2 s), so a choppy link becomes slightly later but smooth speech.
   play(id, data, rate) {
-    if (!this.context || this.context.state !== 'running' || rate !== 24000 || typeof data !== 'string' || data.length > 20000) return;
+    if (rate !== 24000 || typeof data !== 'string' || data.length > 20000) return;
+    if (!this.context || this.context.state !== 'running') {
+      if (!this.waitingAudio.length) this.report('Sound is paused by the browser. Tap Sound or Connect to hear Claude.');
+      if (this.waitingAudio.length >= 256) this.waitingAudio.shift();
+      this.waitingAudio.push([id, data, rate]); return;
+    }
     try {
       const samples = decodePCM(data);
       if (!samples.length) return;
@@ -46,27 +56,26 @@ export class BrowserMedia {
         // exceptional >8 s backlog, trim only the oldest not-yet-played pieces
         // and reschedule every retained piece without cutting current audio.
         const pending = (this.timelines.get(id) || []).filter(piece => piece.start > now + .005);
-        let duration = pending.reduce((sum, piece) => sum + piece.buffer.duration / 1.15, buffer.duration / 1.15);
+        let duration = pending.reduce((sum, piece) => sum + piece.buffer.duration, buffer.duration);
         let trim = 0;
-        while (trim < pending.length && duration > 8) { duration -= pending[trim++].buffer.duration / 1.15; st.dropped++; }
+        while (trim < pending.length && duration > 8) { duration -= pending[trim++].buffer.duration; st.dropped++; }
         for (const piece of pending) { try { piece.source.stop(); } catch {} this.sources.get(id)?.delete(piece.source); }
         const current = (this.timelines.get(id) || []).filter(piece => !pending.includes(piece));
         this.timelines.set(id, current);
         next = Math.max(now + lead, ...current.map(piece => piece.end));
-        for (const piece of pending.slice(trim)) next = this.scheduleAudio(id, piece.buffer, piece.level, next, 1.15);
+        for (const piece of pending.slice(trim)) next = this.scheduleAudio(id, piece.buffer, piece.level, next);
       }
       if (next < now) {
         if (next) { st.underruns++; lead = Math.min(1.2, lead + .15); this.leads.set(id, lead); this.lastUnderrun.set(id, now); }
         next = now + lead;
       }
       st.lead = lead;
-      const speed = next - now > 2 ? 1.15 : next - now > lead + .15 ? 1.08 : 1;
-      this.nextAudio.set(id, this.scheduleAudio(id, buffer, level, next, speed));
+      this.nextAudio.set(id, this.scheduleAudio(id, buffer, level, next));
     } catch { /* Ignore damaged audio without stopping the browser connection. */ }
   }
-  scheduleAudio(id, buffer, level, start, speed) {
-    const source = this.context.createBufferSource(); source.buffer = buffer; source.playbackRate.value = speed; source.connect(this.context.destination);
-    const piece = { source, buffer, level, start, end: start + buffer.duration / speed };
+  scheduleAudio(id, buffer, level, start) {
+    const source = this.context.createBufferSource(); source.buffer = buffer; source.playbackRate.value = 1; source.connect(this.context.destination);
+    const piece = { source, buffer, level, start, end: start + buffer.duration };
     if (!this.sources.has(id)) this.sources.set(id, new Set());
     if (!this.timelines.has(id)) this.timelines.set(id, []);
     this.sources.get(id).add(source); this.timelines.get(id).push(piece);
@@ -99,6 +108,8 @@ export class BrowserMedia {
     const generation = this.micGeneration; let stream;
     try {
       await this.unlock();
+      if (generation !== this.micGeneration) return;
+      this.send({ type: 'audio-start', id });
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
       if (generation !== this.micGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
       this.workletReady ||= this.context.audioWorklet.addModule(new URL('./bridge/chrome-extension/pcm-worklet.js?v=20261021-media-1', import.meta.url));
@@ -141,9 +152,10 @@ export class BrowserMedia {
     this.stopAudio(id);
   }
   stopAudio(id) {
+    this.waitingAudio = this.waitingAudio.filter(packet => packet[0] !== id);
     for (const source of this.sources.get(id) || []) { try { source.stop(); } catch {} }
     this.sources.delete(id); this.nextAudio.delete(id);
     this.timelines.delete(id); this.leads.delete(id); this.lastUnderrun.delete(id); this.audibleUntil.delete(id); this.spokenUntil.delete(id);
   }
-  stopAll() { this.stopMic(); for (const id of this.sources.keys()) this.stop(id); }
+  stopAll() { this.waitingAudio.length = 0; this.stopMic(); for (const id of this.sources.keys()) this.stop(id); }
 }

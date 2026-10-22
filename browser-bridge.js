@@ -1,7 +1,7 @@
 import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
-import { BrowserMedia } from './browser-media.js?v=voice-recovery-1';
+import { BrowserMedia } from './browser-media.js?v=build-a-1';
 import { BrowserClickInput } from './browser-click-input.js';
-import { openVoiceLink, createAudioReceiver } from './browser-voice-link.js?v=voice-recovery-1';
+import { openVoiceLink, createAudioReceiver } from './browser-voice-link.js?v=build-a-1';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel, onConnection }) {
@@ -200,7 +200,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
           media.play(packet.id, packet.data, packet.rate);
           if (tab) tab.soundAt = performance.now();
         },
-        acknowledge: seq => send({ type: 'audio-ack', seq }),
+        acknowledge: seq => { closeVoice.acknowledge?.(seq); send({ type: 'audio-ack', seq }); },
       });
       const clearTimers = () => { clearTimeout(connectionTimer); clearTimeout(pairingTimer); };
       const fail = message => {
@@ -270,7 +270,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
               status(`Typing ${parts.length} part${parts.length === 1 ? '' : 's'} into the new document…`);
             }, 8000);
           }
-          if (pendingMic && /claude\.ai/.test(m.url || '')) { pendingMic = false; setTimeout(() => media.toggleMic(m.id), 4000); }
+          if (pendingMic && /claude\.ai/.test(m.url || '')) { pendingMic = false; setTimeout(() => { if (wanted && socket === current && ready && tabs.has(m.id)) media.toggleMic(m.id); }, 4000); }
         }
         if (m.type === 'page-info') {
           const t = tabs.get(m.id); if (t) { t.url = m.url; t.title = m.title; t.text = m.text; t.panel.userData.title = m.title; t.panel.userData.url = m.url; }
@@ -351,6 +351,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     setTimeout(() => document.getElementById('bridgeConnect').click(), 0);
   }
   return {
+    disconnect() { wanted = false; clearTimeout(retryTimer); retryTimer = null; pendingMic = false; pendingType = null; disconnect(); setReady(false); },
     describe(id) {
       const tab = tabs.get(id); if (!tab) return Promise.resolve(null);
       if (!ready) return Promise.resolve({url:tab.url,title:tab.title,text:tab.text||'',stale:true});
