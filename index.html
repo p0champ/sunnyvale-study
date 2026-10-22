@@ -54,7 +54,7 @@
 import * as THREE from 'three';
 import { installBrowserBridge } from './browser-bridge.js?v=voice-recovery-1';
 import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=claude-features-2';
+import { installThesisTools } from './thesis-tools.js?v=claude-features-3';
 import { installBackup } from './backup.js?v=voice-recovery-1';
 let thesisTools;
 let browserBridge;
@@ -792,7 +792,7 @@ function bubbleTexture(title, body, W, H, scroll = 0) {
       ctx.beginPath(); ctx.roundRect(m, m, W - 2 * m, H - 2 * m, r); ctx.stroke();
     }
     const fill = ctx.createLinearGradient(0, 0, 0, H);
-    fill.addColorStop(0, 'rgba(44,48,64,0.975)'); fill.addColorStop(1, 'rgba(18,20,30,0.985)');   // nearly solid, so windows behind don't show through
+    fill.addColorStop(0, 'rgb(44,48,64)'); fill.addColorStop(1, 'rgb(18,20,30)');   // solid inside, so windows behind never show through
     ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(m, m, W - 2 * m, H - 2 * m, r); ctx.fill();
     // a highlight across the top, like light on a curved surface
     const shine = ctx.createLinearGradient(0, m, 0, H * 0.42);
@@ -1492,8 +1492,8 @@ const memoryKeys = {};
 function getKey(name) { return memoryKeys[name] || store.get(name); }
 
 // The Claude logo: a coral starburst
-// The Claude spark, drawn soft like the real logo: uneven, round-ended rays that thin towards the centre and
-// melt into one soft middle (no sharp points or hard outlines). glow > 0 adds a soft halo for the Stark orb.
+// The Claude spark, drawn soft like the real logo: twelve straight, round-ended rays of uneven length that
+// meet in one soft middle (no sharp points or hard outlines). glow > 0 adds a soft halo.
 const SPARK_RAYS = [[1, 0], [0.8, 0], [0.93, 0], [0.74, 0], [0.99, 0], [0.83, 0], [0.9, 0], [0.77, 0], [0.97, 0], [0.81, 0], [0.89, 0], [0.76, 0]];
 function drawClaudeSpark(ctx, cx, cy, r, color = '#D97757', glow = 0) {
   ctx.save(); ctx.translate(cx, cy);
@@ -1503,7 +1503,7 @@ function drawClaudeSpark(ctx, cx, cy, r, color = '#D97757', glow = 0) {
     const a = i / SPARK_RAYS.length * Math.PI * 2 + bend;
     const L = r * len, w = r * 0.16;
     ctx.save(); ctx.rotate(a);
-    // a soft, round-ended stroke with a gentle curve (the rays of the real logo are rounded, never pointed)
+    // a soft, round-ended stroke (the rays of the real logo are rounded, never pointed)
     ctx.lineWidth = w;
     ctx.beginPath(); ctx.moveTo(0, -r * 0.12); ctx.lineTo(0, -(L - w / 2)); ctx.stroke();
     ctx.restore();
@@ -2394,8 +2394,8 @@ function detectFlick(s, now) {
   if (dt < 0.05) return;
   const roughSpeed = tip.distanceTo(a.tip) / dt;
   // only report real attempts: an open hand (or anything while the coach is teaching the flick)
-  // a clear attempt = an open hand flicked while pointing at or looking at a window
-  const near = why => { if (roughSpeed > 1.6) nearMiss('flick-minimise', why, open && !!(pointedWindow(s) || gazeWindow())); };
+  // a clear attempt = an open hand flicked while pointing at a window
+  const near = why => { if (roughSpeed > 1.6) nearMiss('flick-minimise', why, open && !!pointedWindow(s)); };
   if (!open) return near('hand was not fully open');
   if (now - s.openSince < 300) return near('hand opened less than 0.3 s before the flick');
   if (s.releasedAt && now - s.releasedAt < 1000) return near('just let go of a window (1 s pause)');
@@ -2461,7 +2461,7 @@ function smoothHand(g, raw, yaw, dt, now) {
   let dy = yaw - g.yawS; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
   const turnSpeed = Math.abs(dy) / Math.max(dt, 1e-3);              // fast turns follow quickly too
   g.yawS += dy * (1 - Math.exp(-2 * Math.PI * (2.5 + 4 * turnSpeed) * dt));
-  (g.hist ||= []).push({ pos: raw.clone(), yaw, t: now }); if (g.hist.length > 12) g.hist.shift(); g.lastNow = now;
+  (g.hist ||= []).push({ pos: raw.clone(), yaw, t: now }); if (g.hist.length > 12) g.hist.shift();
 }
 function detectGroupMove(s, now) {
   const dt = Math.min(0.05, (now - (s.groupT || now)) / 1000); s.groupT = now;
@@ -2506,9 +2506,11 @@ function detectGroupMove(s, now) {
 // Where the group goes when you open your hand: from the hand's real position and turn just before the
 // fist opened (not the smoothed one, so a quick move or turn isn't cut short), without the pick-up lift.
 function releaseTargets(g) {
-  // the hand's raw position on the last frame the fist was still closed
-  const h = g.hist || [], last = h[h.length - 1];
-  if (!last) return;
+  // the hand's raw pose over the last few frames the fist was still closed (averaged, so tracking noise doesn't jump)
+  const h = (g.hist || []).slice(-3);
+  if (!h.length) return;
+  const last = { pos: h.reduce((a, e) => a.add(e.pos), new THREE.Vector3()).divideScalar(h.length),
+    yaw: Math.atan2(h.reduce((a, e) => a + Math.sin(e.yaw), 0), h.reduce((a, e) => a + Math.cos(e.yaw), 0)) };
   const move = last.pos.clone().sub(g.start).multiplyScalar(1.5);
   let turn = last.yaw - g.yaw; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
   const spin = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), turn);
@@ -2581,6 +2583,7 @@ function updateBubbleUI(dt) {
     if ((!bubble || !xr) && (p.userData.btnOpen ?? 1) === 1) { if (p.userData.iconLook !== bubble) { btns.forEach(b => swapIcon(b.material)); p.userData.iconLook = bubble; } continue; }   // nothing to animate
     const open = !bubble || !xr || now < (p.userData.nearUntil || 0);   // on the computer they always stay full size
     p.userData.btnOpen = (p.userData.btnOpen ?? 1) + ((open ? 1 : 0) - (p.userData.btnOpen ?? 1)) * k;
+    if (Math.abs((open ? 1 : 0) - p.userData.btnOpen) < 1e-3) p.userData.btnOpen = open ? 1 : 0;
     const e = p.userData.btnOpen, sc = 0.42 + 0.58 * e;
     for (const b of btns) { swapIcon(b.material); b.scale.setScalar(sc); b.material.opacity = 0.5 + 0.5 * e; b.material.transparent = true; }
   }

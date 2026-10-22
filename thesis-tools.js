@@ -1418,7 +1418,7 @@ export function installThesisTools(ctx) {
       g.fillStyle = '#fff1e6'; g.font = '600 46px system-ui, sans-serif'; g.fillText('Compare: ' + (films.join('  vs  ') || 'no films yet'), 48, 120, PX - 96);
       radar(g, 470, 560, 300, films.map((f, i) => ({ values: averages(f), color: FILM_COLORS[i] })));
       g.font = '600 30px system-ui, sans-serif';
-      films.forEach((f, i) => { g.fillStyle = FILM_COLORS[i]; g.fillRect(900, 220 + i * 54, 26, 26); g.fillStyle = '#fff1e6'; const n = scenesOf(f).filter(isScored).length; g.fillText(`${f}  (${n} scored scene${n === 1 ? '' : 's'})`, 942, 243 + i * 54); });
+      films.forEach((f, i) => { g.fillStyle = FILM_COLORS[i]; g.fillRect(900, 220 + i * 54, 26, 26); g.fillStyle = '#fff1e6'; const n = scenesOf(f).filter(isScored).length; g.fillText(`${f}  (${n} scored scene${n === 1 ? '' : 's'})`, 942, 243 + i * 54, PX - 990); });
       // table of averages
       const ty = 420; g.font = '26px system-ui, sans-serif';
       CHECKLIST.forEach(([, name], c) => {
@@ -1595,19 +1595,26 @@ export function installThesisTools(ctx) {
       return [keyOf(r), (line ? `${where} ${line}` : `${where}: `) + parts.join(' ')];
     });
     const scoredRows = rows.filter(isScored);
-    if (picked.length > 1 && scoredRows.length) {
+    const summaryKey = 'summary|' + film.toLowerCase();
+    if (scoredRows.length && (picked.length > 1 || thesis.paras.some(x => x.analysis === summaryKey))) {
       const avg = averages(film), strongest = avg.indexOf(Math.max(...avg));
-      texts.unshift(['summary|' + film.toLowerCase(), `Across ${scoredRows.length} scored scene${scoredRows.length === 1 ? '' : 's'} of ${film}${cite}, the strongest propaganda device is ${CHECKLIST[strongest][1].toLowerCase()} (average ${avg[strongest].toFixed(1)} out of 5).`]);
+      texts.unshift([summaryKey, `Across ${scoredRows.length} scored scene${scoredRows.length === 1 ? '' : 's'} of ${film}${cite}, the strongest propaganda device is ${CHECKLIST[strongest][1].toLowerCase()} (average ${avg[strongest].toFixed(1)} out of 5).`]);
     }
-    let added = 0, replaced = 0, unchanged = 0, kept = 0;
+    let added = 0, replaced = 0, unchanged = 0, kept = 0, snapshotted = false;
+    const snap = () => { if (!snapshotted) { snapshotThesis(); snapshotted = true; } };   // one undo step for the whole export
     for (const [key, text] of texts) {
-      let at = again ? -1 : thesis.paras.findIndex(x => x.analysis === key);
+      if (again) { snap(); thesis.paras.push({ text, heading: false }); added++; continue; }   // an extra, untagged copy
+      const at = thesis.paras.findIndex(x => x.analysis === key);
       if (at >= 0 && thesis.paras[at].text === text) { unchanged++; continue; }
-      // you rewrote that paragraph yourself: keep your version and add the new analysis after it
-      if (at >= 0 && thesis.paras[at].analysisText !== undefined && thesis.paras[at].text !== thesis.paras[at].analysisText) { delete thesis.paras[at].analysis; at = -1; kept++; }
-      if (at >= 0) { editThesis({ action: 'replace', index: at, text }); thesis.paras[at].analysisText = text; saveThesis(); replaced++; }
-      else { editThesis({ action: 'append', text }); Object.assign(thesis.paras[thesis.paras.length - 1], { analysis: key, analysisText: text }); saveThesis(); added++; }
+      snap();
+      if (at >= 0 && thesis.paras[at].analysisText !== undefined && thesis.paras[at].text !== thesis.paras[at].analysisText) {
+        // you rewrote that paragraph yourself: keep your version, and put the updated analysis right after it
+        delete thesis.paras[at].analysis; delete thesis.paras[at].analysisText;
+        thesis.paras.splice(at + 1, 0, { text, heading: false, analysis: key, analysisText: text }); kept++; added++;
+      } else if (at >= 0) { Object.assign(thesis.paras[at], { text, analysisText: text }); replaced++; }
+      else { thesis.paras.push({ text, heading: false, analysis: key, analysisText: text }); added++; }
     }
+    if (snapshotted) { saveThesis(); if (!doc) openThesis(); else paintThesis(); }
     if (!added && !replaced) {
       jarvisSay('', ['J.A.R.V.I.S.', 'ALREADY IN THE THESIS', quotes ? `+${quotes} QUOTE${quotes === 1 ? '' : 'S'} SAVED` : 'NOTHING CHANGED']);
       return { ok: true, added: 0, replaced: 0, unchanged, quotes_saved: quotes, note: 'The thesis already has this analysis, unchanged.' };
