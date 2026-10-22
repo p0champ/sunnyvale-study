@@ -52,10 +52,10 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=voice-fix-2';
+import { installBrowserBridge } from './browser-bridge.js?v=voice-recovery-1';
 import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
 import { installThesisTools } from './thesis-tools.js?v=gestures-1';
-import { installBackup } from './backup.js?v=backup-2';
+import { installBackup } from './backup.js?v=voice-recovery-1';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -1045,8 +1045,9 @@ for (let i = 0; i < 2; i++) {
   inputs.push(state);
 
   ray.addEventListener('connected', e => { state.isHand = !!e.data.hand; state.handedness = e.data.handedness; });
-  ray.addEventListener('selectstart', () => grab(state));
-  ray.addEventListener('selectend', () => release(state));
+  ray.addEventListener('selectstart', () => { if (browserBridge && !browserBridge.beginSelect(state)) return; grab(state); });
+  ray.addEventListener('selectend', () => { browserBridge?.endSelect(state); release(state); });
+  ray.addEventListener('disconnected', () => browserBridge?.cancelSelect(state));
 }
 
 function pinchPoint(state, out) {
@@ -1083,7 +1084,7 @@ function grab(state) {
     const tap = raycaster.intersectObjects(touchables.map(t => t.mesh).filter(m => shown(m) && !isLocked(m)), false)[0];
     if (tap) { blip(1200); touchables.find(t => t.mesh === tap.object).action(); return; }
   }
-  { const { origin, dir } = rayFrom(state); raycaster.set(origin, dir); if (browserBridge?.hit(raycaster)) return; }
+  { const { origin, dir } = rayFrom(state); raycaster.set(origin, dir); if (browserBridge?.hit(raycaster, 0, state)) return; }
   // Pinching on a surface (a document page while highlighting, a frame while drawing, a video bar)
   {
     let found = null;
@@ -2863,7 +2864,7 @@ function saveDeskNow() {
   if (writeJSON(DESK_KEY, JSON.parse(json))) lastSaved = json;
   dirtyFlag = false;
 }
-setInterval(saveDeskNow, 3000);
+setInterval(() => { if (!browserBridge?.voiceActive?.()) saveDeskNow(); }, 3000);
 window.addEventListener('pagehide', saveDeskNow);
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveDeskNow(); });
 
@@ -3233,6 +3234,7 @@ function setPointer(e) {
 }
 
 renderer.domElement.addEventListener('pointerdown', e => {
+  if (renderer.xr.isPresenting) return; // XR select/touch already handles this action.
   setPointer(e);
   if (menu.visible) {
     const b = raycaster.intersectObjects(menuButtons.filter(shown), false)[0];

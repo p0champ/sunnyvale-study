@@ -13,6 +13,7 @@ function encodePCM(buffer) {
 }
 export class BrowserMedia {
   context = null; microphone = null; workletReady = null; micGeneration = 0; nextAudio = new Map(); sources = new Map(); leads = new Map();
+  timelines = new Map(); lastUnderrun = new Map(); audibleUntil = new Map(); spokenUntil = new Map();
   voiceStats = { packets: 0, underruns: 0, dropped: 0, maxGap: 0, lastAt: 0, lead: .3 };
   constructor(send, report) { this.send = send; this.report = report; }
   async unlock() {
@@ -25,23 +26,72 @@ export class BrowserMedia {
   play(id, data, rate) {
     if (!this.context || this.context.state !== 'running' || rate !== 24000 || typeof data !== 'string' || data.length > 20000) return;
     try {
-      const samples = decodePCM(data), buffer = this.context.createBuffer(1, samples.length, rate);
+      const samples = decodePCM(data);
+      if (!samples.length) return;
+      let energy = 0; for (const sample of samples) energy += sample * sample;
+      const level = Math.sqrt(energy / samples.length);
+      const buffer = this.context.createBuffer(1, samples.length, rate);
       buffer.copyToChannel(samples, 0);
       const now = this.context.currentTime, st = this.voiceStats;
       st.packets++; const at = performance.now(); if (st.lastAt) st.maxGap = Math.max(st.maxGap, at - st.lastAt); st.lastAt = at;
       let lead = this.leads.get(id) || .3, next = this.nextAudio.get(id) || 0;
-      if (next > now + lead + 2) { this.stopAudio(id); next = 0; st.dropped++; }
+      if (now - (this.lastUnderrun.get(id) ?? now) > 60 && lead > .3) {
+        lead = Math.max(.3, lead - .15); this.leads.set(id, lead); this.lastUnderrun.set(id, now);
+      }
+      // Real silence can be omitted while catching up. The low threshold is
+      // deliberately separate from speech detection so soft consonants remain.
+      if (next > now + lead + .15 && level < .0005) { st.silentSkipped = (st.silentSkipped || 0) + 1; return; }
+      if (next > now + 8) {
+        // Keep a bounded queue, but never flush the whole conversation. At an
+        // exceptional >8 s backlog, trim only the oldest not-yet-played pieces
+        // and reschedule every retained piece without cutting current audio.
+        const pending = (this.timelines.get(id) || []).filter(piece => piece.start > now + .005);
+        let duration = pending.reduce((sum, piece) => sum + piece.buffer.duration / 1.15, buffer.duration / 1.15);
+        let trim = 0;
+        while (trim < pending.length && duration > 8) { duration -= pending[trim++].buffer.duration / 1.15; st.dropped++; }
+        for (const piece of pending) { try { piece.source.stop(); } catch {} this.sources.get(id)?.delete(piece.source); }
+        const current = (this.timelines.get(id) || []).filter(piece => !pending.includes(piece));
+        this.timelines.set(id, current);
+        next = Math.max(now + lead, ...current.map(piece => piece.end));
+        for (const piece of pending.slice(trim)) next = this.scheduleAudio(id, piece.buffer, piece.level, next, 1.15);
+      }
       if (next < now) {
-        if (next) { st.underruns++; lead = Math.min(1.2, lead + .15); this.leads.set(id, lead); }
+        if (next) { st.underruns++; lead = Math.min(1.2, lead + .15); this.leads.set(id, lead); this.lastUnderrun.set(id, now); }
         next = now + lead;
       }
       st.lead = lead;
-      const source = this.context.createBufferSource(); source.buffer = buffer; source.connect(this.context.destination);
-      source.start(next); this.nextAudio.set(id, next + buffer.duration);
-      if (!this.sources.has(id)) this.sources.set(id, new Set());
-      this.sources.get(id).add(source); source.onended = () => this.sources.get(id)?.delete(source);
+      const speed = next - now > 2 ? 1.15 : next - now > lead + .15 ? 1.08 : 1;
+      this.nextAudio.set(id, this.scheduleAudio(id, buffer, level, next, speed));
     } catch { /* Ignore damaged audio without stopping the browser connection. */ }
   }
+  scheduleAudio(id, buffer, level, start, speed) {
+    const source = this.context.createBufferSource(); source.buffer = buffer; source.playbackRate.value = speed; source.connect(this.context.destination);
+    const piece = { source, buffer, level, start, end: start + buffer.duration / speed };
+    if (!this.sources.has(id)) this.sources.set(id, new Set());
+    if (!this.timelines.has(id)) this.timelines.set(id, []);
+    this.sources.get(id).add(source); this.timelines.get(id).push(piece);
+    source.onended = () => {
+      if (this.sources.get(id)?.has(source) && level > .008 && this.context.currentTime >= piece.start) this.spokenUntil.set(id, Math.max(this.spokenUntil.get(id) || 0, piece.end));
+      this.sources.get(id)?.delete(source);
+      const timeline = this.timelines.get(id), index = timeline?.indexOf(piece) ?? -1;
+      if (index >= 0) timeline.splice(index, 1);
+    };
+    source.start(start);
+    if (level > .008) this.audibleUntil.set(id, piece.end);
+    return piece.end;
+  }
+  voiceLevel(id) {
+    const now = this.context?.currentTime ?? 0;
+    const piece = this.timelines.get(id)?.find(item => item.start <= now && item.end > now);
+    return piece ? Math.min(1, piece.level * 4) : 0;
+  }
+  speakingNow(id) {
+    if (!this.context) return false;
+    const now = this.context.currentTime;
+    for (const piece of this.timelines.get(id) || []) if (piece.level > .008 && piece.start <= now) this.spokenUntil.set(id, Math.max(this.spokenUntil.get(id) || 0, piece.end));
+    return this.spokenUntil.has(id) && this.spokenUntil.get(id) > now - .5;
+  }
+  spokeWithin(id, milliseconds = 10000) { return !!this.context && (this.audibleUntil.get(id) || -Infinity) > this.context.currentTime - milliseconds / 1000; }
   takeVoiceStats() { const s = this.voiceStats; this.voiceStats = { packets: 0, underruns: 0, dropped: 0, maxGap: 0, lastAt: s.lastAt, lead: s.lead }; return s; }
   async toggleMic(id) {
     if (this.microphone?.id === id) { this.stopMic(); return; }
@@ -93,6 +143,7 @@ export class BrowserMedia {
   stopAudio(id) {
     for (const source of this.sources.get(id) || []) { try { source.stop(); } catch {} }
     this.sources.delete(id); this.nextAudio.delete(id);
+    this.timelines.delete(id); this.leads.delete(id); this.lastUnderrun.delete(id); this.audibleUntil.delete(id); this.spokenUntil.delete(id);
   }
   stopAll() { this.stopMic(); for (const id of this.sources.keys()) this.stop(id); }
 }

@@ -1,8 +1,35 @@
 # Sunnyvale Study: handover notes
 
-## Start here: current checkpoint for Claude or GPT
+## Current voice continuation (22 October 2026, branch only)
 
-This section is the current state. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
+Voice fixes are PC-ready on `gpt-fixes`; nothing is merged or deployed. Read VOICE_FIX_REPORT.md first. The complete PC suite passed 28/28; independent voice review reached 9/10 after three rounds. The real bridge, canonical F: code and Chrome sessions were left alone. Actual Quest listening confirmation is pending, so do not claim the reported cut-outs are 100% fixed yet.
+
+The implementation adds a session-bound audio connection, ordered/acknowledged delivery and bounded replay, speech-based picture throttling across all windows, measured RTT pacing, playback catch-up without whole-queue flushes, deferred automatic backups/snapshots, and yielding between world builds. Sound OFF and closed tabs stay silent. Input waits for screenshot capture to finish, preserving the existing pinch fix. No additional extension update beyond published 0.4.5 is required.
+
+Claude's original cloud session was read successfully. Recorded commits a7f84df, 37e8ef7 and ebb253d exist only in that separate workspace; do not claim they are on GitHub. It successfully updated HANDOVER and MORNING_REPORT near the end, then made seven more untested index edits before the usage cutoff. The full final HTML was recovered from the viewer into private staging, but is NOT applied. Earlier claims that no tracking files were written were incomplete; the Windows/GitHub copies simply had not received them.
+
+The user's original voice-first stop instruction remains the phase gate: publish/activate only after resolving the existing no-main-merge restriction, then have the user test voice on Quest before continuing appearance work. Other overnight items remain pending reconciliation/review, not completed. Keep private recovery data out of Git. The faster same-Wi-Fi route in VOICE_FIX_REPORT is a proposal only.
+
+
+## GPT fixes checkpoint (2026-10-21, branch only)
+
+Work is on `gpt-fixes`, based on main `3d76373`; it is NOT merged or deployed. Claude's Jarvis gesture section, link buttons and `studyDebug.gestures` were left unchanged. Do not restart the current bridge or connect a competing PC Sunnyvale page while the headset test is running.
+
+- Connector recovered: port 8130 was down, so the unchanged bridge was started once. Permanent Funnel health and authenticated MCP passed (73 tools); missing credentials get 401. Chrome and the Quest subsequently connected. No address rotation, credentials printed, account automation or profile copying.
+- F: was initially unavailable, then returned. The current process uses the preserved private settings under Documents/Sunnyvale private copy; matching pairing/connector/address files were verified against F:. Missing backup files were copied back to the canonical private backup folder without overwriting differing files. Keep both private folders until their newest snapshots are reconciled at a planned transition. No code or branch changes were made in the canonical F: checkout.
+- Windows-login startup is installed, as explicitly approved. A hidden per-user supervisor waits for the F: drive, checks the port, and uses a mutex to avoid duplicates; it retries crashes. It targets F:/QuestStudySpace/bridge at the next login. Disable with `bridge/Disable Automatic Startup.bat` from this branch, or remove the Sunnyvale Browser Bridge shortcut from Windows Startup. Disabling leaves today's bridge running.
+- Browser-only pinch routing now coalesces repeated native select events, fingertip contact and mirrored DOM pointer input. Synthetic tests exercise the actual app and an isolated bridge. This is separate from Claude's protected gesture detectors. Real-hand comfort still needs Quest confirmation after merging.
+- Real normal Chrome extension 0.4.4 delivered all 18 fixture clicks within one CSS pixel, through the existing Quest connection. A disposable Chrome test additionally sets origin zoom to 75%, checks exact clicks, reload, 200% sharing and restoration of 75% on detach. The actual signed-in claude.ai 75% check remains pending: computer-control initialization failed on this PC. Do not call that account-page check completed. No extension update is required.
+- Safety Net is BUILT. A real Quest backup was received and parsed (8 storage keys; no library files or frames present to validate on this session). Isolated tests round-trip UTF-8 boundary text, binary files, frames and keys. New branch checks reject malformed/incomplete uploads and preserve the previous good file. Backend changes activate only after a planned merge/restart; do not restart now.
+- Google Drive for desktop is not installed and was not installed by us. Current backups are local. See bridge/README.md for optional later cloud-copy steps. Backup folders contain private bridge keys and must remain private.
+
+Existing main work since Break logos is already built: permanent Funnel address, reconnect/heartbeat, crash restart, Safety Net, spark avatar/moods, five-category menu, exam rehearsal/paragraph comments/shot log/propaganda checklist/window arrangement tools, Display sharpness and Aa reading mode. Compositor/quad layers remain a proposal, not approved work. Older entries below may describe superseded behavior; this checkpoint takes priority.
+
+Validation details and outstanding limits: `GPT_FIXES_REPORT.md`. Independent review: 8.5/10 after two backup edge-case fixes; final PC suite 16/16 passed. Actual Claude-at-75% and real-hand checks remain pending as listed above.
+
+## Start here: earlier checkpoint for Claude or GPT
+
+This earlier checkpoint is superseded by the GPT fixes checkpoint above. The dated sections below include the earlier implementation history; do not rebuild completed work or treat those historical descriptions as current instructions.
 
 ### NEWEST (Claude, voice fix round 2 + diagnostics + stricter flick, 2026-10-21 late)
 - After round 1 the user still heard Claude's voice lagging (Display sharpness Fast did not help, so it's not GPU load). Round 2: the headset player is adaptive: starts 0.3 s ahead and adds 0.15 s each time it runs dry (max 1.2 s); flushes only past lead + 2 s. HTTPS-fallback replies now put audio before frames.

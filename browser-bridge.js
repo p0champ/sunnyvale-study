@@ -1,13 +1,22 @@
 import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
-import { BrowserMedia } from './browser-media.js?v=voice-fix-2';
+import { BrowserMedia } from './browser-media.js?v=voice-recovery-1';
+import { BrowserClickInput } from './browser-click-input.js';
+import { openVoiceLink, createAudioReceiver } from './browser-voice-link.js?v=voice-recovery-1';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel, onConnection }) {
   let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false;
   const tabs = new Map();
+  const closedAudioIds = new Set();
+  const browserInput = new BrowserClickInput();
+  const pinchClosed = state => {
+    const tip=state.isHand&&state.hand?.joints?.['index-finger-tip'], thumb=state.hand?.joints?.['thumb-tip'];
+    return !!(tip&&thumb&&state.hand.visible&&tip.getWorldPosition(tip.position.clone()).distanceTo(thumb.getWorldPosition(thumb.position.clone()))<.028);
+  };
   const restoredPanels = [];
   const descriptions = new Map(); let descriptionCount = 0;
   const calls = new Map(); let callCount = 0;          // requests that wait for an answer from the PC (backups)
+  let worldQueue = Promise.resolve();
   const updateReadingQuality = () => {};          // the main page turns foveation off while any window is open
   const send = m => { if (ready && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(m)); };
   const fields = document.getElementById('bridgeSettings');
@@ -106,7 +115,11 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     tab.micButton = button(panel, 'Mic', .1, -.36, .16, () => media.toggleMic(m.id));
     tab.micIndicator = button(panel, '● LISTENING', 0, .315, .36, () => media.stopMic()); tab.micIndicator.visible = false;
     tab.soundButton = button(panel, tab.audioEnabled ? 'Sound ON' : 'Sound', .29, -.36, .16, async () => {
-      try { await media.unlock(); send({ type: tab.audioEnabled ? 'audio-stop' : 'audio-start', id: m.id }); }
+      try {
+        tab.suppressAudio = tab.audioEnabled;
+        if (tab.suppressAudio) media.stopAudio(m.id);
+        await media.unlock(); send({ type: tab.audioEnabled ? 'audio-stop' : 'audio-start', id: m.id });
+      }
       catch { status('Allow sound on the Sunnyvale page before entering VR.'); }
     });
     focused = m.id;
@@ -114,6 +127,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     if (savedIndex >= 0) restorePanel?.(panel, restoredPanels.splice(savedIndex, 1)[0]);
   }
   function disconnect() {
+    browserInput.reset();
     media.stopAll();
     ready = false; const old = socket; socket = null; old?.close();
     for (const t of [...tabs.values()]) closeWindow(t.panel);
@@ -176,7 +190,18 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     function connectTransport(https = false) {
       report(https ? 'Trying the secure HTTPS backup connection…' : 'Connecting to the secure PC address…');
       const current = https ? new HttpsBridgeSocket(url.href, token) : new WebSocket(url.href); socket = current;
-      let failure = '', pairingTimer;
+      let failure = '', pairingTimer, closeVoice = () => {};
+      const receiveAudio = createAudioReceiver({
+        play: packet => {
+          const tab = tabs.get(packet.id);
+          // Audio can overtake its panel metadata on the other connection.
+          // Only an explicit close/mute suppresses it, not missing metadata.
+          if (closedAudioIds.has(packet.id) || tab?.suppressAudio) return;
+          media.play(packet.id, packet.data, packet.rate);
+          if (tab) tab.soundAt = performance.now();
+        },
+        acknowledge: seq => send({ type: 'audio-ack', seq }),
+      });
       const clearTimers = () => { clearTimeout(connectionTimer); clearTimeout(pairingTimer); };
       const fail = message => {
         if (socket !== current || ready) return;
@@ -199,28 +224,41 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         clearTimeout(connectionTimer);
         report('PC reached. Checking the private pairing code…');
         pairingTimer = setTimeout(() => fail('The PC was reached, but pairing did not finish. Disconnect other Sunnyvale pages (keep the Chrome extension connected), then try again.'), 8000);
-        current.send(JSON.stringify({ type: 'pair', token }));
+        current.send(JSON.stringify({ type: 'pair', token, audioProtocol: 1 }));
       };
       current.onmessage = async event => {
         if (socket !== current || failure) return;
         lastHeard = Date.now();
         let m; try { m = JSON.parse(event.data); } catch { fail('The secure address returned an unexpected response. Check that you used the current PC bridge address.'); return; }
+        if (m.type === 'rtt-ping') { send({ type: 'rtt-pong', t: m.t }); return; }
         if (m.type === 'reply') { const c = calls.get(m.reqId); if (c) { calls.delete(m.reqId); clearTimeout(c.timer); m.ok ? c.resolve(m) : c.reject(Error(m.error || 'The PC could not do that.')); } return; }
         if (m.type === 'world-call') {                                    // a command from the user's Claude connector
           if (m.expiresAt && Date.now() > m.expiresAt) { send({type:'world-result',reqId:m.reqId,ok:false,error:'This tool request expired before reaching the headset. Please try again.'}); return; }
-          Promise.resolve().then(() => worldTool(String(m.name), m.input || {}))
+          // Yield between builds. A batch of synchronous canvas/window work
+          // must not monopolize the same event loop that receives audio.
+          worldQueue = worldQueue.catch(() => {}).then(() => new Promise(resolve => setTimeout(resolve, 0))).then(() => {
+            if (socket !== current || !ready) throw Error('The headset connection changed. Retry this tool.');
+            if (m.expiresAt && Date.now() > m.expiresAt) throw Error('This tool request expired. Retry it.');
+            return worldTool(String(m.name), m.input || {});
+          })
             .then(result => send({ type: 'world-result', reqId: m.reqId, ok: true, result: String(result) }))
             .catch(e => send({ type: 'world-result', reqId: m.reqId, ok: false, error: String(e?.message || e) }));
           return;
         }
         if (m.type === 'ready') {
           clearTimers(); setReady(true); retryDelay = 2000; lastHeard = Date.now();
+          closedAudioIds.clear();
+          if (!https) {
+            closeVoice();
+            closeVoice = openVoiceLink({ url: url.href, token, key: m.audioKey, isCurrent: () => socket === current && ready,
+              onAudio: receiveAudio });
+          }
           if (m.browserReady !== false) reopenSaved();
           report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.'));
         }
         if (m.type === 'browser-status' && m.connected) reopenSaved();
         if (m.type === 'browser-status') { if (!m.connected) media.stopAll(); report(m.connected ? 'Connected to your Google Chrome. Claude and the heart open inside the world.' : 'Chrome disconnected. Reconnect the Sunnyvale extension on the PC.'); }
-        if (m.type === 'sharing-stopped') media.stop(m.id);
+        if (m.type === 'sharing-stopped') { closedAudioIds.add(m.id); media.stop(m.id); }
         if (m.type === 'tab') {
           newPanel(m);
           if (pendingType) {                                            // type the waiting text once the page has had time to load
@@ -243,8 +281,8 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
           if (media.microphone?.id === m.id && !['claude.ai','www.claude.ai','localhost','127.0.0.1'].includes(new URL(m.url).hostname)) media.stopMic();
         }
         if (m.type === 'viewport' && tabs.has(m.id)) { tabs.get(m.id).width = m.width; tabs.get(m.id).height = m.height; }
-        if (m.type === 'audio') { media.play(m.id, m.data, m.rate); if (tabs.has(m.id)) tabs.get(m.id).soundAt = performance.now(); }
-        if (m.type === 'audio-status' && tabs.has(m.id)) { const tab = tabs.get(m.id); tab.audioEnabled = m.enabled; tab.soundButton.userData.label(m.enabled ? 'Sound ON' : 'Sound'); if (!m.enabled) media.stopAudio(m.id); }
+        if (m.type === 'audio') receiveAudio(m);
+        if (m.type === 'audio-status' && tabs.has(m.id)) { const tab = tabs.get(m.id); tab.audioEnabled = m.enabled; tab.suppressAudio = !m.enabled; tab.soundButton.userData.label(m.enabled ? 'Sound ON' : 'Sound'); if (!m.enabled) media.stopAudio(m.id); }
         if (m.type === 'mic-status') media.micReady(m.id, m.enabled);
         if (m.type === 'error') { if (media.microphone?.pending && (!m.id || m.id === media.microphone.id)) media.stopMic(); report(m.message); status(m.message); }
         if (m.type === 'frame') {
@@ -269,7 +307,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         }
       };
       current.onclose = event => {
-        clearTimers();
+        clearTimers(); closeVoice();
         if (socket !== current) return;
         if (!https && !ready && !failure && event.code !== 1008 && event.code !== 4001) { fallback(); return; }
         const lost = ready;
@@ -278,6 +316,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         const why = failure || (event.code === 1008
           ? 'The PC rejected the pairing code. Check the full code from the PC’s bridge/private/pairing.txt.'
           : event.code === 4001 ? 'Another Sunnyvale page, or the old connection, is still connected (an old one is let go within 30 s).'
+          : event.code === 1013 ? 'The voice connection fell behind. Reconnecting to the PC bridge…'
           : 'Bridge disconnected.');
         report(why);
         if (lost) status('Browser bridge disconnected');
@@ -324,9 +363,11 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       const mic = media.microphone;
       return {
         listening: !!mic && !mic.pending && claudeTabs.some(([id]) => id === mic.id),
-        speaking: claudeTabs.some(([, t]) => performance.now() - (t.soundAt || 0) < 400),
+        speaking: claudeTabs.some(([id]) => media.speakingNow(id)),
+        level: Math.max(0, ...claudeTabs.map(([id]) => media.voiceLevel(id))),
       };
     },
+    voiceActive() { return [...tabs].some(([id, tab]) => { try { return ['claude.ai', 'www.claude.ai'].includes(new URL(tab.url).hostname) && media.spokeWithin(id); } catch { return false; } }); },
     open(url, saved) { if (!ready) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },
@@ -372,28 +413,42 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       if (!entry) { if (ready) { pendingMic = true; send({ type: 'open', url: 'https://claude.ai/new' }); } return; }
       if (media.microphone?.id !== entry[0]) media.toggleMic(entry[0]);
     },
-    hit(raycaster, scroll = 0) {
+    beginSelect(state) { return browserInput.begin(state); },
+    endSelect(state) { browserInput.end(state, pinchClosed(state)); },
+    cancelSelect(state) { browserInput.cancel(state); },
+    hit(raycaster, scroll = 0, source) {
       const hit = raycaster.intersectObjects([...tabs.values()].map(t => t.content).filter(shown), false)[0];
       if (!hit) return false;
       const panel = hit.object.parent, id = panel.userData.browserId;
       if (panel.userData.locked) return false;          // locked windows can be moved, but not clicked
+      if (!scroll && source && !browserInput.select(source)) return true;
       focused = id; addressMode = false;
       const tab = tabs.get(id);
       send({ type: scroll ? 'scroll' : 'click', id, x: Math.min(tab.width-1,hit.uv.x*tab.width), y: Math.min(tab.height-1,(1-hit.uv.y)*tab.height), delta: scroll });
       return true;
     },
     touch(point, state) {
+      browserInput.observe(state,pinchClosed(state));
+      if (state.hand?.visible === false) { browserInput.cancel(state); return; }
+      // Do not re-arm on tiny depth/edge tracking jitter. A fingertip must
+      // leave the wider contact area before another direct tap can click.
+      const contact=tabs.get(browserInput.contactOf(state));
+      if(contact && shown(contact.content) && !contact.panel.userData.locked) {
+        const p=contact.content.worldToLocal(point.clone());
+        if(Math.abs(p.z)<.035&&Math.abs(p.x)<.38&&Math.abs(p.y)<.245)return;
+      }
+      browserInput.leave(state);
       for (const [id, t] of tabs) {
         if (!shown(t.content) || t.panel.userData.locked) continue;
         const p = t.content.worldToLocal(point.clone());
         if (Math.abs(p.z) < .018 && Math.abs(p.x) < .36 && Math.abs(p.y) < .225) {
-          if (state.bridgeTouch !== id) { state.bridgeTouch = id; focused = id; send({ type: 'click', id, x: Math.min(t.width-1,(p.x / .72 + .5) * t.width), y: Math.min(t.height-1,(.5 - p.y / .45) * t.height) }); }
+          if (browserInput.contact(state,id)) { focused = id; send({ type: 'click', id, x: Math.min(t.width-1,(p.x / .72 + .5) * t.width), y: Math.min(t.height-1,(.5 - p.y / .45) * t.height) }); }
           return;
         }
       }
-      state.bridgeTouch = null;
     },
     closed(panel) {
+      closedAudioIds.add(panel.userData.browserId);
       media.stop(panel.userData.browserId);
       if (panel === keyboard) keyboard = null;
       if (['browser', 'browser-keyboard'].includes(panel.userData.kind)) for (const child of panel.children) {

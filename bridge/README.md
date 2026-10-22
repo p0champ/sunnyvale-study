@@ -1,3 +1,26 @@
+# Voice continuation: tested, awaiting publication
+
+The new voice transport/player is on gpt-fixes only. Read ../VOICE_FIX_REPORT.md for protocol, tests, 9/10 independent review, deployment prerequisites and the proposal for a future same-Wi-Fi route. All 28 PC tests pass. The latest published Chrome extension is already 0.4.5; no further extension change is part of this voice phase. No production bridge restart or competing PC frontend was used.
+
+The matching frontend announces audioProtocol:1 and receives a per-headset session key. /bridge-audio requires that key plus normal private pairing and the allowed origin. Sequence numbers and cumulative audio-ack control delivery over both transports; migration replays unacknowledged packets and the client orders/de-duplicates them. Legacy clients retain their existing main-stream audio path. Packet-window/memory limits explicitly reconnect stalled sessions; this cannot guarantee speech under arbitrary outages.
+
+Keep appearance work in staging until the user confirms voice. Earlier setup/history below is superseded where it conflicts with this checkpoint.
+
+# Current branch checkpoint
+
+`gpt-fixes` is not merged. See ../GPT_FIXES_REPORT.md and the newest ../HANDOVER.md. Real Chrome remains at the published extension 0.4.5; no extension reload is needed. Current connector health/authentication and 73 tools passed. Browser pinch coalescing and stricter backup completion checks are branch changes, not live updates. The current bridge was started once only because it was down, using preserved recovery settings; next-login startup targets canonical F:. Do not restart it during the headset test.
+
+## Optional cloud copies later
+
+Safety Net already writes local private backups. Google Drive for desktop is not installed; no installation was performed.
+
+1. Follow [Google's official Windows instructions](https://support.google.com/drive/answer/10838124?hl=en) to download and install Google Drive for desktop if you want it.
+2. Sign in yourself to your existing Google account and confirm My Drive appears in File Explorer.
+3. At a planned next Windows login, the normal bridge detects supported My Drive locations and writes new backups into My Drive/Sunnyvale Backup. Do not restart today's bridge just to try this. A custom BRIDGE_PRIVATE_DIR or BRIDGE_BACKUP_DIR deliberately bypasses Drive detection; the current recovery process uses a custom private directory.
+4. With Quest connected, make a small study change and check that Sunnyvale Backup appears and Drive reports it synced. Existing local backup history is kept; it is not automatically migrated. Unusual Drive folder locations need configuration before cloud use.
+
+Keep this folder private: it contains study material and bridge pairing/connector keys. Cloud storage does not replace checking that a backup actually arrived.
+
 # Sunnyvale PC browser bridge — normal Chrome connection
 
 This keeps real web pages inside the current Sunnyvale world. Your Windows PC and your usual Google Chrome must stay open. The Sunnyvale extension connects to real tabs in the Chrome profile you already use. No API key, copied cookies, copied profile or automated Chromium is used in normal operation. Sign in yourself on the PC if needed. Login sessions last as long as the sites allow; occasional sign-in and verification can still happen.
@@ -10,7 +33,7 @@ For the latest user-confirmed setup and the exact next step, see `../HANDOVER.md
 2. Turn on **Developer mode**, press **Load unpacked**, and select `F:\QuestStudySpace\bridge\chrome-extension`.
 3. Click Chrome's puzzle-piece Extensions button, then **Sunnyvale Browser Bridge**.
 4. Choose `F:\QuestStudySpace\bridge\private\pairing.txt`, then press **Connect**. The extension says **Connected** when ready. The file and sign-ins stay on this PC.
-5. Keep Chrome open. Refresh Sunnyvale on Quest and connect using the current private link or current bridge address. A relay restart changes that address; update any stale Quest address. Open Claude or WhatsApp from the menu.
+5. Keep Chrome open. Refresh Sunnyvale on Quest and connect using the current private link or current bridge address. The configured permanent Funnel address stays the same across restarts. Open Claude or WhatsApp from the menu.
 
 The extension will reuse an open tab for the requested website when possible, preserving the current page and login. Otherwise it opens a normal Chrome tab with that profile's session. Closing a VR window only stops sharing; it leaves the Chrome tab open. Headset disconnection also stops sharing and leaves tabs alone. Chrome displays its standard debugging notification while a tab is shared. Do not press Cancel on that notification while using VR. Open DevTools can also interrupt sharing. Sign-in popups, account choices and any verification should be completed by you on the PC before reopening the tab in VR.
 
@@ -18,16 +41,17 @@ The extension requests `debugger`, `tabs`, `activeTab`, `tabCapture`, `offscreen
 
 ## Start the bridge on later days
 
-1. Double-click **Start Browser Bridge.bat**. First launch installs Node dependencies and Cloudflare's signed connection helper. Leave the window open. The extension should reconnect; open its popup and press Connect if needed.
-2. When it says the private Quest link is ready, open **bridge/private/Open Sunnyvale.url** on the PC. This opens Sunnyvale and connects automatically. Check that **PC browser bridge** says **Connected**.
-3. Open that same private link in Quest Browser (for example, transfer it with your usual private PC-to-headset link sharing). It includes a pairing credential, so do not post it or put it on GitHub. Only one device can connect: disconnect the PC preview before connecting Quest.
-4. Enter Sunnyvale. Tap Claude or the heart. They open claude.ai or WhatsApp Web on movable panels. Log in yourself. WhatsApp will show its linked-device QR code.
+Approved Windows-login startup is already installed. Keep normal Chrome open; the extension reconnects. If the bridge is already running, leave it running. Never open a PC Sunnyvale frontend while Quest owns the single connection.
+
+For manual recovery when it is down, use Start Browser Bridge.bat. The permanent Funnel address comes from private/public-address.txt and does not rotate. Open the saved private Quest link on the headset; do not paste it into public messages. Do not connect a PC preview as a health check.
+
+To install startup elsewhere, use Enable Automatic Startup.bat. To disable future login startup, use Disable Automatic Startup.bat or remove the Sunnyvale Browser Bridge shortcut from Windows Startup. This leaves the current process running. The supervisor uses a mutex and port probe, waits for a missing drive, and retries a crash after five seconds.
 
 An alternative to transferring the link: open the normal live site on Quest, expand **PC browser bridge**, enter the tunnel's `wss://…/bridge` address and the code from `private/pairing.txt`, then press Connect before entering VR.
 
 Inside a panel: point and pinch to click, touch with a fingertip to tap, use **Up/Down** to scroll, **Keys** to open the keyboard, **URL** to type an address, and **New** for another tab (up to four). Grab the outside frame to move a panel. Keyboard has Shift for capitals. On PC, use the mouse and wheel; PC typing goes to a browser only while its keyboard is visible. The first keyboard is basic; text selection, mouse dragging and clipboard are not implemented yet.
 
-The relay is encrypted, protected by a random private pairing credential and allows only the app's origin. The PC service listens on loopback. Project files, profile files and credentials are never served by it. The public code excludes all private files, installed programs and dependencies. Anyone with your private link can operate shared tabs, so keep it private. To revoke a link, stop the bridge, delete `private/pairing.txt`, and restart, then choose the new pairing file in the extension. The temporary relay address changes each relay restart. Shared tabs start muted until tab sound capture is enabled; detaching restores their previous mute state. Tab sound and Claude headset microphone forwarding are available with the permissions below. General website calls and file picking are not implemented.
+The relay is encrypted, protected by a random private pairing credential and allows only the app's origin. The PC service listens on loopback. Project files, profile files and credentials are never served by it. The public code excludes all private files, installed programs and dependencies. Anyone with your private link can operate shared tabs, so keep it private. To revoke a link, stop the bridge, delete `private/pairing.txt`, and restart, then choose the new pairing file in the extension. Only legacy quick-tunnel setups rotate addresses; this PC uses the permanent address from private/public-address.txt. Shared tabs start muted until tab sound capture is enabled; detaching restores their previous mute state. Tab sound and Claude headset microphone forwarding are available with the permissions below. General website calls and file picking are not implemented.
 
 The app tries its saved bridge connection once on load. Until connected, the Claude button shows a clear HUD message and stays inside VR. The explicit Open Claude outside VR page button requires confirmation. A rotated temporary address still needs the current private link. A disconnection displays a message; existing panels freeze until you reconnect and reopen them. Connecting again clears old panels. WhatsApp opens its inbox; the girlfriend's number is not sent to the bridge. The original number-based fallback is unchanged.
 

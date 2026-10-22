@@ -4,12 +4,15 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test --test-concurrency=1 test.mjs test-extension.mjs test-http.mjs test-media.mjs test-study-utils.mjs test-connector.mjs test-scanner.mjs"
+    "test": "node --test --test-concurrency=1 test.mjs test-extension.mjs test-http.mjs test-media.mjs test-study-utils.mjs test-connector.mjs test-scanner.mjs test-connection-settings.mjs test-startup.mjs test-browser-input.mjs test-browser-input-ui.mjs test-backup.mjs test-voice-channel.mjs test-voice-playback.mjs test-voice-ordering.mjs test-voice-network.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "playwright": "^1.56.0",
     "ws": "^8.18.3",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "three": "0.169.0"
   }
 }

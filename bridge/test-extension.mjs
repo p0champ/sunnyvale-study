@@ -16,7 +16,7 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
   const fixture = http.createServer((req, res) => {
     if (req.url.startsWith('/event')) { events.push({ url: decodeURIComponent(req.url), cookie: req.headers.cookie }); res.end('ok'); return; }
     res.setHeader('Content-Type', 'text/html'); res.setHeader('Set-Cookie', 'test_session=remembered; Path=/; SameSite=Lax');
-    res.end(`<title>Bridge fixture</title><body style="margin:0;height:3000px;background:#375"><input style="position:absolute;left:20px;top:20px;width:300px;height:60px" oninput="fetch('/event?text='+encodeURIComponent(this.value))"><button style="position:absolute;left:20px;top:100px;width:300px;height:60px" onclick="fetch('/event?click=yes')">Click</button><p style="position:absolute;left:400px;top:300px">Visible study text</p><script>onmousemove=e=>window.lastMove={x:e.clientX,y:e.clientY};onscroll=()=>fetch('/event?scroll='+scrollY)</script>`);
+    res.end(`<title>Bridge fixture</title><body style="margin:0;height:3000px;background:#375"><input style="position:absolute;left:20px;top:20px;width:300px;height:60px" oninput="fetch('/event?text='+encodeURIComponent(this.value))"><button style="position:absolute;left:20px;top:100px;width:300px;height:60px" onclick="fetch('/event?click=yes')">Click</button><p style="position:absolute;left:400px;top:300px">Visible study text</p><script>onmousemove=e=>window.lastMove={x:e.clientX,y:e.clientY};onclick=e=>window.lastClick={x:e.clientX,y:e.clientY};onscroll=()=>fetch('/event?scroll='+scrollY)</script>`);
   });
   await new Promise(r => fixture.listen(18141, '127.0.0.1', r));
   const child = spawn(process.execPath, ['server.mjs'], { cwd: fileURLToPath(new URL('.', import.meta.url)), windowsHide: true,
@@ -37,6 +37,8 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
     const existing = await context.newPage(); await existing.goto('http://127.0.0.1:18141/already-open');
     await existing.evaluate(() => { localStorage.setItem('remember-me', 'yes'); window.retainedTab = true; });
+    await worker.evaluate(async()=>{const [t]=await chrome.tabs.query({url:'http://127.0.0.1:18141/*'});await chrome.tabs.setZoom(t.id,.75);});
+    await until(()=>existing.evaluate(()=>Math.abs(devicePixelRatio-.75)<.01));
     await worker.evaluate(async ({ token }) => { await chrome.storage.local.set({ token, port: 18140, enabled: true }); await Promise.all([connect(), connect()]); }, { token });
     await until(() => worker.evaluate(() => message.startsWith('Connected.'))).catch(async error => {
       throw Error(error.message + ': ' + await worker.evaluate(() => message));
@@ -74,6 +76,7 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     assert.equal(await existing.evaluate(() => devicePixelRatio), 2, 'Double sharpness comes from a real 200% page zoom');
     assert.equal(await existing.evaluate(() => innerWidth), 1280, 'The page is laid out at its normal size, so clicks use the same pixels');
     assert.equal(png.readUInt32BE(20), 1600);
+    for(const [x,y] of [[160,120],[640,400],[1120,680]]){send({type:'click',id:tab.id,x,y});await until(()=>existing.evaluate(({x,y})=>window.lastClick?.x===x&&window.lastClick?.y===y,{x,y})).catch(async error=>{console.log('Fixture metrics',await existing.evaluate(()=>({click:window.lastClick,dpr:devicePixelRatio,width:innerWidth,height:innerHeight})));throw error;});}
     const beforeAnimation = messages.length;
     await existing.evaluate(() => {
       const box = document.createElement('div'); box.style.cssText = 'position:fixed;right:20px;top:200px;width:32px;height:32px'; document.body.append(box);
@@ -116,8 +119,13 @@ test('real extension reuses Chrome session, streams, clicks, types, scrolls, and
     });
     assert.equal(audio.rate, 24000, 'Real captured tab sound reaches the authenticated headset connection');
     await existing.evaluate(() => { tone.stop(); toneContext.close(); voiceContext.close(); });
+    const reloaded=existing.waitForEvent('load');send({type:'reload',id:tab.id});await reloaded;
+    send({type:'click',id:tab.id,x:640,y:400});await until(()=>existing.evaluate(()=>window.lastClick?.x===640&&window.lastClick?.y===400)).catch(async error=>{console.log('Reload fixture metrics',await existing.evaluate(()=>({click:window.lastClick,dpr:devicePixelRatio,width:innerWidth,height:innerHeight})));throw error;});
+    assert.equal(await existing.evaluate(()=>devicePixelRatio),2,'Saved 75% site zoom cannot leak back on reload');
+    await existing.evaluate(() => { window.retainedTab = true; });
     send({ type: 'close', id: tab.id });
     await until(() => worker.evaluate(() => tabs.size === 0));
+    await until(()=>worker.evaluate(async()=>{const [t]=await chrome.tabs.query({url:'http://127.0.0.1:18141/*'});return await chrome.tabs.getZoom(t.id)===.75;}));
     assert.equal(existing.isClosed(), false); assert.equal(await existing.evaluate(() => localStorage.getItem('remember-me')), 'yes');
     assert.equal(await worker.evaluate(async () => (await chrome.tabs.query({})).find(t => t.url.includes(':18141')).mutedInfo.muted), false);
     send({ type: 'open', url: 'http://127.0.0.1:18141/reopen' });

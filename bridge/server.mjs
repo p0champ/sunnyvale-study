@@ -10,6 +10,7 @@ import { ExtensionBrowser, extensionId } from './extension-browser.mjs';
 import { createHttpTransport } from './http-transport.mjs';
 import { createConnector } from './connector.mjs';
 import { createBackup } from './backup.mjs';
+import { createVoiceChannel, audiblePCM, isClaudePage } from './voice-channel.mjs';
 
 const root = process.env.BRIDGE_PRIVATE_DIR || fileURLToPath(new URL('./private/', import.meta.url));
 await mkdir(root, { recursive: true });
@@ -45,9 +46,11 @@ const browserWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 
 const extension = new ExtensionBrowser();
 const useExtension = process.env.BRIDGE_BROWSER !== 'playwright';
 let active = null, context = null;
+const voiceChannel = createVoiceChannel({ allowedOrigins, validToken, getOwner: () => active });
 const backup = createBackup({ root });
 const httpTransport = createHttpTransport({ allowedOrigins, validToken, isBusy: () => !!active, onConnection: socket => wss.emit('connection', socket) });
 server.on('upgrade', (req, socket, head) => {
+  if (voiceChannel.upgrade(req, socket, head)) return;
   if (req.url === '/browser') {
     if (req.headers.origin !== 'chrome-extension://' + extensionId || req.headers.host !== '127.0.0.1:' + port) { socket.destroy(); return; }
     browserWss.handleUpgrade(req, socket, head, ws => {
@@ -82,6 +85,14 @@ wss.on('connection', ws => {
   const worldCalls = new Map();
   let voice = { packets: 0, maxGap: 0, last: 0, frames: 0, frameKB: 0, maxBuffered: 0 };   // PC side of the voice diagnostics
   const send = data => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); };
+  let speechAt = 0, rtt = 0, rttPeak = 0, pingAt = 0, pongAt = 0;
+  const httpFallback = typeof ws.ping !== 'function';
+  const voiceActive = () => Date.now() - speechAt < 10000 || [...tabs.values()].some(t => t.micEnabled);
+  const congested = () => !httpFallback && ((rtt > 700 && Date.now() - pongAt < 6000) || (pingAt && Date.now() - pingAt > 1500));
+  const rttTimer = setInterval(() => {
+    if (!paired) return;
+    if (!pingAt || Date.now() - pingAt > 6000) { pingAt = Date.now(); send({ type: 'rtt-ping', t: pingAt }); }
+  }, 2000);
   const timer = setTimeout(() => { if (!paired) ws.close(1008, 'Pairing required'); }, 5000);
   // Heartbeat: a headset that vanished (Wi-Fi dropped, headset asleep) is let go within about 30 seconds,
   // so the headset can reconnect instead of being refused as "already connected".
@@ -116,24 +127,40 @@ wss.on('connection', ws => {
     if (!useExtension) await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
     if (closed) { await page.close(); return; }
     const tab = { page, cdp, waiting: false, sentAt: 0, latest: null, timer: null, stillTimer: null, dirty: true, capturedAt: 0, lastImage: null, zoom: 0, width: 1280, height: 800, micEnabled: false, micPending: 0 }; tabs.set(id, tab);
-    // Voice (headset mic or tab sound) shares this connection with the pictures. A big sharp picture sent
-    // ahead of the sound makes Claude's voice arrive late and get cut, so while voice is on the window
-    // updates once a second with a smaller JPEG picture, and sound always goes first.
-    tab.voice = () => tab.micEnabled || !!page.audioEnabled || Date.now() - (tab.soundAt || 0) < 3000;
+    // All browser pictures share the bandwidth budget, even when only Claude
+    // is speaking. Ordinary video/tab sound must not activate this speech gate.
+    tab.voice = voiceActive;
+    const pictureDelay = () => {
+      if (!voiceActive()) return 0;
+      const now = Date.now(), age = now - tab.sentAt;
+      if (!tab.sentAt || age >= 6000 || now - (tab.inputAt || 0) < 750) return 0;
+      if (now - speechAt < 1000) return 250;
+      if (congested()) return 250;
+      // Refresh promptly once a spoken segment ends, rather than making the
+      // user wait the entire 4.5-second voice-mode interval.
+      if (speechAt > tab.sentAt) return 0;
+      return Math.max(0, 4500 - age);
+    };
     tab.schedule = () => {
-      if (closed || !tabs.has(id) || !tab.dirty || tab.waiting || tab.capturing || tab.resizing || tab.stillTimer) return;
-      tab.stillTimer = setTimeout(() => { tab.stillTimer = null; tab.still(); }, Math.max(0, (tab.voice() ? 1000 : 250) - (Date.now() - tab.capturedAt)));
+      if (closed || !tabs.has(id) || !tab.dirty || tab.waiting || tab.capturing || tab.resizing || tab.inputPending || tab.stillTimer) return;
+      const interval = tab.voice() ? 0 : Math.max(0, 250 - (Date.now() - tab.capturedAt));
+      tab.stillTimer = setTimeout(() => { tab.stillTimer = null; tab.still(); }, Math.max(interval, pictureDelay()));
     };
     tab.still = async () => {
       if (closed || !tabs.has(id)) return;
       tab.dirty = true;
-      if (tab.capturing || tab.waiting || tab.resizing) return;
+      if (tab.capturing || tab.waiting || tab.resizing || tab.inputPending) return;
       clearTimeout(tab.stillTimer); tab.stillTimer = null;
+      if (pictureDelay()) { tab.schedule(); return; }
       tab.capturing = true; tab.dirty = false; tab.capturedAt = Date.now();
       tab.captureComplete = new Promise(resolve => { tab.captureFinished = resolve; });
       try {
-        let shot = await cdp.send('Page.captureScreenshot', tab.voice() ? { format: 'jpeg', quality: 70, captureBeyondViewport: false, fromSurface: true } : { format: 'png', captureBeyondViewport: false, fromSurface: true });
+        const voicePicture = tab.voice();
+        let shot = await cdp.send('Page.captureScreenshot', voicePicture ? { format: 'jpeg', quality: Date.now() - speechAt < 1000 ? 35 : 50, captureBeyondViewport: false, fromSurface: true } : { format: 'png', captureBeyondViewport: false, fromSurface: true });
         if (shot.data.length > 3000000) shot = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 95, captureBeyondViewport: false, fromSurface: true });
+        // Speech can start during a large PNG capture. Discard that picture
+        // and recapture a small JPEG; never queue it ahead of the next words.
+        if (!voicePicture && tab.voice()) { tab.dirty = true; return; }
         if (tabs.has(id) && shot.data !== tab.lastImage) { tab.lastImage = shot.data; tab.latest = shot.data; tab.flush(); }
       } catch { /* Navigating tabs may not be ready for a still image yet. */ }
       finally { tab.capturing = false; tab.captureFinished(); tab.schedule(); }
@@ -142,7 +169,7 @@ wss.on('connection', ws => {
       clearTimeout(tab.timer); tab.timer = null;
       if (closed || !tabs.has(id) || tab.waiting) return;
       if (!tab.latest) { tab.schedule(); return; }
-      const delay = Math.max(0, 40 - (Date.now() - tab.sentAt));
+      const delay = Math.max(pictureDelay(), 40 - (Date.now() - tab.sentAt), 0);
       if (delay || ws.bufferedAmount > (tab.voice() ? 64000 : 1024000)) { tab.timer = setTimeout(tab.flush, delay || 100); return; }
       tab.waiting = true; tab.sentAt = Date.now();
       voice.frames++; voice.frameKB += tab.latest.length / 1024;
@@ -153,7 +180,12 @@ wss.on('connection', ws => {
     page.on('framenavigated', frame => { if (frame === page.mainFrame()) send({ type: 'location', id, url: page.url() }); });
     page.on('detached', () => { tab.micEnabled = false; send({ type: 'sharing-stopped', id }); send({ type: 'error', id, message: 'Chrome stopped sharing this tab. Reopen it from the menu. Your Chrome tab stays open.' }); });
     page.on('audio', packet => {
-      if (!closed && tabs.has(id) && packet?.rate === 24000 && typeof packet.data === 'string' && packet.data.length <= 20000) { const now = Date.now(); if (voice.last) voice.maxGap = Math.max(voice.maxGap, now - voice.last); voice.last = now; voice.packets++; voice.maxBuffered = Math.max(voice.maxBuffered, ws.bufferedAmount || 0); tab.soundAt = now; send({ type: 'audio', id, rate: packet.rate, data: packet.data }); }
+      if (!closed && tabs.has(id) && packet?.rate === 24000 && typeof packet.data === 'string' && packet.data.length <= 20000) {
+        const now = Date.now(); if (voice.last) voice.maxGap = Math.max(voice.maxGap, now - voice.last); voice.last = now; voice.packets++;
+        voice.maxBuffered = Math.max(voice.maxBuffered, ws.bufferedAmount || 0); tab.soundAt = now;
+        if ((isClaudePage(page.url()) || tab.micEnabled) && audiblePCM(packet.data)) speechAt = now;
+        voiceChannel.send(ws, { type: 'audio', id, rate: packet.rate, data: packet.data });
+      }
     });
     page.on('audio-status', enabled => send({ type: 'audio-status', id, enabled }));
     send({ type: 'tab', id, url, title: page.currentTitle || '', width: tab.width, height: tab.height, audioEnabled: !!page.audioEnabled });
@@ -175,7 +207,8 @@ wss.on('connection', ws => {
     if (!paired) {
       if (m.type !== 'pair' || !validToken(m.token)) { ws.close(1008, 'Pairing failed'); return; }
       if (active && active !== ws) { ws.close(4001, 'Another Sunnyvale page is connected'); return; }
-      paired = true; active = ws; clearTimeout(timer); send({ type: 'ready', browserReady: !useExtension || extension.connected });
+      paired = true; active = ws; ws.reliableAudio = m.audioProtocol === 1; ws.audioKey = randomBytes(24).toString('base64url'); clearTimeout(timer);
+      send({ type: 'ready', browserReady: !useExtension || extension.connected, audioKey: ws.audioKey });
       activeConnection = {
         tabs,
         // Browser commands from Claude go through the same queue as the headset's own clicks.
@@ -198,6 +231,15 @@ wss.on('connection', ws => {
     if (m.type === 'open') { await addTab(webURL(m.url)); return; }
     const tab = tabs.get(m.id); if (!tab) throw Error('Browser window is closed.');
     const { page, cdp } = tab;
+    const userInput = ['click', 'scroll', 'text', 'key', 'navigate', 'back', 'forward', 'reload', 'text-scale'].includes(m.type);
+    const coordinateInput = userInput || m.type === 'move';
+    if (coordinateInput) {
+      tab.inputPending = true;
+      clearTimeout(tab.stillTimer); tab.stillTimer = null;
+      if (tab.capturing) await tab.captureComplete;
+      if (userInput) { tab.inputAt = Date.now(); tab.dirty = true; }
+    }
+    try {
     if (m.type === 'page-info') {
       const info = page.info ? await page.info() : { url: page.url(), title: await page.title(), text: (await page.locator('body').innerText({timeout:4000})).slice(0,8000) };
       send({ type: 'page-info', id: m.id, reqId: String(m.reqId).slice(0,80), url: info.url, title: info.title, text: info.text }); return;
@@ -239,11 +281,19 @@ wss.on('connection', ws => {
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
     }
     if (m.type === 'scroll') await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY: Math.max(-1600, Math.min(1600, Number(m.delta) || 0)) });
+    } finally {
+      if (coordinateInput) { tab.inputPending = false; tab.schedule(); }
+    }
   }
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch { ws.close(1008); return; }
     if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.type !== 'string') { ws.close(1008); return; }
     // Frame acknowledgements must not wait behind slow website navigation.
+    if (paired && m.type === 'audio-ack') { voiceChannel.acknowledge(ws, m.seq); return; }
+    if (paired && m.type === 'rtt-pong') {
+      if (m.t === pingAt && pingAt) { const elapsed = Date.now() - pingAt; pongAt = Date.now(); pingAt = 0; rtt = rtt ? .6 * rtt + .4 * elapsed : elapsed; rttPeak = Math.max(rttPeak, elapsed); }
+      return;
+    }
     if (paired && m.type === 'ack') { const t = tabs.get(m.id); if (t) { t.waiting = false; t.flush(); } return; }
     if (paired && m.type === 'world-result') {
       const call = worldCalls.get(m.reqId);
@@ -258,7 +308,7 @@ wss.on('connection', ws => {
     if (paired && m.type === 'voice-stats') {
       const pc = voice; voice = { packets: 0, maxGap: 0, last: voice.last, frames: 0, frameKB: 0, maxBuffered: 0 };
       const line = new Date().toISOString() + ' headset ' + JSON.stringify({ packets: m.packets, underruns: m.underruns, dropped: m.dropped, maxGap: m.maxGap, lead: m.lead, stall: m.stall, transport: m.transport })
-        + ' pc ' + JSON.stringify({ packets: pc.packets, maxGap: pc.maxGap, frames: pc.frames, frameKB: Math.round(pc.frameKB), maxBuffered: pc.maxBuffered }) + '\n';
+        + ' pc ' + JSON.stringify({ packets: pc.packets, maxGap: pc.maxGap, frames: pc.frames, frameKB: Math.round(pc.frameKB), maxBuffered: pc.maxBuffered, rtt: Math.round(rtt), rttPeak: Math.round(rttPeak), audioSocket: ws.audioSocket?.readyState === WebSocket.OPEN }) + '\n';
       appendFile(root + '/voice.log', line).catch(() => {});
       return;
     }
@@ -274,7 +324,7 @@ wss.on('connection', ws => {
   });
   ws.on('error', () => {});
   ws.on('close', () => {
-    closed = true; clearTimeout(timer); clearInterval(heartbeat);
+    closed = true; clearTimeout(timer); clearInterval(heartbeat); clearInterval(rttTimer);
     if (active === ws) { active = null; activeConnection = null; }
     for (const call of worldCalls.values()) { clearTimeout(call.t); call.reject(Error('Sunnyvale disconnected.')); }
     worldCalls.clear();
@@ -332,5 +382,5 @@ if (/^https:\/\/[a-z0-9.-]+$/i.test(permanent)) {
   });
   tunnel.on('error', () => console.log('Secure relay could not start. Restart the bridge.'));
 }
-async function shutdown() { tunnel?.kill(); httpTransport.close(); for (const ws of wss.clients) ws.close(); for (const ws of browserWss.clients) ws.close(); await context?.close(); server.close(); }
+async function shutdown() { tunnel?.kill(); httpTransport.close(); voiceChannel.close(); for (const ws of wss.clients) ws.close(); for (const ws of browserWss.clients) ws.close(); await context?.close(); server.close(); }
 process.on('SIGINT', () => shutdown().finally(() => process.exit()));
