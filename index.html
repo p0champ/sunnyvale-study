@@ -52,7 +52,7 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=pinch-once-1';
+import { installBrowserBridge } from './browser-bridge.js?v=voice-fix-2-pinch-once-1';
 import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
 import { installThesisTools } from './thesis-tools.js?v=gestures-1';
 import { installBackup } from './backup.js?v=backup-2';
@@ -2152,14 +2152,23 @@ function detectFlick(s, now) {
   if (!tip || !wrist) return;
   (s.flickTrack ??= []).push({ tip, wrist, t: now });
   while (s.flickTrack.length > 2 && now - s.flickTrack[0].t > 120) s.flickTrack.shift();
+  // Less sensitive (user kept minimising windows by accident): the hand must already have been open for
+  // 0.3 s, the flick must be fast (2.4 m/s, was 1.5) and fast in both halves of the motion, and nothing
+  // fires for 1 s after letting go of a window.
+  const open = isOpenHand(s);
+  if (!open) s.openSince = 0; else s.openSince ||= now;
+  if (s.held) s.releasedAt = now;
   if (s.held || s.groupMove || now < (s.flickCooldown || 0) || s.flickTrack.length < 3) return;
+  if (!open || now - s.openSince < 300 || (s.releasedAt && now - s.releasedAt < 1000)) return;
   const a = s.flickTrack[0], dt = (now - a.t) / 1000;
   if (dt < 0.05) return;
+  const mid = s.flickTrack[Math.floor(s.flickTrack.length / 2)], dtMid = (now - mid.t) / 1000, dtFirst = (mid.t - a.t) / 1000;
+  if (dtMid <= 0 || dtFirst <= 0 || tip.distanceTo(mid.tip) / dtMid < 1.8 || mid.tip.distanceTo(a.tip) / dtFirst < 1.8) return;
   const vTip = tip.clone().sub(a.tip).divideScalar(dt), vWrist = wrist.clone().sub(a.wrist).divideScalar(dt);
   const speed = vTip.length();
   const eye = viewerPosition(new THREE.Vector3()), toViewer = eye.clone().sub(wrist).normalize();
   const inFront = wrist.y > eye.y - 0.55 && wrist.distanceTo(eye) < 0.8;
-  if (speed > 1.5 && speed > vWrist.length() * 1.4 + 0.3 && vTip.dot(toViewer) < 0.2 * speed && inFront && isOpenHand(s)) {
+  if (speed > 2.4 && speed > vWrist.length() * 1.4 + 0.3 && vTip.dot(toViewer) < 0.2 * speed && inFront) {
     const p = pointedWindow(s) || gazeWindow();
     s.flickCooldown = now + 1000; s.flickTrack = [];
     if (!p) return;

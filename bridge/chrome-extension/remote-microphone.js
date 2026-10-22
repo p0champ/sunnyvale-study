@@ -29,8 +29,8 @@ function installRemoteMicrophone() {
       const buffer = context.createBuffer(1, pcm.length, rate), samples = buffer.getChannelData(0);
       for (let i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768;
       const source = context.createBufferSource(); source.buffer = buffer; source.connect(output);
-      if (next > context.currentTime + .6) { for (const old of sources) { try { old.stop(); } catch {} } sources.clear(); next = 0; }
-      if (next < context.currentTime || next > context.currentTime + .6) next = context.currentTime + .08;
+      if (next > context.currentTime + 1.5) { for (const old of sources) { try { old.stop(); } catch {} } sources.clear(); next = 0; }
+      if (next < context.currentTime) next = context.currentTime + .25;
       source.start(next); next += buffer.duration; sources.add(source); source.onended = () => sources.delete(source);
     },
     async stop() {

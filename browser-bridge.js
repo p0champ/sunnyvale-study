@@ -1,5 +1,5 @@
 import { HttpsBridgeSocket } from './bridge-https.js?v=20261021-media-1';
-import { BrowserMedia } from './browser-media.js?v=round2-voice-3';
+import { BrowserMedia } from './browser-media.js?v=voice-fix-2';
 import { BrowserClickInput } from './browser-click-input.js';
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
@@ -136,6 +136,16 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
   function reopenSaved() { for (const saved of restoredPanels) if (!saved.requested) { saved.requested = true; send({ type: 'open', url: saved.url }); } }
   // The PC says "heartbeat" every 15 s; hearing nothing for 40 s means the connection silently died
   let lastHeard = 0;
+  // Voice diagnostics: every 10 s while Claude's voice is playing, tell the PC how the sound arrived
+  // (pieces, gaps, times the player ran dry) and how long the headset's main thread froze. The PC writes it
+  // to bridge/private/voice.log so the voice can be tuned from real numbers. No sound or words are sent.
+  let stall = 0, tick = performance.now();
+  setInterval(() => { const t = performance.now(); stall = Math.max(stall, t - tick - 100); tick = t; }, 100);
+  setInterval(() => {
+    const v = media.takeVoiceStats();
+    if (ready && v.packets) send({ type: 'voice-stats', packets: v.packets, underruns: v.underruns, dropped: v.dropped, maxGap: Math.round(v.maxGap), lead: v.lead, stall: Math.round(stall), transport: socket instanceof HttpsBridgeSocket ? 'https' : 'wss' });
+    stall = 0;
+  }, 10000);
   setInterval(() => { if (ready && Date.now() - lastHeard > 40000) { report('Lost contact with the PC.'); try { socket?.close(); } catch { /* already closed */ } } }, 5000);
   function scheduleRetry(reason) {
     if (!wanted || retryTimer) return;                  // already waiting to try again
