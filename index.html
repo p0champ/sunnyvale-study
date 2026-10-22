@@ -54,7 +54,7 @@
 import * as THREE from 'three';
 import { installBrowserBridge } from './browser-bridge.js?v=voice-recovery-1';
 import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=claude-features-1';
+import { installThesisTools } from './thesis-tools.js?v=claude-features-2';
 import { installBackup } from './backup.js?v=voice-recovery-1';
 let thesisTools;
 let browserBridge;
@@ -856,8 +856,7 @@ function setWindowContent(p, title, body, { keepScroll = false } = {}) {
   p.userData.readingTex?.dispose(); p.userData.bubbleTex?.dispose(); p.userData.bubbleTex = null;
   p.userData.readingTex = p.userData.reading ? readingTexture(title, body, 1024, 700, p.userData.scroll) : null;
   if (bubbleLook() && !p.userData.reading) p.userData.bubbleTex = bubbleTexture(title, body, 1024, 700, p.userData.scroll);
-  if (bubbleLook() || p.userData.reading) p.userData.classicStale = true;
-  else refreshClassic(p);
+  p.userData.cardStale = p.userData.holoStale = true;                  // the classic look is redrawn when shown
   windowLook(p, mode === 'stark');
   updateScrollButtons(p);
   markDirty();
@@ -933,7 +932,8 @@ function bubbleIcon(draw, active = false) {
   return canvasTexture(128, 128, (ctx) => {
     const g = ctx.createRadialGradient(52, 44, 6, 64, 64, 60);
     g.addColorStop(0, active ? 'rgba(255,190,150,0.6)' : 'rgba(255,255,255,0.32)'); g.addColorStop(0.6, active ? 'rgba(255,130,90,0.35)' : 'rgba(150,170,210,0.16)'); g.addColorStop(1, 'rgba(120,140,190,0.08)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(20,22,32,0.6)'; ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.fill();   // dark core: readable on a white wall
+    ctx.fillStyle = g; ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 3; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.ellipse(46, 36, 16, 8, -0.5, 0, Math.PI * 2); ctx.fill();   // the shine
     ctx.strokeStyle = ctx.fillStyle = '#ffffff'; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -953,6 +953,7 @@ const BUBBLE_OF = new Map([
 ]);
 BUBBLE_OF.set(burnTex, bubbleCloseFor(burnTex)); BUBBLE_OF.set(glowXTex, bubbleCloseFor(glowXTex));
 const CLASSIC_OF = new Map([...BUBBLE_OF].map(([c, b]) => [b, c]));
+const CLASSIC_BLEND = new Map([[glowXTex, THREE.AdditiveBlending]]);   // classic icons that glow
 function addWindowButtons(panel, { scroll = false } = {}) {
   const { w, h } = panel.userData.size;
   const make = (tex, y, action) => {
@@ -1273,6 +1274,15 @@ buttonRow.position.y = 0.22;                                      // high enough
 menu.add(buttonRow);
 const menuButtons = [];
 
+// The glass bead behind palm-menu icons (dark enough to read against a bright real room), and its shine
+function drawGlassDisc(ctx) {
+  const g = ctx.createRadialGradient(104, 92, 10, 128, 128, 122);
+  g.addColorStop(0, 'rgba(70,74,96,0.9)'); g.addColorStop(1, 'rgba(20,22,32,0.92)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
+  const rim = ctx.createLinearGradient(0, 8, 0, 248); rim.addColorStop(0, 'rgba(255,255,255,0.85)'); rim.addColorStop(1, 'rgba(255,150,110,0.6)');
+  ctx.strokeStyle = rim; ctx.lineWidth = 4; ctx.stroke();
+}
+function drawGlassShine(ctx) { ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.ellipse(92, 58, 34, 14, -0.45, 0, Math.PI * 2); ctx.fill(); }
 function makeButton(label, drawIcon, action, { showLabel = true } = {}) {
   const tex = canvasTexture(256, 256, (ctx) => {
     ctx.fillStyle = 'rgba(16, 14, 12, 0.85)';
@@ -1284,13 +1294,9 @@ function makeButton(label, drawIcon, action, { showLabel = true } = {}) {
   });
   // Bubble look: the same icon inside a dark glass bead with a soft rim and a shine
   BUBBLE_OF.set(tex, canvasTexture(256, 256, (ctx) => {
-    const g = ctx.createRadialGradient(104, 92, 10, 128, 128, 122);
-    g.addColorStop(0, 'rgba(70,74,96,0.88)'); g.addColorStop(1, 'rgba(20,22,32,0.9)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
-    const rim = ctx.createLinearGradient(0, 8, 0, 248); rim.addColorStop(0, 'rgba(255,255,255,0.85)'); rim.addColorStop(1, 'rgba(255,150,110,0.6)');
-    ctx.strokeStyle = rim; ctx.lineWidth = 4; ctx.stroke();
+    drawGlassDisc(ctx);
     ctx.save(); drawIcon(ctx); ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.ellipse(92, 58, 34, 14, -0.45, 0, Math.PI * 2); ctx.fill();
+    drawGlassShine(ctx);
     ctx.fillStyle = '#f4f2ff'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
     if (showLabel) ctx.fillText(label, 128, 206);
   }));
@@ -1380,6 +1386,7 @@ function updateMenu(dt) {
         menu.position.copy(found.info.center).addScaledVector(found.info.normal, 0.025);
       }
     } else {
+      if (palm.upTime > 0.08 && palm.upTime < 0.25 && !menu.visible) nearMiss('palm-menu', 'hold your palm up a moment longer');
       palm.upTime = 0; palm.downTime += dt;
       if (palm.downTime > 0.2) { menu.visible = false; palm.state = null; }
     }
@@ -1487,18 +1494,18 @@ function getKey(name) { return memoryKeys[name] || store.get(name); }
 // The Claude logo: a coral starburst
 // The Claude spark, drawn soft like the real logo: uneven, round-ended rays that thin towards the centre and
 // melt into one soft middle (no sharp points or hard outlines). glow > 0 adds a soft halo for the Stark orb.
-const SPARK_RAYS = [[1, 0], [0.8, 0.05], [0.93, -0.03], [0.74, 0.04], [0.99, -0.02], [0.83, 0.03], [0.9, -0.05], [0.77, 0.02], [0.97, 0.03], [0.81, -0.04], [0.89, 0.02], [0.76, -0.02]];
+const SPARK_RAYS = [[1, 0], [0.8, 0], [0.93, 0], [0.74, 0], [0.99, 0], [0.83, 0], [0.9, 0], [0.77, 0], [0.97, 0], [0.81, 0], [0.89, 0], [0.76, 0]];
 function drawClaudeSpark(ctx, cx, cy, r, color = '#D97757', glow = 0) {
   ctx.save(); ctx.translate(cx, cy);
   ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (glow) { ctx.shadowColor = color; ctx.shadowBlur = r * 0.18 * glow; }
   SPARK_RAYS.forEach(([len, bend], i) => {
     const a = i / SPARK_RAYS.length * Math.PI * 2 + bend;
-    const L = r * len, w = r * 0.13;
+    const L = r * len, w = r * 0.16;
     ctx.save(); ctx.rotate(a);
     // a soft, round-ended stroke with a gentle curve (the rays of the real logo are rounded, never pointed)
     ctx.lineWidth = w;
-    ctx.beginPath(); ctx.moveTo(0, -r * 0.12); ctx.quadraticCurveTo(w * 0.25 * Math.sign(bend || 1), -(L - w / 2) * 0.55, 0, -(L - w / 2)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.12); ctx.lineTo(0, -(L - w / 2)); ctx.stroke();
     ctx.restore();
   });
   ctx.beginPath(); ctx.arc(0, 0, r * 0.13, 0, Math.PI * 2); ctx.fill();
@@ -1531,9 +1538,9 @@ claudeBottle.add(bottleBody, bottleShoulder, bottleNeck, bottleCap, bottleLabel)
 
 // Stark mode: a glowing Claude orb
 const claudeOrb = new THREE.Group();
-const orbSparkTex = canvasTexture(256, 256, (ctx) => { drawClaudeSpark(ctx, 128, 128, 100, '#ffb08a', 1); });
+const orbSparkTex = canvasTexture(256, 256, (ctx) => { drawClaudeSpark(ctx, 128, 128, 104, '#d97757'); });
 const orbSpark = new THREE.Mesh(new THREE.CircleGeometry(0.045, 32),
-  new THREE.MeshBasicMaterial({ map: orbSparkTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  new THREE.MeshBasicMaterial({ map: orbSparkTex, transparent: true, depthWrite: false }));
 const orbRing = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.003, 8, 48),
   new THREE.MeshBasicMaterial({ color: 0xff8a5c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
 const orbGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSoft, color: 0xff7a4a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
@@ -2200,6 +2207,10 @@ function eraseDrawings() {
 // ---------- Gesture log: Claude can see what your hands did (recent_gestures) and teach gestures (gesture_tutorial)
 const gestureLog = [];
 const gestureNear = {};                                  // near-misses are logged at most once a second per gesture
+// A near-miss is only worth logging while the coach teaches that gesture, or when it was clearly an attempt
+function nearMiss(gesture, detail, clearAttempt = false) {
+  if (clearAttempt || (coach.card && coach.steps[coach.i] === gesture)) logGesture(gesture, 'ignored', detail);
+}
 function logGesture(gesture, outcome, detail = '') {
   if (outcome === 'ignored') { const t = performance.now(); if (t - (gestureNear[gesture] || 0) < 1000) return; gestureNear[gesture] = t; }
   gestureLog.push({ time: new Date().toISOString().slice(11, 19), gesture, outcome, detail });
@@ -2299,7 +2310,7 @@ function gestureTutorialSaw(gesture, outcome) {
   if (outcome !== GESTURES[want].done) return;
   coach.doneAt = performance.now(); coach.hint = ''; coach.completed.push(want);
   blip(880, 0.12, 0.1);
-  jarvisSay('', ['J.A.R.V.I.S.', 'NICE: ' + GESTURES[want].title.toUpperCase()]);
+  jarvisSay('', ['J.A.R.V.I.S.', 'NICE!', GESTURES[want].title.toUpperCase().slice(0, 24)]);
 }
 function updateGestureCoach(dt) {
   if (!coach.card || !coach.steps.length) return;
@@ -2310,7 +2321,7 @@ function updateGestureCoach(dt) {
   }
   if (!coach.hint && coach.t > 25 && !coach.doneAt) coach.hint = 'take your time, watch the drawing and copy it slowly first';
   coach.redraw = (coach.redraw || 0) + dt;
-  if (coach.redraw > 1 / 20) { coach.redraw = 0; drawCoach(); }        // the drawing moves at 20 fps
+  if (coach.redraw > 1 / 12 && coach.card.visible) { coach.redraw = 0; drawCoach(); }   // the drawing moves at 12 fps
 }
 function tutorialState() {
   if (!coach.card || !coach.steps.length) return { active: false };
@@ -2383,7 +2394,8 @@ function detectFlick(s, now) {
   if (dt < 0.05) return;
   const roughSpeed = tip.distanceTo(a.tip) / dt;
   // only report real attempts: an open hand (or anything while the coach is teaching the flick)
-  const near = why => { if (roughSpeed > 1.6 && (open || coach.steps[coach.i] === 'flick-minimise')) logGesture('flick-minimise', 'ignored', why); };
+  // a clear attempt = an open hand flicked while pointing at or looking at a window
+  const near = why => { if (roughSpeed > 1.6) nearMiss('flick-minimise', why, open && !!(pointedWindow(s) || gazeWindow())); };
   if (!open) return near('hand was not fully open');
   if (now - s.openSince < 300) return near('hand opened less than 0.3 s before the flick');
   if (s.releasedAt && now - s.releasedAt < 1000) return near('just let go of a window (1 s pause)');
@@ -2440,22 +2452,28 @@ function wristYaw(s) {
   return Math.atan2(f.x, f.z);
 }
 // One-euro style smoothing: steady hands are calm, quick moves still follow without lag
-function smoothHand(g, raw, yaw, dt) {
+function smoothHand(g, raw, yaw, dt, now) {
   if (!g.hand) { g.hand = raw.clone(); g.yawS = yaw; return; }
   const speed = raw.distanceTo(g.hand) / Math.max(dt, 1e-3);
   const cutoff = 1.2 + 6 * speed;                                   // Hz
   const a = 1 - Math.exp(-2 * Math.PI * cutoff * dt);
   g.hand.lerp(raw, a);
   let dy = yaw - g.yawS; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-  g.yawS += dy * (1 - Math.exp(-2 * Math.PI * 2.5 * dt));
+  const turnSpeed = Math.abs(dy) / Math.max(dt, 1e-3);              // fast turns follow quickly too
+  g.yawS += dy * (1 - Math.exp(-2 * Math.PI * (2.5 + 4 * turnSpeed) * dt));
+  (g.hist ||= []).push({ pos: raw.clone(), yaw, t: now }); if (g.hist.length > 12) g.hist.shift(); g.lastNow = now;
 }
 function detectGroupMove(s, now) {
   const dt = Math.min(0.05, (now - (s.groupT || now)) / 1000); s.groupT = now;
-  const fist = isFist(s) && !s.held && !palmFacesViewer(s);
+  const curled = isFist(s) && !s.held, fist = curled && !palmFacesViewer(s);
+  if (curled && !fist && !s.groupMove && !s.fistFacingLogged) { nearMiss('fist-group-move', 'palm was facing you; turn the fist so the palm faces away'); s.fistFacingLogged = true; }
+  if (!curled) s.fistFacingLogged = false;
   if (fist && !s.fistSince) s.fistSince = now;
+  if (!fist && s.fistSince && !s.groupMove && now - s.fistSince < 200) nearMiss('fist-group-move', 'fist opened too quickly; hold it a moment before moving');
   if (!fist) s.fistSince = 0;
   if (fist && !s.groupMove && now - s.fistSince > 200) {
-    const items = groupWindows();
+    const heldByOther = new Set(inputs.map(o => o.held).filter(Boolean));
+    const items = groupWindows().filter(p => !heldByOther.has(p));
     if (!items.length) return;
     s.groupMove = { start: jointPos(s, 'wrist'), yaw: wristYaw(s), eye: viewerPosition(new THREE.Vector3()), lift: 0,
       // each window's own size (baseScale), not its current scale, which may still be mid-animation
@@ -2468,7 +2486,7 @@ function detectGroupMove(s, now) {
   const g = s.groupMove;
   if (g && !fist) { endGroupMove(s); return; }                     // open the hand: the group settles where it is
   if (g) {
-    smoothHand(g, jointPos(s, 'wrist'), wristYaw(s), dt);
+    smoothHand(g, jointPos(s, 'wrist'), wristYaw(s), dt, now);
     g.lift = Math.min(1, g.lift + dt / 0.18);
     const move = g.hand.clone().sub(g.start).multiplyScalar(1.5);   // a little amplified, so you don't have to reach far
     let turn = g.yawS - g.yaw; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
@@ -2478,17 +2496,27 @@ function detectGroupMove(s, now) {
     for (const it of g.items) {
       // turn around you, then move with your fist; lifted a little towards you while held
       const target = it.pos.clone().sub(g.eye).applyQuaternion(spin).add(g.eye).add(move);
-      it.target = target.clone();                                   // where it goes when you let go (without the lift)
       target.add(g.eye.clone().sub(target).setY(0).normalize().multiplyScalar(0.03 * ease));
-      it.targetQ = spin.clone().multiply(it.q);
       it.p.position.lerp(target, follow);
-      it.p.quaternion.slerp(it.targetQ, follow);
-      it.p.scale.setScalar(it.base * (1 + 0.035 * ease));
+      it.p.quaternion.slerp(spin.clone().multiply(it.q), follow);
+      it.p.scale.lerp(new THREE.Vector3().setScalar(it.base * (1 + 0.035 * ease)), follow);   // eases (a window that was popping in doesn't jump)
     }
   }
 }
+// Where the group goes when you open your hand: from the hand's real position and turn just before the
+// fist opened (not the smoothed one, so a quick move or turn isn't cut short), without the pick-up lift.
+function releaseTargets(g) {
+  // the hand's raw position on the last frame the fist was still closed
+  const h = g.hist || [], last = h[h.length - 1];
+  if (!last) return;
+  const move = last.pos.clone().sub(g.start).multiplyScalar(1.5);
+  let turn = last.yaw - g.yaw; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+  const spin = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), turn);
+  for (const it of g.items) { it.target = it.pos.clone().sub(g.eye).applyQuaternion(spin).add(g.eye).add(move); it.targetQ = spin.clone().multiply(it.q); }
+}
 function endGroupMove(s) {
   const g = s.groupMove; if (!g) return;
+  releaseTargets(g);
   // the windows finish gliding to where the hand left them (no lost last bit of a quick throw), then settle
   for (const it of g.items) { const o = groupGlows.get(it.p); if (o) o.userData.want = 0; settling.set(it.p, { base: it.base, settle: 0, target: it.target?.clone(), targetQ: it.targetQ?.clone() }); }
   s.groupMove = null; markDirty(); blip(700, 0.08);
@@ -2496,12 +2524,12 @@ function endGroupMove(s) {
 }
 // Glows fade in and out; dropped windows ease back to their own size
 // ---------- Bubble look, every frame: glass icons, buttons that grow when a hand comes near, a gentle float
-const tipTmp = new THREE.Vector3(), colTmp = new THREE.Vector3(), hitTmp = new THREE.Vector3(), tipList = [], tipVecs = [];
+const tipTmp = new THREE.Vector3(), colTmp = new THREE.Vector3(), hitTmp = new THREE.Vector3(), tipList = [], tipVecs = [], plane = new THREE.Plane(), nrm = new THREE.Vector3(), qTmp = new THREE.Quaternion();
 function swapIcon(m) {
   const classic = CLASSIC_OF.get(m.map) || m.map, want = bubbleLook() ? (BUBBLE_OF.get(classic) || classic) : classic;
   if (m.map !== want) {
-    if (want !== classic) { m.userData.classicBlending ??= m.blending; m.blending = THREE.NormalBlending; }   // glass icons aren't additive
-    else if (m.userData.classicBlending !== undefined) { m.blending = m.userData.classicBlending; delete m.userData.classicBlending; }
+    // glass icons are never additive; the classic ones get their own blending back (the Stark X glows)
+    m.blending = want !== classic ? THREE.NormalBlending : (CLASSIC_BLEND.get(classic) ?? THREE.NormalBlending);
     m.map = want; m.needsUpdate = true;
   }
 }
@@ -2521,6 +2549,15 @@ function updateBubbleUI(dt) {
         const { origin, dir } = rayFrom(s); raycaster.set(origin, dir);
         const hit = raycaster.intersectObjects(panels.filter(p => p.visible), false)[0];
         if (hit) { const local = hit.object.worldToLocal(hitTmp.copy(hit.point)); const w = hit.object.userData.size?.w || 0.8; if (local.x > w / 2 - 0.16) hit.object.userData.nearUntil = now + 400; }
+        // aiming just beside the window, where the buttons are, also counts (the gap there hits nothing)
+        for (const p of panels) {
+          if (!p.visible || !p.userData.windowButtons) continue;
+          const { w, h } = p.userData.size || { w: 0.8, h: 0.55 };
+          plane.setFromNormalAndCoplanarPoint(nrm.set(0, 0, 1).applyQuaternion(p.getWorldQuaternion(qTmp)), p.getWorldPosition(colTmp));
+          if (!raycaster.ray.intersectPlane(plane, hitTmp)) continue;
+          const local = p.worldToLocal(hitTmp);
+          if (local.x > w / 2 - 0.02 && local.x < w / 2 + 0.09 && Math.abs(local.y) < h / 2 + 0.03) p.userData.nearUntil = now + 400;
+        }
         const bh = raycaster.intersectObjects([...windowButtons, ...closeButtons].filter(shown), false)[0];
         if (bh) bh.object.userData.window.userData.nearUntil = now + 400;
       }
@@ -2541,6 +2578,7 @@ function updateBubbleUI(dt) {
     if (!p.visible) continue;
     const btns = [...(p.userData.windowButtons || []), ...(p.userData.closeButton ? [p.userData.closeButton] : [])];
     if (!btns.length) continue;
+    if ((!bubble || !xr) && (p.userData.btnOpen ?? 1) === 1) { if (p.userData.iconLook !== bubble) { btns.forEach(b => swapIcon(b.material)); p.userData.iconLook = bubble; } continue; }   // nothing to animate
     const open = !bubble || !xr || now < (p.userData.nearUntil || 0);   // on the computer they always stay full size
     p.userData.btnOpen = (p.userData.btnOpen ?? 1) + ((open ? 1 : 0) - (p.userData.btnOpen ?? 1)) * k;
     const e = p.userData.btnOpen, sc = 0.42 + 0.58 * e;
@@ -2561,7 +2599,7 @@ function applyBob(t) {
     p.position.y += dy; bobbed.push([p, dy]);
   });
 }
-function removeBob() { for (const [p, dy] of bobbed) p.position.y -= dy; bobbed.length = 0; }
+function removeBob() { for (const [p, dy] of bobbed) { p.position.y -= dy; p.updateMatrixWorld(true); } bobbed.length = 0; }   // matrices too, so aiming and grabbing use the real position
 function updateGroupLook(dt) {
   for (const [p, o] of groupGlows) {
     const want = o.userData.want, m = o.material;
@@ -2569,6 +2607,7 @@ function updateGroupLook(dt) {
     o.visible = m.opacity > 0.01 && p.visible;
   }
   for (const [p, it] of settling) {
+    if (inputs.some(s => s.held === p) || p.userData.fly) { settling.delete(p); p.scale.setScalar(it.base); continue; }   // you grabbed it again, or it's flying to you
     it.settle = Math.min(1, it.settle + dt / 0.25);
     const k = 1 - it.settle * it.settle * (3 - 2 * it.settle);
     if (it.target) p.position.lerp(it.target, Math.min(1, dt * 16));
@@ -2585,9 +2624,14 @@ function detectBeckon(s, now) {
   const reach = fingerReach(s);
   const b = (s.beckon ??= { open: reach, curled: false, at: 0 });
   b.open = Math.max(reach, b.open * 0.995);                         // slowly forget how open the hand was
+  b.minRatio = Math.min(b.minRatio ?? 1, reach / Math.max(b.open, 1e-3));
   if (!b.curled && b.open > 0.07 && reach < b.open * 0.62) b.curled = true;
+  if (!b.curled && reach > b.open * 0.9) {                        // fingers came back without curling enough
+    if (b.minRatio < 0.8 && b.minRatio >= 0.62) nearMiss('beckon', 'curl your fingers further in, then open them');
+    b.minRatio = 1;
+  }
   else if (b.curled && reach > b.open * 0.85) {
-    b.curled = false;
+    b.curled = false; b.minRatio = 1;
     if (now - b.at < 450) return;
     b.at = now;
     const eye = viewerPosition(new THREE.Vector3()), p = gazeWindow();
@@ -2758,7 +2802,7 @@ function deleteStashed(p) {
   saveDeskNow?.();
   refreshStashPicker();
   if (stashPicker && !stash.length) { closeWindow(stashPicker); stashPicker = null; }
-  jarvisSay('', ['J.A.R.V.I.S.', 'DELETED FROM STASH', String(title).toUpperCase().slice(0, 36)]);
+  jarvisSay('', ['J.A.R.V.I.S.', 'DELETED', String(title).toUpperCase().slice(0, 22)]);
   return true;
 }
 function clearDesk() {
@@ -2959,15 +3003,18 @@ function drawStashIcon(ctx, n) {
   if (n) ctx.fillText(String(n), 128, 136);
 }
 function updateStashButton() {
-  stashButton.material.map.dispose();
-  stashButton.material.map = canvasTexture(256, 256, (ctx) => {
-    ctx.fillStyle = 'rgba(16, 14, 12, 0.85)'; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 6; ctx.stroke();
-    drawStashIcon(ctx, stash.length);
-    ctx.fillStyle = '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+  // the count changes: redraw the classic and the glass versions on their own canvases (no new textures)
+  const classic = CLASSIC_OF.get(stashButton.material.map) || stashButton.material.map, glass = BUBBLE_OF.get(classic);
+  const redraw = (tex, look) => {
+    const ctx = tex.image.getContext('2d'); ctx.clearRect(0, 0, 256, 256);
+    if (look === 'glass') drawGlassDisc(ctx); else { ctx.fillStyle = 'rgba(16, 14, 12, 0.85)'; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 6; ctx.stroke(); }
+    ctx.save(); drawStashIcon(ctx, stash.length); ctx.restore();
+    if (look === 'glass') drawGlassShine(ctx);
+    ctx.fillStyle = look === 'glass' ? '#f4f2ff' : '#f2e6c8'; ctx.font = '600 26px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('STASH', 128, 206);
-  });
-  stashButton.material.needsUpdate = true;
+    tex.needsUpdate = true;
+  };
+  redraw(classic, 'classic'); if (glass) redraw(glass, 'glass');
 }
 
 // Icons, drawn (no text abbreviations)
@@ -3091,7 +3138,8 @@ function setLook(look) {
   lookSetting = look === 'classic' ? 'classic' : 'bubble';
   try { localStorage.setItem('sunnyvale.look', lookSetting); } catch { /* private mode */ }
   for (const p of [...panels, ...stash]) if (p.userData.cardboard) setWindowContent(p, p.userData.title, p.userData.body, { keepScroll: true });
-  jarvisSay('', ['J.A.R.V.I.S.', 'LOOK: ' + (bubbleLook() ? 'BUBBLES' : 'CLASSIC'), 'WORLD › LOOK SWITCHES BACK']);
+  blip(bubbleLook() ? 880 : 620, 0.06);
+  if (mode === 'stark') showHud(['J.A.R.V.I.S.', 'LOOK: ' + (bubbleLook() ? 'BUBBLES' : 'CLASSIC')], 2.5);
 }
 const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); thesisTools.menu.logOff(); window.studyDebug.backup?.backupNow('logoff'); });
 
@@ -3123,7 +3171,7 @@ const breakButtons = breakServices.map(([label, file, url]) => {
   b.name = label; b.userData.service = label;
   logo.onload = () => {
     const classic = CLASSIC_OF.get(b.material.map) || b.material.map;      // draw the logo into both looks
-    for (const texture of [classic, BUBBLE_OF.get(classic)].filter(Boolean)) { drawLogo(texture.image.getContext('2d')); texture.needsUpdate = true; }
+    for (const texture of [classic, BUBBLE_OF.get(classic)].filter(Boolean)) { const c = texture.image.getContext('2d'); drawLogo(c); if (texture !== classic) drawGlassShine(c); texture.needsUpdate = true; }
     b.userData.logoLoaded = true;
   };
   logo.src = './assets/logos/' + file;
@@ -3357,17 +3405,17 @@ function setMode(next) {
 // Swap the windows between cardboard and hologram; holograms build up with a scan line
 function applyWindows(stark) { for (const p of panels) lookFor(p, stark); }
 // Which texture a window shows: reading mode wins over the Sunnyvale (cardboard) and Stark (hologram) looks
-function refreshClassic(p) {                         // redraw the cardboard and hologram textures from the current text
+// Redraw only the classic texture the current mode shows (cardboard in Sunnyvale, hologram in Stark);
+// the other one is redrawn when the mode changes.
+function refreshClassic(p, stark = mode === 'stark') {
   const u = p.userData;
-  u.cardboard?.dispose(); u.hologram?.dispose();
-  u.cardboard = cardboardTexture(u.title || '', u.body || '', 1024, 700, u.scroll || 0);
-  u.hologram = hologramTexture(u.title || '', u.body || '', 1024, 700, u.scroll || 0);
-  u.classicStale = false;
+  if (stark) { u.hologram?.dispose(); u.hologram = hologramTexture(u.title || '', u.body || '', 1024, 700, u.scroll || 0); u.holoStale = false; }
+  else { u.cardboard?.dispose(); u.cardboard = cardboardTexture(u.title || '', u.body || '', 1024, 700, u.scroll || 0); u.cardStale = false; }
 }
 function windowLook(p, stark) {
   const reading = !!(p.userData.reading && p.userData.readingTex);
   const bubble = !reading && bubbleLook() && p.userData.cardboard;
-  if (!bubble && !reading && p.userData.classicStale) refreshClassic(p);
+  if (!bubble && !reading && (stark ? p.userData.holoStale : p.userData.cardStale)) refreshClassic(p, stark);
   if (bubble && !p.userData.bubbleTex) p.userData.bubbleTex = bubbleTexture(p.userData.title || '', p.userData.body || '', 1024, 700, p.userData.scroll || 0);
   p.material.map = reading ? p.userData.readingTex : bubble ? p.userData.bubbleTex : stark ? p.userData.hologram : p.userData.cardboard;
   p.material.transparent = (stark || bubble) && !reading;
@@ -3382,6 +3430,7 @@ function lookFor(p, stark) {
       p.userData.closeButton.material.map = stark ? glowXTex : burnTex;
       p.userData.closeButton.material.blending = stark ? THREE.AdditiveBlending : THREE.NormalBlending;
       p.userData.closeButton.material.needsUpdate = true;
+      swapIcon(p.userData.closeButton.material);                         // bubble look: straight to the glass X
     }
     windowLook(p, stark);
     if (p.userData.kind) return;

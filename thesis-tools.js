@@ -1042,7 +1042,7 @@ export function installThesisTools(ctx) {
     const mood = st.offline ? 'offline' : st.speaking ? 'speaking' : st.listening ? 'listening' : st.working ? 'working' : 'waiting';
     orbState.mood = mood;
     // Moods are made to read clearly from 2 m away (21 Oct: "the avatar barely reacts")
-    const spin = { offline: 0, waiting: 0.25, listening: 0.2, speaking: 0.6, working: 5 }[mood];
+    const spin = { offline: 0, waiting: 0.3, listening: 0.06, speaking: 0.45, working: 2.6 }[mood];   // listening holds almost still
     spark.rotation.z -= dt * spin;
     const pointing = !!orbState.anchor;
     let nearest = -1;
@@ -1054,28 +1054,29 @@ export function installThesisTools(ctx) {
     }
     // Speaking follows the real loudness of Claude's voice (0-1) when it's known
     const level = st.level ?? (0.6 + 0.4 * Math.sin(t * 3.1));
-    orbState.level = (orbState.level || 0) + (level - (orbState.level || 0)) * Math.min(1, dt * 18);
+    // a voice envelope: rises in ~60 ms, falls over ~250 ms, so it pulses with words, not every syllable
+    const prev = orbState.level || 0; orbState.level = prev + (level - prev) * Math.min(1, dt / (level > prev ? 0.06 : 0.25));
     const lv = orbState.level;
     // The whole spark grows and breathes with the mood
     const size = mood === 'offline' ? 0.85
       : mood === 'listening' ? 1.2 + 0.12 * Math.sin(t * 2.4)                     // slow, deep breathing
-      : mood === 'speaking' ? 1.15 + 0.45 * lv                                       // swells with each word
+      : mood === 'speaking' ? 1.12 + 0.3 * lv                                        // swells with each word
       : mood === 'working' ? 1.1 + 0.05 * Math.sin(t * 12)
       : 1 + 0.04 * Math.sin(t * 1.5);
-    orbState.size = (orbState.size || 1) + (size - (orbState.size || 1)) * Math.min(1, dt * (mood === 'speaking' ? 20 : 6));
+    orbState.size = (orbState.size || 1) + (size - (orbState.size || 1)) * Math.min(1, dt * (mood === 'speaking' ? 10 : 5));
     spark.scale.setScalar(orbState.size);
     rays.forEach((r, i) => {
       let k = 1;
       if (mood === 'waiting') k = 1 + 0.08 * Math.sin(t * 1.5 + i * 0.5);
       else if (mood === 'listening') k = 1.2 + 0.25 * Math.sin(t * 2.4 - i * 0.52);   // a wave travels round the rays
-      else if (mood === 'speaking') k = 0.9 + lv * (0.7 + 0.5 * Math.abs(Math.sin(t * 11 + i * 1.7)));
-      else if (mood === 'working') k = 1 + 0.2 * Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 9)) ** 2;
+      else if (mood === 'speaking') k = 0.95 + lv * (0.45 + 0.25 * Math.abs(Math.sin(t * 5 + i * 1.7)));
+      else if (mood === 'working') k = 1 + 0.18 * Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 4)) ** 2;
       else if (mood === 'offline') k = 0.6;
       if (i === nearest) k = Math.max(k, 2.6);
       r.now += (k - r.now) * Math.min(1, dt * 14);
       r.mesh.scale.y = r.now;
       // Working: a bright light runs round the rays; speaking: rays light up with the voice
-      const glow = mood === 'working' ? Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 9)) ** 3
+      const glow = mood === 'working' ? Math.max(0, Math.cos(r.angle + spark.rotation.z + t * 4)) ** 3
         : mood === 'speaking' ? lv * 0.7 : mood === 'listening' ? 0.25 + 0.25 * Math.sin(t * 2.4 - i * 0.52) : i === nearest ? 0.8 : 0;
       if (mood === 'offline') r.mesh.material.color.copy(GREY); else r.mesh.material.color.copy(CORAL).lerp(BRIGHT, glow);
     });
@@ -1083,8 +1084,8 @@ export function installThesisTools(ctx) {
     // Listening: rings ripple outwards (like sound coming in)
     listenRing.visible = mood === 'listening';
     if (listenRing.visible) { const ph = (t * 0.7) % 1; listenRing.scale.setScalar(0.9 + ph * 1.1); listenRing.material.opacity = 0.9 * (1 - ph); }
-    orbGlow.material.opacity = mood === 'offline' ? 0 : mood === 'speaking' ? 0.45 + 0.5 * lv : mood === 'working' ? 0.6 + 0.15 * Math.sin(t * 12) : mood === 'listening' ? 0.5 + 0.15 * Math.sin(t * 2.4) : 0.25 + Math.sin(t * 2.2) * 0.06;
-    orbGlow.scale.setScalar(0.15 * orbState.size * (mood === 'speaking' ? 1 + 0.35 * lv : mood === 'working' ? 1.2 : 1));
+    orbGlow.material.opacity = mood === 'offline' ? 0 : mood === 'speaking' ? 0.5 + 0.3 * lv : mood === 'working' ? 0.55 + 0.1 * Math.sin(t * 5) : mood === 'listening' ? 0.5 + 0.15 * Math.sin(t * 2.4) : 0.25 + Math.sin(t * 2.2) * 0.06;
+    orbGlow.scale.setScalar(0.15 * orbState.size * (mood === 'speaking' ? 1 + 0.2 * lv : mood === 'working' ? 1.15 : 1));
     beam.visible = pointing;
     if (pointing) { const a = beamGeo.attributes.position; a.setXYZ(0, orb.position.x, orb.position.y, orb.position.z); a.setXYZ(1, orbState.pointAt.x, orbState.pointAt.y, orbState.pointAt.z); a.needsUpdate = true; beam.material.opacity = 0.5 + Math.sin(t * 10) * 0.3; }
     const pu = orbState.pulse;
@@ -1354,8 +1355,6 @@ export function installThesisTools(ctx) {
   const scoreOf = (row, k) => Number.isFinite(+row.scores?.[k]) ? Math.max(0, Math.min(5, +row.scores[k])) : null;
   const totalOf = row => CHECKLIST.reduce((a, [k]) => a + (scoreOf(row, k) ?? 0), 0);
   const isScored = row => CHECKLIST.some(([k]) => scoreOf(row, k) !== null);   // rows saved before scores existed have none
-  // a scene counts as already exported only if its content hasn't changed since (rescored scenes go in again)
-  const sceneKey = r => r.film.toLowerCase() + '|' + r.scene.toLowerCase() + '|' + JSON.stringify([r.scores, r.answers, r.counter]);
   const filmsList = () => [...new Set(checklists().map(c => c.film))];
   const scenesOf = film => checklists().filter(c => c.film.toLowerCase() === String(film || '').toLowerCase())
     .sort((a, b) => (a.time ?? 1e9) - (b.time ?? 1e9) || a.added - b.added);
@@ -1419,7 +1418,7 @@ export function installThesisTools(ctx) {
       g.fillStyle = '#fff1e6'; g.font = '600 46px system-ui, sans-serif'; g.fillText('Compare: ' + (films.join('  vs  ') || 'no films yet'), 48, 120, PX - 96);
       radar(g, 470, 560, 300, films.map((f, i) => ({ values: averages(f), color: FILM_COLORS[i] })));
       g.font = '600 30px system-ui, sans-serif';
-      films.forEach((f, i) => { g.fillStyle = FILM_COLORS[i]; g.fillRect(900, 220 + i * 54, 26, 26); g.fillStyle = '#fff1e6'; g.fillText(`${f}  (${scenesOf(f).length} scenes)`, 942, 243 + i * 54, 600); });
+      films.forEach((f, i) => { g.fillStyle = FILM_COLORS[i]; g.fillRect(900, 220 + i * 54, 26, 26); g.fillStyle = '#fff1e6'; const n = scenesOf(f).filter(isScored).length; g.fillText(`${f}  (${n} scored scene${n === 1 ? '' : 's'})`, 942, 243 + i * 54); });
       // table of averages
       const ty = 420; g.font = '26px system-ui, sans-serif';
       CHECKLIST.forEach(([, name], c) => {
@@ -1435,7 +1434,8 @@ export function installThesisTools(ctx) {
       g.fillText(`${row.film}: ${row.scene}`, 48, 120, PX - 380);
       g.font = '28px system-ui, sans-serif'; g.fillStyle = 'rgba(255,240,225,0.7)';
       g.fillText(`Scene ${board.scene + 1} of ${rows.length}${row.time !== undefined ? '  ·  ' + fmtTime(row.time) : ''}`, 48, 162);
-      g.textAlign = 'right'; g.fillStyle = '#ffb08a'; g.font = '700 54px system-ui, sans-serif'; g.fillText(isScored(row) ? `${totalOf(row)}/25` : 'not scored', PX - 48, 130); g.textAlign = 'left';
+      g.textAlign = 'right'; g.fillStyle = '#ffb08a'; g.font = '700 54px system-ui, sans-serif'; const nScored = CHECKLIST.filter(([k]) => scoreOf(row, k) !== null).length;
+      g.fillText(!nScored ? 'not scored' : nScored === 5 ? `${totalOf(row)}/25` : `${totalOf(row)}/${nScored * 5} (${nScored} of 5)`, PX - 48, 130); g.textAlign = 'left';
       CHECKLIST.forEach(([k, name, q], c) => {
         const y = 200 + c * 150;
         g.fillStyle = CAT_COLORS[c]; g.font = '600 32px system-ui, sans-serif'; g.fillText(name, 48, y + 36);
@@ -1571,32 +1571,52 @@ export function installThesisTools(ctx) {
       if (!rows[i]) throw Error('No scene like that for this film.');
       picked = [rows[i]];
     }
-    // scenes already in the thesis are not written twice (again: true writes them anyway)
-    const done = new Set(readJSON('sunnyvale.checklist-exported', []));
-    const fresh = again ? picked : picked.filter(r => !done.has(sceneKey(r)));
-    if (!fresh.length) { jarvisSay('', ['J.A.R.V.I.S.', 'ALREADY IN THE THESIS', 'NOTHING NEW TO ADD']); return { ok: true, paragraphs: 0, note: 'Already in the thesis (unchanged since). Pass again: true to write it again.' }; }
+    // Each analysis paragraph remembers which scene it describes (para.analysis = film|scene). Exporting
+    // again REPLACES that paragraph in place (after a rescore the thesis never holds two versions), and an
+    // unchanged paragraph is left alone. Quotes are saved separately, each once. again: true appends anyway.
     const sentence = t => { t = String(t).trim(); return /[.!?…]["”']?$/.test(t) ? t : t + '.'; };
+    const keyOf = r => 'scene|' + r.film.toLowerCase() + '|' + r.scene.toLowerCase();
     let quotes = 0;
     const known = new Set(store.quotes().map(q => q.text));
-    const paras = fresh.map(r => {
+    for (const r of picked) for (const [k] of CHECKLIST) for (const e of r.evidence?.[k] || []) if (e.quote && !known.has(e.quote)) {
+      addQuote({ text: e.quote, sourceId: src?.id, note: `${film}, ${r.scene}${e.time !== undefined ? ' at ' + fmtTime(e.time) : ''}` }, true); known.add(e.quote); quotes++;
+    }
+    const scoreLine = r => {
+      const scored = CHECKLIST.map(([k]) => scoreOf(r, k)).filter(v => v !== null);
+      if (!scored.length) return '';
+      return scored.length === 5 ? `scores ${totalOf(r)} out of 25 on the propaganda checklist. `
+        : `scores ${totalOf(r)} out of ${scored.length * 5} on the ${scored.length} checklist questions scored so far. `;
+    };
+    const texts = picked.map(r => {
       const parts = CHECKLIST.filter(([k]) => r.answers?.[k] || scoreOf(r, k) !== null).map(([k, name]) =>
-        sentence(`${name}${scoreOf(r, k) !== null ? ` (${scoreOf(r, k)}/5)` : ''}: ${r.answers?.[k] || 'not described'}`) + (r.counter?.[k] ? ' ' + sentence(`A counter-reading: ${r.counter[k]}`) : ''));
-      for (const [k] of CHECKLIST) for (const e of r.evidence?.[k] || []) if (e.quote && !known.has(e.quote)) { addQuote({ text: e.quote, sourceId: src?.id, note: `${film}, ${r.scene}${e.time !== undefined ? ' at ' + fmtTime(e.time) : ''}` }, true); known.add(e.quote); quotes++; }
+        sentence(`${name}${scoreOf(r, k) !== null ? ` (${scoreOf(r, k)}/5)` : ''}${r.answers?.[k] ? ': ' + r.answers[k] : ''}`) + (r.counter?.[k] ? ' ' + sentence(`A counter-reading: ${r.counter[k]}`) : ''));
       const where = `In ${film}${cite}, the scene "${r.scene}"${r.time !== undefined ? ` (${fmtTime(r.time)})` : ''}`;
-      return (isScored(r) ? `${where} scores ${totalOf(r)} out of 25 on the propaganda checklist. ` : `${where}: `) + parts.join(' ');
+      const line = scoreLine(r);
+      return [keyOf(r), (line ? `${where} ${line}` : `${where}: `) + parts.join(' ')];
     });
     const scoredRows = rows.filter(isScored);
     if (picked.length > 1 && scoredRows.length) {
       const avg = averages(film), strongest = avg.indexOf(Math.max(...avg));
-      paras.unshift(`Across ${scoredRows.length} scored scenes of ${film}${cite}, the strongest propaganda device is ${CHECKLIST[strongest][1].toLowerCase()} (average ${avg[strongest].toFixed(1)} out of 5).`);
+      texts.unshift(['summary|' + film.toLowerCase(), `Across ${scoredRows.length} scored scene${scoredRows.length === 1 ? '' : 's'} of ${film}${cite}, the strongest propaganda device is ${CHECKLIST[strongest][1].toLowerCase()} (average ${avg[strongest].toFixed(1)} out of 5).`]);
     }
-    for (const t of paras) editThesis({ action: 'append', text: t });
-    for (const r of fresh) done.add(sceneKey(r)); writeJSON('sunnyvale.checklist-exported', [...done]);
+    let added = 0, replaced = 0, unchanged = 0, kept = 0;
+    for (const [key, text] of texts) {
+      let at = again ? -1 : thesis.paras.findIndex(x => x.analysis === key);
+      if (at >= 0 && thesis.paras[at].text === text) { unchanged++; continue; }
+      // you rewrote that paragraph yourself: keep your version and add the new analysis after it
+      if (at >= 0 && thesis.paras[at].analysisText !== undefined && thesis.paras[at].text !== thesis.paras[at].analysisText) { delete thesis.paras[at].analysis; at = -1; kept++; }
+      if (at >= 0) { editThesis({ action: 'replace', index: at, text }); thesis.paras[at].analysisText = text; saveThesis(); replaced++; }
+      else { editThesis({ action: 'append', text }); Object.assign(thesis.paras[thesis.paras.length - 1], { analysis: key, analysisText: text }); saveThesis(); added++; }
+    }
+    if (!added && !replaced) {
+      jarvisSay('', ['J.A.R.V.I.S.', 'ALREADY IN THE THESIS', quotes ? `+${quotes} QUOTE${quotes === 1 ? '' : 'S'} SAVED` : 'NOTHING CHANGED']);
+      return { ok: true, added: 0, replaced: 0, unchanged, quotes_saved: quotes, note: 'The thesis already has this analysis, unchanged.' };
+    }
     // the thesis opens beside the board, not on top of it
     const th = findWindow('thesis');
     if (th && board.obj?.visible) { const right = v3().set(1, 0, 0).applyQuaternion(board.obj.quaternion); th.position.copy(board.obj.position).addScaledVector(right, (BW + 0.9) / 2 + 0.06); th.quaternion.copy(board.obj.quaternion); th.userData.popIn = undefined; markDirty(); }
-    jarvisSay('', ['J.A.R.V.I.S.', `ADDED ${paras.length} PARAGRAPH${paras.length === 1 ? '' : 'S'} TO THE THESIS`, quotes ? `${quotes} QUOTE${quotes === 1 ? '' : 'S'} SAVED` : (src ? 'WITH CITATION' : 'ADD THE FILM AS A SOURCE TO CITE IT')]);
-    return { ok: true, paragraphs: paras.length, quotes_saved: quotes, cited: !!src, note: src ? undefined : 'The film is not in the sources yet, so there is no citation. add_source with kind "film" adds it.' };
+    jarvisSay('', ['J.A.R.V.I.S.', added && replaced ? `THESIS: +${added}, ${replaced} UPDATED` : added ? `THESIS: +${added} PARAGRAPH${added === 1 ? '' : 'S'}` : `THESIS: ${replaced} UPDATED`, quotes ? `+${quotes} QUOTE${quotes === 1 ? '' : 'S'}` : (src ? 'WITH CITATION' : 'NO CITATION YET')]);
+    return { ok: true, added, replaced, unchanged, kept_your_edits: kept, quotes_saved: quotes, cited: !!src, note: src ? undefined : 'The film is not in the sources yet, so there is no citation. add_source with kind "film" adds it.' };
   }
 
   // ================================================================ ARRANGE MY ROOM ("sources on the left, thesis in front")

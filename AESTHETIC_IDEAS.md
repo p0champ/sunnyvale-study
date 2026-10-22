@@ -1,6 +1,6 @@
 # 30 ideas to make Sunnyvale more beautiful (passthrough / Stark mode)
 
-Written 22 Oct 2026 for Bastian to choose from. None of these are built. Effort: S = an evening, M = a day, L = several days. Cost = how much it could slow the headset.
+Written 22 Oct 2026 for Bastian to choose from. None of these are built, except that the prepared Bubble look already has a very gentle float (close to #8). Effort: S = an evening, M = a day, L = several days. Cost = how much it could slow the headset.
 
 ## Top 5 picks
 

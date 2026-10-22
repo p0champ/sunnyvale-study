@@ -117,7 +117,7 @@ export function createConnector({ secret, getConnection, log }) {
       inputSchema: { gesture: z.string().max(40).optional(), stop: z.boolean().optional() }
     }, input => world('gesture_tutorial', input));
     server.registerTool('delete_stashed', {
-      title: 'Delete from the stash', description: "Permanently delete items the user put away in the stash, by id or title (list_windows shows the stashed items), or all of them with all: true. Only when the user asks: this can't be undone.",
+      title: 'Delete from the stash', description: "Permanently delete items the user put away in the stash, by id or title (list_windows shows the stashed items), or all of them with all: true. Only when the user asks: this can't be undone. A stashed browser window's real Chrome tab is released too.",
       inputSchema: { id: z.string().max(120).optional(), all: z.boolean().optional() }
     }, input => world('delete_stashed', input));
     server.registerTool('show_message', {
