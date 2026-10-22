@@ -8,7 +8,7 @@ Keep appearance work in staging until the user confirms voice. Earlier setup/his
 
 # Current branch checkpoint
 
-`gpt-fixes` is not merged. See ../GPT_FIXES_REPORT.md and the newest ../HANDOVER.md. Real Chrome remains at the published extension 0.4.5; no extension reload is needed. Current connector health/authentication and 73 tools passed. Browser pinch coalescing and stricter backup completion checks are branch changes, not live updates. The current bridge was started once only because it was down, using preserved recovery settings; next-login startup targets canonical F:. Do not restart it during the headset test.
+Branch `claude-features` (built on `gpt-fixes`) adds four connector tools: `delete_stashed`, `recent_gestures`, `gesture_tutorial` and `export_checklist`. It also adds a `seconds` option to `show_message` and richer `fill_checklist`/`open_checklist` schemas. These need a bridge restart to appear in Claude once deployed. `gpt-fixes` is not merged. See ../GPT_FIXES_REPORT.md and the newest ../HANDOVER.md. Real Chrome remains at the published extension 0.4.5; no extension reload is needed. Current connector health/authentication and 73 tools passed. Browser pinch coalescing and stricter backup completion checks are branch changes, not live updates. The current bridge was started once only because it was down, using preserved recovery settings; next-login startup targets canonical F:. Do not restart it during the headset test.
 
 ## Optional cloud copies later
 

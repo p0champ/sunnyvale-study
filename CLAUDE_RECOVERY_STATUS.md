@@ -1,5 +1,20 @@
 # Claude continuation: recovery checkpoint, 22 October 2026
 
+## UPDATE (Claude, early morning): full source recovered, tested and reviewed on `claude-features`
+
+Claude's cloud workspace was still available. It holds the complete source of a7f84df, 37e8ef7 and ebb253d, plus the last seven untested edits (now commit a191a73 there).
+
+Those features have been reconciled onto `gpt-fixes` a01bcee as branch `claude-features`. Codex's voice files are untouched, and Claude's older voice backend was not carried over.
+
+The final review scores were A 8, B 8 and C 8/10 (see the newest HANDOVER checkpoint).
+
+`bridge/private/recovered-index.html` is superseded. Keep it only as a private reference.
+
+Nothing is merged, deployed or restarted.
+
+---
+
+
 Work continues only on `gpt-fixes`. The canonical F: checkout and running bridge have not been changed in this continuation. Nothing new is deployed.
 
 ## Confirmed from the original saved session records

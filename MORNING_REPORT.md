@@ -1,3 +1,37 @@
+# Good morning: where things stand (22 Oct)
+
+**Nothing went live overnight.** Main, the running bridge and your headset setup are untouched. Everything is saved on two branches, waiting for your OK.
+
+## 1. Voice: ready for your check (Codex's fix, branch `gpt-fixes`)
+- PC-tested: 28/28 tests passed, and the independent review scored it 9/10.
+- In a simulated slow connection, every piece of Claude's voice arrived with no gaps.
+- **Not yet heard in your headset.** That's the real test.
+- **Smallest next step:** tell Codex (or me) "publish the voice fix". We switch it on in one go. You then refresh Sunnyvale on the Quest and talk to Claude for a few minutes.
+- Note: the bridge restarts itself a few seconds after its code changes, so do this when you're ready to test.
+
+## 2. Everything else from your list: built, reviewed, waiting behind the voice check (branch `claude-features`)
+My earlier overnight work wasn't lost. I recovered the full source and rebuilt it on top of Codex's voice fix, without touching any of the voice code. Independent reviewers scored it **8/10** for each batch, after two to three rounds of fixes.
+
+| Item | Status |
+|---|---|
+| Avatar shows listening / speaking / working / pointing clearly | built, PC-tested, reviewed 8 |
+| HUD stays long enough (Claude can set the time) | built, PC-tested, reviewed 8 |
+| Delete from the stash (✕ then DELETE/KEEP) | built, PC-tested, reviewed 8 |
+| No trailer-park poles in passthrough | fixed, verified |
+| Smoother fist move: glide, soft glow, no drift | built, tested with simulated hands, reviewed 8 |
+| Claude sees your gestures and can teach them (gesture coach) | built, PC-tested, reviewed 8 |
+| Propaganda Analysis board: scores, evidence, radar, compare, export to thesis | built, PC-tested, reviewed 8 |
+| Soft Claude spark | built, reviewed 8 |
+| Bubble look (glass windows, buttons that grow near your hand) | built and reviewed 8, but **switched off** until after the voice check. Turn it on with WORLD › LOOK. |
+| 30 aesthetic ideas | `AESTHETIC_IDEAS.md`, top 5 first |
+| Faster same-Wi-Fi route | proposal only, in `VOICE_FIX_REPORT.md` |
+
+All of these still need **your eyes and hands in the headset**. The tests ran on a computer with simulated hands, not a real Quest.
+
+**One click to save my branch to GitHub:** on your PC, double-click `F:\QuestStudySpace\bridge\private\Save Claude branch to GitHub.bat`. It only uploads the `claude-features` branch and changes nothing else. (My sandbox can't upload to GitHub itself.)
+
+---
+
 # Current update: voice is PC-ready, not live yet
 
 The voice fixes passed all 28 PC tests and scored 9/10 in independent review. The stress test delivered every one of 95 generated audio packets with no playback gaps or dropped pieces while pictures and study builds were busy. See VOICE_FIX_REPORT.md for the precise test scope and limits. Actual Quest listening is still pending.
