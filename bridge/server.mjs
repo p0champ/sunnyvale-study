@@ -11,6 +11,7 @@ import { createHttpTransport } from './http-transport.mjs';
 import { createConnector } from './connector.mjs';
 import { createBackup } from './backup.mjs';
 import { createVoiceChannel, audiblePCM, isClaudePage } from './voice-channel.mjs';
+import { createQuestPreview } from './quest-preview.mjs';
 
 const root = process.env.BRIDGE_PRIVATE_DIR || fileURLToPath(new URL('./private/', import.meta.url));
 await mkdir(root, { recursive: true });
@@ -26,7 +27,16 @@ const connectorLog = line => appendFile(root + '/connector.log', line + '\n').ca
 const connector = createConnector({ secret: connectorSecret, getConnection: () => activeConnection, log: connectorLog });
 const port = Number(process.env.BRIDGE_PORT || 8130);
 const allowedOrigins = new Set(['https://p0champ.github.io', 'http://localhost:8123', 'http://127.0.0.1:8123', 'http://localhost:18123', 'http://127.0.0.1:18123']);
+const questPreview = createQuestPreview({ root: process.env.QUEST_PREVIEW_DIR, key: process.env.QUEST_PREVIEW_KEY, origin: process.env.QUEST_PREVIEW_ORIGIN });
+if (questPreview) {
+  // The old Quest tab must not reclaim the single bridge slot on waking.
+  allowedOrigins.delete('https://p0champ.github.io');
+  allowedOrigins.add(questPreview.origin);
+}
 const server = http.createServer((req, res) => {
+  if (questPreview && req.url?.startsWith('/quest-test')) {
+    questPreview.handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); }); return;
+  }
   if (req.url?.startsWith('/bridge/http/')) {
     httpTransport.handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
     return;

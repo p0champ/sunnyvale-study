@@ -1,3 +1,24 @@
+# Temporary Quest test active — 23 October 2026
+
+Bastian explicitly approved restarting the real bridge for a temporary Quest test while keeping main unchanged, then authorized finishing the setup while he went to bed.
+
+**Temporary activation is complete.** Main was not pushed, merged or changed. The canonical checkout code was not edited. The original bridge wrapper was stopped and replaced by a hidden supervisor running this checkout on the same port8130. It restarts this test backend after a crash. Original Windows-login startup remains unchanged, so a PC restart returns to the original normal setup.
+
+- Matching frontend/backend are served through the existing secure route; no Tailscale/Funnel configuration was changed.
+- The frontend is behind a fresh random private capability path, exposing only allowlisted frontend assets. No-referrer/no-store/noindex protections are set; private files and invalid paths are rejected.
+- The normal GitHub frontend is refused by the temporary backend so a sleeping old Quest tab cannot reclaim its single slot. Close the old tab before opening the test page.
+- Copies of pairing/connector settings are in a separate private runtime folder. The connector address and credentials remain the same; Chrome reconnected automatically.
+- The preview origin has its own browser storage and a separate, initially empty backup folder. The normal desk and normal backups are untouched. This is deliberately a separate test workspace, not a migration of Bastian's saved library.
+- Full isolated suite:35/35 passed. Final normal-origin rejection addition:2/2 focused checks passed. Independent temporary-hosting review:8/10, no launch blocker.
+- After replacement: exactly one TCP listener on127.0.0.1:8130, matching the intended child; old wrapper/backend gone; local health OK and extension connected. External health, HTML, fixed-rate audio module, private-file rejection and wrong-key rejection passed. Authenticated external connector listed78 tools, including present_slides.
+- Hash comparisons confirm original pairing/connector/address files and latest canonical study backup unchanged. No real PC frontend was paired for verification. No Quest tests are claimed.
+
+The chat's outputs contain **Quest test - copy private link.html** and **Return to normal bridge.cmd**. The first only copies the private link; it never connects a PC frontend. Send that link to Quest using the usual method. Keep it private. The rollback launcher stops only the verified temporary supervisor/child and starts the existing normal bridge launcher; it does not delete test work or backups. It was syntax-checked and independently inspected, not executed against the active preview.
+
+Only Bastian can confirm headset voice, permissions, rendering and long lectures. Follow BUILD_A_REPORT.md's eight-step checklist. For a final PC copy of test work, press Back up now before Log off. Build B remains unstarted.
+
+---
+
 # Build A checkpoint — 23 October 2026
 
 This entry supersedes historical status notes below. Work is on local **gpt-next**, based on **49e10f1**. Build A is built, PC-tested (**33/33**), independently reviewed (**7 → 8/10**, two rounds), and committed locally. It is **not pushed, merged or deployed**, and the canonical checkout/real bridge were not changed or restarted. No Quest checks have been performed. Builds B–D remain unstarted and require Bastian's go-ahead after Quest testing.

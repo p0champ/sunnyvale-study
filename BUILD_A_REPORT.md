@@ -8,7 +8,7 @@
 - **PC-tested:** complete `cd bridge && npm test`: **33/33 passed**. Final focused lecture/playback checks also passed after a cancellation guard refinement.
 - **Reviewed:** independent critic **7/10 → 8/10**, two rounds. No remaining PC code blocker. Open limitations: Quest behaviour and GPU load; actual device lecture voice; thinking/building sharing one animation; final PC backup now requires a manual backup before immediate log off.
 - **Committed:** local gpt-next commit; see Git history for the exact revision.
-- **Deployed:** no. Nothing pushed, merged or published. Canonical checkout and real bridge untouched.
+- **Original build delivery:** not pushed or merged. Subsequently, Bastian explicitly approved temporary Quest activation: the matching test frontend/backend are now active through the existing secure bridge route. Main and canonical checkout code are unchanged. See the newest HANDOVER.md entry.
 - **Needs a Quest check:** every item in the checklist below. No headset results are claimed.
 
 ## What changed
@@ -47,4 +47,8 @@ The current live page still runs the old version. These steps apply only once th
 
 ## What is needed from Bastian
 
-Approval for a deliberate headset test setup/activation is still needed before touching the real bridge or main. No such approval is assumed. After the Quest check, report which step failed and what was heard/seen. Build B remains gated on your explicit go-ahead.
+Bastian subsequently explicitly approved the temporary Quest setup and real bridge restart. That activation is complete; main remains unchanged. Next, Bastian must perform the headset checks and report which step failed and what was heard/seen. Build B remains gated on his explicit go-ahead.
+
+## Temporary activation follow-up
+
+Optional protected preview hosting was added and reviewed8/10. The expanded isolated suite passed35/35, plus2/2 focused origin checks after the last guard. External access, Chrome reconnect, authenticated connector tool discovery and a single real bridge listener were verified. The normal saved desk/backups remain separate and unchanged. No Quest listening or rendering results are claimed. See the newest handover for rollback and storage details.
