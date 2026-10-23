@@ -1,3 +1,23 @@
+# Latest handover — A–D,23 October2026
+
+This section supersedes older status entries below. Bastian expanded the authorised scope to BuildsA–D and resumed work after an interim stop. Work remains private on the owned checkout/worktrees; public main is unchanged at49e10f1. Do not publish or push main without explicit approval, edit the canonical checkout, print private addresses/codes, automate normal Chrome/accounts, or delete private backups. Only one frontend may own the real bridge. Tests use isolated folders/profiles/ports.
+
+A fixes, B modes/look and C Jarvis are committed. D adds25 spatial tool builders plus editing/navigation operations in spatial-tools.js and spatial-experiences.js. The reviewed B/C series is2584e3d,0444a0f,87d42cc on top of3cebd33. D completed independent review at 8/10 and the full 47/47 PC suite. Integration/temporary activation are recorded in the subsequent closeout note. No Quest checks have occurred.
+
+Runtime entrypoints: index.html installs task-modes.js, jarvis-layer.js and spatial-tools.js before desk restore. All new tools/help are discoverable via list_study_tools and callable through the existing use_study_tool({name,input}); no new MCP schema or extension permission is needed. SCRIPT > SCENES opens the saved deck. WORLD > MODE and JARVIS open the mode and replay/nudge controls. Existing Classic/Bubble settings remain the one look system. The extension remains0.4.5.
+
+D covers actual scene-card drag/reorder, persisted draft/child transforms, embeddedGLB or labelled schematic holograms with explosion/annotations/grounding, human-size beat doorways, claim-floor navigation, actor paths, virtual camera/lens/preview/library capture, procedural sets and movable lights. Thesis diagrams use supplied evidence, with a Natural Earth public-domain globe and a saved analysis-board radar adapter. Thinking tools include physical proximity lenses, belief-removal effects and Claude-supplied steelman/idea synthesis. Quote/character motion is intentional within requested tools, with no new ambient motes or full mode environments.
+
+Two adaptations must stay explicit: the tension ride has a moving first-person camera in a viewing window, and tower floors move to the user's real-room level. The headset reference space is not moved. Component-generated objects are schematics; exact branded models require real assets. Bias markers and proposed premises require context/human judgement. Room brightness/surfaces are manually adjusted/calibrated, not automatically scanned.
+
+Paint scheduling now includes sharp text textures as well as labels. Child panels appear after their paints, and restoration uses the same paced path. A rendered, worker-fed mutedPCM benchmark (two12-scene decks plus two12-source diagrams) measured0 underruns/0drops at rate1.0 with pacing, compared with1 underrun unbatched; construction takes longer. Preserve separate audio ACK/order/reconnect logic and never speed AudioBufferSourceNode playback to catch up.
+
+Verification: B40/40 and C41/41 plus final replay1/1 passed. D critic scores 5→7→8/10; complete final suite 47/47 passed. Raw evidence is private under the task work/evidence folder, not committed. The temporary protected preview still points to the active owned checkout until integration. Preserve the existing guarded runner/private settings, validate exact runner+child before any approved restart, and never pair a second PC frontend. A reboot returns to the normal startup bridge. No private URL belongs in a report or commit.
+
+Remaining release bookkeeping: scan staged contents, commit D, integrate the reviewed B–D commits onto gpt-next, safely refresh the approved protected preview and verify its modules/one-listener health, then update these statuses and give Bastian the final5–10-step headset checklist. Quest alone can confirm actual Claude voice, microphone/sound start, comfort, readability, hands, scale and grounding.
+
+---
+
 # Build A continued: shutdown backup restored — 23 October 2026
 
 Bastian asked to continue PC work while he sleeps, with headset checks tomorrow. This follow-up resolves the earlier final-backup regression and adds an actual rendered stress measurement. Work was staged and tested separately from the active preview before integration.

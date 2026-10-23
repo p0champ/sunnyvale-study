@@ -51,6 +51,7 @@
 </div>
 
 <script type="module">
+import {installSpatialTools} from './spatial-tools.js';
 import {installJarvisLayer} from './jarvis-layer.js';
 import { installTaskModes, TASK_MODES } from './task-modes.js?v=build-b-1';
 let taskModes, jarvisLayer, spatialTools;
@@ -173,8 +174,8 @@ function sharpTexture(w, h, draw) {
   const c = document.createElement('canvas');
   c.width = w * TEXT_SCALE; c.height = h * TEXT_SCALE;
   const ctx = c.getContext('2d'); ctx.scale(TEXT_SCALE, TEXT_SCALE);
-  draw(ctx, w, h);
   const t = new THREE.CanvasTexture(c);
+  textureJobs.enqueue(()=>{draw(ctx,w,h);t.needsUpdate=true;});
   t.colorSpace = THREE.SRGBColorSpace;
   t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -1070,6 +1071,8 @@ function faceViewer(panel) {
 }
 
 function setHeld(panel, held) {
+  const wasHeld=!!panel.userData.held;panel.userData.held=held;
+  if(wasHeld&&!held)panel.userData.onRelease?.();
   panel.scale.setScalar((panel.userData.baseScale || 1) * (held ? 1.05 : 1));
 }
 
@@ -1617,6 +1620,7 @@ function findWindow(id) {
     (id === 'browser' ? (all.filter(p => p.userData.browserId).length === 1 ? all.find(p => p.userData.browserId) : undefined) : undefined);
 }
 function closeWindow(p) {
+  if(!p?.parent)return;
   browserBridge?.closed(p);
   if (p.userData.closeButton) closeButtons.splice(closeButtons.indexOf(p.userData.closeButton), 1);
   for (const b of p.userData.windowButtons || []) { const i = windowButtons.indexOf(b); if (i >= 0) windowButtons.splice(i, 1); }
@@ -2381,7 +2385,7 @@ function pointedWindow(s) {
   return raycaster.intersectObjects(panels.filter(p => p.visible), false)[0]?.object || null;
 }
 // Your group: every open window, except ones you took out with their link button
-const groupWindows = () => panels.filter(p => p.visible && !p.userData.unlinked && p !== stashPicker);
+const groupWindows = () => panels.filter(p => p.visible && !p.userData.unlinked && p !== stashPicker && !(p.userData.spatialParent?.visible && panels.includes(p.userData.spatialParent) && !p.userData.spatialParent.userData.unlinked));
 
 // --- Flick away: a fast, short flick of the open hand, mostly from the wrist, not towards you
 function detectFlick(s, now) {
@@ -3702,7 +3706,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; thesisTools?.onSessionStart(); jarvisLayer?.start(); });
+renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; setMode('stark');thesisTools?.onSessionStart(); jarvisLayer?.start(); });
 renderer.xr.addEventListener('sessionend', () => {
   document.getElementById('hint').style.display = '';
   jarvisLayer?.finish(); thesisTools?.onSessionEnd();
@@ -3722,10 +3726,10 @@ window.studyDebug.claudeTool = runClaudeTool;   // for testing Claude's windows 
 
 // Commands from the user's Claude (through the Claude connector on the PC bridge)
 const CONNECTOR_TOOLS = new Set(['open_window', 'update_window', 'close_window', 'add_note', 'create_mind_map', 'create_timeline', 'make_flashcards', 'clear_desk', 'delete_stashed', 'recent_gestures', 'gesture_tutorial']);
-let claudeWorkingAt = -1e9;
+let claudeWorkingAt = -1e9, activeWorldBuilds=0;
 function runWorldTool(name, input) {
   claudeWorkingAt = performance.now();
-  for (const extension of [taskModes, jarvisLayer, spatialTools]) if (extension?.tools[name]) return Promise.resolve(extension.tools[name](input || {}));
+  for (const extension of [taskModes, jarvisLayer, spatialTools]) if (extension?.tools[name]) { activeWorldBuilds++;return Promise.resolve().then(()=>extension.tools[name](input||{})).then(result=>{flyOrbTo(result);return result;}).finally(()=>{activeWorldBuilds--;claudeWorkingAt=performance.now();}); }
   if (name === 'list_windows') {
     return JSON.stringify(panels.filter(p => p.visible).map(p => ({
       id: p.userData.browserId ? 'browser:' + p.userData.browserId : (p.userData.id ||= 'w' + (++claude.windowCount)),   // every window gets an id Claude can use
@@ -3815,7 +3819,7 @@ thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touch
     const voice = browserBridge?.claudeVoice?.() || {};
     return { offline: !!browserBridge?.wanted && !browserBridge.isReady(),
       listening: voice.listening || claude.state === 'listening', speaking: voice.speaking || claude.state === 'speaking' || !!window.speechSynthesis?.speaking,
-      working: claude.state === 'thinking' || performance.now() - claudeWorkingAt < 2500,
+      working: activeWorldBuilds>0 || claude.state === 'thinking' || performance.now() - claudeWorkingAt < 2500,
       level: voice.speaking ? voice.level : undefined };
   },
 });
@@ -3830,6 +3834,8 @@ function setTaskMenu(name, definition) {
   const cache=taskMenuCache[name] ||= definition.menu.map(([label,action])=>{
     const b=makeButton(label.toUpperCase(),icon.study,()=>{closeCategory();
       if(thesisTools.menu[action])thesisTools.menu[action]();
+      else if(action==='scenes')spatialTools.tools.open_scene_cards().catch(e=>showHud(['SCENES',e.message]));
+      else if(action==='draft'&&readJSON('sunnyvale.script.v1',null))spatialTools.tools.open_script_draft();
       else if(action==='map')runWorldTool('create_mind_map',DEMO_MAP);
       else if(action==='cards')runWorldTool('make_flashcards',DEMO_CARDS);
       else if(action==='timer')toggleTimer();
@@ -3849,10 +3855,11 @@ const extensionContext = {THREE,scene,camera,renderer,panels,touchables,surfaces
   repaint:()=>thesisTools?.repaint(), stash:p=>{if(!stash.includes(p))stashWindow(p);p.visible=false;p.userData.away=null;}, allPanels:()=>[...panels,...stash], reveal:p=>{if(stash.includes(p))unstash([p]);p.visible=true;}, viewerPosition, viewDirection:()=> (renderer.xr.isPresenting?renderer.xr.getCamera():camera).getWorldDirection(new THREE.Vector3()),
   announce:text=>showHud(['SUNNYVALE',text]), setEnvironment:setMode,getEnvironment:()=>mode,getLook:()=>lookSetting,setMenu:setTaskMenu,voiceActive:()=>browserBridge?.voiceActive?.(),
   focusWindow:()=>{const cam=renderer.xr.isPresenting?renderer.xr.getCamera():camera;const ray=new THREE.Raycaster(cam.getWorldPosition(new THREE.Vector3()),cam.getWorldDirection(new THREE.Vector3()));return ray.intersectObjects(panels.filter(p=>p.visible),false)[0]?.object;},
-  worldTool:runWorldTool,thesis:thesisTools, getTaskMode:()=>taskModes?.current
+  browser:()=>browserBridge,getBrightness:()=>taskModes?.brightness||1, afterPaint:fn=>textureJobs.enqueue(fn),buildTextures:fn=>textureJobs.build(fn), worldTool:runWorldTool,thesis:thesisTools, getTaskMode:()=>taskModes?.current
 };
 taskModes=installTaskModes(extensionContext);
 jarvisLayer=installJarvisLayer(extensionContext);window.studyDebug.jarvis=jarvisLayer;
+spatialTools=installSpatialTools(extensionContext);window.studyDebug.spatial=spatialTools;
 window.studyDebug.taskModes=taskModes;
 window.studyDebug.workspace=extensionContext;extensionContext.saveDesk=saveDeskNow;
 

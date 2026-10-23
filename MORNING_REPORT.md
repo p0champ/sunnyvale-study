@@ -1,3 +1,15 @@
+# Latest morning status —23 October2026
+
+Bastian authorised finishing A–D, then resumed the work after the temporary usage stop. A, B and C are built, PC-tested, independently reviewed at8/10 and committed privately. D is also built, PC-tested and independently reviewed at 8/10. Nothing has been pushed or published to main. The real Quest checks are still yours to do.
+
+The final complete suite passed **47/47**. D's independent review scores were **5→7→8/10**. Commit/integration and preview activation are recorded in the final closeout note. Older reports below describe earlier states.
+
+The update adds six saved modes, readable shared styling, Jarvis pointing/narration/replay, holograms and all the listed 3D tool families. Exact model accuracy requires an actual model. The ride plays in a viewing window, and the argument tower brings floors to you; both keep your real-room viewpoint fixed. Physical lenses reveal possible framing and supplied assumptions, with source/context checks.
+
+Synthetic rendered PC audio stayed at normal pitch and had no underruns/drops in the paced D load run; this is not proof of real Claude speech on Quest. The remaining test plan will cover voice first, then mode layouts, continuous slides/images, Jarvis replay, scene cards, walk-inside/annotations, the other tools and complete logoff. Use the private preview helper only after the final activation note. The public live site remains unchanged.
+
+---
+
 # Build A continued: shutdown backup restored — 23 October 2026
 
 Bastian asked to continue PC work while he sleeps, with headset checks tomorrow. This follow-up resolves the earlier final-backup regression and adds an actual rendered stress measurement. Work was staged and tested separately from the active preview before integration.

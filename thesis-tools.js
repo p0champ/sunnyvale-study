@@ -1828,7 +1828,7 @@ export function installThesisTools(ctx) {
     tools,
     help,
     avatar: { orb, state: orbState },          // for testing on the PC
-    addFiles,
+    addFiles, getLibraryFile:fileBlob,
     update(dt) {
       updateOrb(dt); updateExam(dt); refreshStrip(); for (const p of players.values()) if (!p.video.paused) p.drawBar?.();
       const camera=renderer.xr.isPresenting ? rawCamera(renderer) : null;rawScanReady=!!camera;
