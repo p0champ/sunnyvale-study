@@ -94,12 +94,12 @@ export function installThesisTools(ctx) {
   }
   function frameBox(g, W, H, stark) {
     g.clearRect(0, 0, W, H);
-    g.fillStyle = stark ? 'rgba(60,6,6,0.6)' : 'rgba(250,244,230,0.97)';
+    g.fillStyle = stark ? 'rgba(24,29,38,0.94)' : 'rgba(250,244,230,0.97)';
     g.beginPath(); g.roundRect(4, 4, W - 8, H - 8, 18); g.fill();
-    g.strokeStyle = stark ? '#f2c94c' : '#8a5a2a'; g.lineWidth = 5; g.stroke();
+    g.strokeStyle = stark ? (ctx.taskAccent?.() || '#d97757') : '#8a5a2a'; g.lineWidth = 5; g.stroke();
   }
-  const ink = () => getMode() === 'stark' ? '#ffe9c4' : '#20160c';
-  const accent = () => getMode() === 'stark' ? '#ffb347' : '#8a3a1a';
+  const ink = () => getMode() === 'stark' ? '#f3eee8' : '#20160c';
+  const accent = () => getMode() === 'stark' ? (ctx.taskAccent?.() || '#d97757') : '#8a3a1a';
 
   // Things that should face you and sit at a comfortable spot when they appear
   function show(obj, distance = 0.9, height = -0.1) { placeInFront(obj, distance, height); markDirty(); return obj; }

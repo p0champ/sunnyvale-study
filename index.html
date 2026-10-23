@@ -51,6 +51,8 @@
 </div>
 
 <script type="module">
+import { installTaskModes, TASK_MODES } from './task-modes.js?v=build-b-1';
+let taskModes, jarvisLayer, spatialTools;
 import { createTextureJobs } from './texture-jobs.js?v=build-a-1';
 const textureJobs = createTextureJobs();
 import * as THREE from 'three';
@@ -783,7 +785,7 @@ function bodyFont(p, size) { return p?.userData.reading || bubbleLook() ? `${siz
 // ---------- Bubble look (22 Oct): windows like floating glass bubbles, buttons as small bubbles that grow when
 // your hand comes near. Off by default for now; WORLD > LOOK switches between the bubble and classic looks.
 // Prepared, not switched on: the default stays the classic look until Bastian has checked the voice fix in the headset
-var lookSetting = (() => { try { return localStorage.getItem('sunnyvale.look') || 'classic'; } catch { return 'classic'; } })();
+var lookSetting = (() => { try { return localStorage.getItem('sunnyvale.look') || 'bubble'; } catch { return 'classic'; } })();
 function bubbleLook() { return lookSetting === 'bubble'; }
 function bubbleTexture(title, body, W, H, scroll = 0) {
   return sharpTexture(W, H, (ctx) => {
@@ -3073,6 +3075,7 @@ function setLook(look) {
   blip(bubbleLook() ? 880 : 620, 0.06);
   if (mode === 'stark') showHud(['J.A.R.V.I.S.', 'LOOK: ' + (bubbleLook() ? 'BUBBLES' : 'CLASSIC')], 2.5);
 }
+const taskModeButton = makeButton('MODE', icon.study, () => { closeCategory(); taskModes?.openPicker(); });
 const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); saveDeskNow(); thesisTools.menu.logOff(); });
 
 const breakServices = [
@@ -3115,7 +3118,7 @@ const categories = {
   study: { button: makeButton('STUDY', icon.study, () => toggleCategory('study')), items: studyButtons },
   create: { button: makeButton('CREATE', icon.create, () => toggleCategory('create')), items: [drawButton, eraseButton, cardsButton, mapButton, timelineButton] },
   // Sunnyvale and Stark mode are one switch: only the mode you can go to is showing
-  world: { button: makeButton('WORLD', icon.world, () => toggleCategory('world')), items: [reactorButton, bubblesButton, spacesButton, stashButton, lookButton, scanButton, logOffButton] },
+  world: { button: makeButton('WORLD', icon.world, () => toggleCategory('world')), items: [taskModeButton, reactorButton, bubblesButton, spacesButton, stashButton, lookButton, scanButton, logOffButton] },
   break: { button: makeButton('BREAK', icon.coffee, () => { if (!isFocusActive()) toggleCategory('break'); }), items: breakButtons },
 };
 for (const [key, c] of Object.entries(categories)) {
@@ -3145,7 +3148,7 @@ syncBreakMenu();
 function layoutRows() {
   for (const row of [buttonRow, ...Object.values(categories).map(c => c.row)]) {
     const vis = row.children.filter(b => b.visible);
-    vis.forEach((b, i) => { b.position.x = (i - (vis.length - 1) / 2) * 0.092; });
+    vis.forEach((b, i) => { const cols=Math.min(5,vis.length),row=Math.floor(i/5),count=Math.min(5,vis.length-row*5); b.position.x=((i%5)-(count-1)/2)*.115; b.position.y=row*.115; });
   }
 }
 
@@ -3718,6 +3721,7 @@ const CONNECTOR_TOOLS = new Set(['open_window', 'update_window', 'close_window',
 let claudeWorkingAt = -1e9;
 function runWorldTool(name, input) {
   claudeWorkingAt = performance.now();
+  for (const extension of [taskModes, jarvisLayer, spatialTools]) if (extension?.tools[name]) return Promise.resolve(extension.tools[name](input || {}));
   if (name === 'list_windows') {
     return JSON.stringify(panels.filter(p => p.visible).map(p => ({
       id: p.userData.browserId ? 'browser:' + p.userData.browserId : (p.userData.id ||= 'w' + (++claude.windowCount)),   // every window gets an id Claude can use
@@ -3757,8 +3761,8 @@ function runWorldTool(name, input) {
     showHud(lines, input.seconds);
     return `Shown for ${Math.round(hudMessage.hold)} s.`;
   }
-  if (name === 'list_study_tools') return JSON.stringify({ tools: [...CONNECTOR_TOOLS, ...Object.keys(thesisTools.tools)],
-    how_to_use_newer_tools: thesisTools.help, note: 'Call any of these with use_study_tool({ name, input }).' });
+  if (name === 'list_study_tools') return JSON.stringify({ tools: [...CONNECTOR_TOOLS, ...Object.keys(thesisTools.tools), ...[taskModes,jarvisLayer,spatialTools].flatMap(x=>Object.keys(x?.tools||{}))],
+    how_to_use_newer_tools: { ...thesisTools.help, ...taskModes?.help, ...jarvisLayer?.help, ...spatialTools?.help }, note: 'Call any of these with use_study_tool({ name, input }).' });
   if (thesisTools?.tools[name]) {
     blip(1300, 0.08);
     return Promise.resolve(thesisTools.tools[name](input || {})).then(result => {
@@ -3797,6 +3801,7 @@ document.getElementById('bridgeSettings').appendChild(outsideClaudeButton);
 window.studyDebug.openClaudeWebsite = openClaudeWebsite;
 window.studyDebug.setMode = setMode;
 thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touchables, surfaces, makeHoloObject, placeInFront, faceViewer, holoLabel,
+  taskAccent: () => TASK_MODES[taskModes?.current || 'thesis'].color,
   beforeDisconnect: signal => { saveDeskNow(); return window.studyDebug.backup?.backupNow('logoff', { signal }); },
   canvasTexture, blip, jarvisSay, closeWindow, restorers, markDirty, getMode: () => mode, bridge: () => browserBridge, viewerPosition,
   openWindow, setWindowContent, findWindow, readJSON, writeJSON, timerInfo: () => ({ running: timer.running, phase: timer.phase, left: timer.left }),
@@ -3815,6 +3820,37 @@ window.studyDebug.backup = installBackup({ bridge: () => browserBridge, jarvisSa
 window.studyDebug.thesis = thesisTools;
 window.studyDebug.worldTool = runWorldTool;
 window.studyDebug.style = { setLook, bubbleLook };
+const taskMenuCache = {};
+function setTaskMenu(name, definition) {
+  for (const b of categories.study.row.children) b.visible=false;
+  const cache=taskMenuCache[name] ||= definition.menu.map(([label,action])=>{
+    const b=makeButton(label.toUpperCase(),icon.study,()=>{closeCategory();
+      if(thesisTools.menu[action])thesisTools.menu[action]();
+      else if(action==='map')runWorldTool('create_mind_map',DEMO_MAP);
+      else if(action==='cards')runWorldTool('make_flashcards',DEMO_CARDS);
+      else if(action==='timer')toggleTimer();
+      else if(action==='reading'||action==='poems')taskModes.tools.open_reading_shelf();
+      else if(action==='exam')thesisTools.tools.start_exam({topic:'Rehearsal'});
+      else if(action==='shots')thesisTools.tools.open_shot_log({});
+      else if(action==='analysis')thesisTools.tools.open_checklist({});
+      else if(action==='counters')openWindow('Counterpoints','Ask Claude to add a counterargument, then rehearse your response.');
+      else {const title={draft:'Script draft',notes:'Notes',reading:'Reading log'}[action]||label;if(!panels.some(p=>p.userData.title===title))openWindow(title,'');}
+    });b.parent.remove(b);categories.study.row.add(b);return b;
+  });cache.forEach(b=>b.visible=true);categories.study.items=cache;
+  const createActions=name==='ideas'?[cardsButton,mapButton,timelineButton]:name==='script'?[drawButton,eraseButton]:name==='film-study'?[drawButton,eraseButton,timelineButton]:[];
+  categories.create.items.forEach(b=>b.visible=createActions.includes(b));categories.create.button.visible=!!createActions.length;
+  if(openCategory==='create'&&!createActions.length)openCategory=null;syncBreakMenu();layoutRows();
+}
+const extensionContext = {THREE,scene,camera,renderer,panels,touchables,surfaces,makeHoloObject,holoLabel,placeInFront,faceViewer,markDirty,readJSON,writeJSON,restorers,findWindow,openWindow,setWindowContent,closeWindow,stashWindow,
+  allPanels:()=>[...panels,...stash], reveal:p=>{if(stash.includes(p))unstash([p]);p.visible=true;}, viewerPosition, viewDirection:()=> (renderer.xr.isPresenting?renderer.xr.getCamera():camera).getWorldDirection(new THREE.Vector3()),
+  announce:text=>showHud(['SUNNYVALE',text]), setEnvironment:setMode,getEnvironment:()=>mode,getLook:()=>lookSetting,setMenu:setTaskMenu,voiceActive:()=>browserBridge?.voiceActive?.(),
+  focusWindow:()=>{const cam=renderer.xr.isPresenting?renderer.xr.getCamera():camera;const ray=new THREE.Raycaster(cam.getWorldPosition(new THREE.Vector3()),cam.getWorldDirection(new THREE.Vector3()));return ray.intersectObjects(panels.filter(p=>p.visible),false)[0]?.object;},
+  worldTool:runWorldTool,thesis:thesisTools, getTaskMode:()=>taskModes?.current
+};
+taskModes=installTaskModes(extensionContext);
+window.studyDebug.taskModes=taskModes;
+window.studyDebug.workspace=extensionContext;extensionContext.saveDesk=saveDeskNow;
+
 window.studyDebug.gestures = { logGesture, gestureLog, startGestureTutorial, tutorialState, detectFlick, detectGroupMove, detectBeckon, updateGroupLook, groupGlows, isFist, isOpenHand, fingerReach, palmFacesViewer, groupWindows, toggleLink, stash };
 window.studyDebug.menu = { menu, buttonRow, categories, toggleCategory, closeCategory, breakServices, syncBreakMenu, updateMenu, get openCategory() { return openCategory; } };
 {
@@ -3828,6 +3864,7 @@ window.studyDebug.menu = { menu, buttonRow, categories, toggleCategory, closeCat
 }
 window.studyDebug.desk = { snapshotDesk, restoreDesk, saveWorkspace, loadWorkspace, listWorkspaces, stashWindow, openStashPicker, openSpacesPicker, toggleLock, findWindow };
 
+taskModes.restoreCurrent();
 const clock = new THREE.Clock();
 // While any window is open, the edges of your view are drawn at full detail too (no foveation), so text
 // stays sharp wherever you look; with nothing to read, the edges go back to power saving.
@@ -3861,6 +3898,7 @@ renderer.setAnimationLoop(window.studyDebug.animate = () => {
   updateStarkFX(dt);
   updateHudMessage(dt);
   thesisTools?.update(dt);
+  taskModes?.update(dt);jarvisLayer?.update(dt);spatialTools?.update(dt);
   updatePanels(dt);
   updateTransition(dt);
   if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
