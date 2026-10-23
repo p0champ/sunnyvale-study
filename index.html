@@ -1971,6 +1971,7 @@ function makeHoloObject(content, w, h, title, kind) {
   handle.userData.closeButton = close;
   closeButtons.push(close);
   addWindowButtons(handle);
+  swapIcon(close.material);
   scene.add(handle);
   panels.push(handle);
   markDirty();
@@ -1986,12 +1987,12 @@ function placeInFront(obj, distance = 0.9, height = -0.1) {
 }
 
 // A glowing text label (used by mind maps and timelines)
-function holoLabel(text, { w = 0.2, h = 0.06, big = '', color = '#ffd27a', fill = 'rgba(70,6,6,0.6)' } = {}) {
+function holoLabel(text, { w = 0.2, h = 0.06, big = '', color = '#f2ece6', fill = 'rgba(23,29,38,.94)' } = {}) {
   const cw = 512, ch = Math.round(512 * h / w);
   const tex = canvasTexture(cw, ch, (ctx) => {
     ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(4, 4, cw - 8, ch - 8, 18); ctx.fill();
-    ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 12;
-    ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.shadowColor = '#d97757'; ctx.shadowBlur = 2;
+    ctx.strokeStyle = TASK_MODES[taskModes?.current || 'thesis'].color; ctx.lineWidth = 4; ctx.stroke();
     ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if (big) {
       ctx.font = `700 ${Math.round(ch * 0.34)}px "Segoe UI", system-ui, sans-serif`; ctx.fillText(big, cw / 2, ch * 0.32);
@@ -3072,6 +3073,7 @@ function setLook(look) {
   lookSetting = look === 'classic' ? 'classic' : 'bubble';
   try { localStorage.setItem('sunnyvale.look', lookSetting); } catch { /* private mode */ }
   for (const p of [...panels, ...stash]) if (p.userData.cardboard) setWindowContent(p, p.userData.title, p.userData.body, { keepScroll: true });
+  for (const p of [...panels,...stash]) if(p.userData.closeButton) swapIcon(p.userData.closeButton.material);
   blip(bubbleLook() ? 880 : 620, 0.06);
   if (mode === 'stark') showHud(['J.A.R.V.I.S.', 'LOOK: ' + (bubbleLook() ? 'BUBBLES' : 'CLASSIC')], 2.5);
 }
@@ -3842,7 +3844,7 @@ function setTaskMenu(name, definition) {
   if(openCategory==='create'&&!createActions.length)openCategory=null;syncBreakMenu();layoutRows();
 }
 const extensionContext = {THREE,scene,camera,renderer,panels,touchables,surfaces,makeHoloObject,holoLabel,placeInFront,faceViewer,markDirty,readJSON,writeJSON,restorers,findWindow,openWindow,setWindowContent,closeWindow,stashWindow,
-  allPanels:()=>[...panels,...stash], reveal:p=>{if(stash.includes(p))unstash([p]);p.visible=true;}, viewerPosition, viewDirection:()=> (renderer.xr.isPresenting?renderer.xr.getCamera():camera).getWorldDirection(new THREE.Vector3()),
+  repaint:()=>thesisTools?.repaint(), stash:p=>{if(!stash.includes(p))stashWindow(p);p.visible=false;p.userData.away=null;}, allPanels:()=>[...panels,...stash], reveal:p=>{if(stash.includes(p))unstash([p]);p.visible=true;}, viewerPosition, viewDirection:()=> (renderer.xr.isPresenting?renderer.xr.getCamera():camera).getWorldDirection(new THREE.Vector3()),
   announce:text=>showHud(['SUNNYVALE',text]), setEnvironment:setMode,getEnvironment:()=>mode,getLook:()=>lookSetting,setMenu:setTaskMenu,voiceActive:()=>browserBridge?.voiceActive?.(),
   focusWindow:()=>{const cam=renderer.xr.isPresenting?renderer.xr.getCamera():camera;const ray=new THREE.Raycaster(cam.getWorldPosition(new THREE.Vector3()),cam.getWorldDirection(new THREE.Vector3()));return ray.intersectObjects(panels.filter(p=>p.visible),false)[0]?.object;},
   worldTool:runWorldTool,thesis:thesisTools, getTaskMode:()=>taskModes?.current

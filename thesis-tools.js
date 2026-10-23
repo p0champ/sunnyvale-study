@@ -60,7 +60,7 @@ export function installThesisTools(ctx) {
 
   // ---------------------------------------------------------------- small helpers for buttons on objects
   function addButton(parent, text, x, y, w, action, opts = {}) {
-    const label = holoLabel(text, { w, h: opts.h || 0.045, fill: opts.fill || 'rgba(40,20,10,0.75)', color: opts.color || '#ffd27a' });
+    const label = holoLabel(text, { w, h: opts.h || 0.045, fill: opts.fill || 'rgba(23,29,38,.94)', color: opts.color || '#f2ece6' });
     label.position.set(x, y, 0.006);
     parent.add(label);
     const owner = opts.owner || parent;
@@ -642,7 +642,7 @@ export function installThesisTools(ctx) {
       const { g, canvas, tex } = view;
       const paint = img => {
         frameBox(g, canvas.width, canvas.height, getMode() === 'stark');
-        g.fillStyle = accent(); g.font = '700 40px "Segoe UI", system-ui, sans-serif'; g.fillText(`SHOT ${i + 1}  ${s.title || ''}`.slice(0, 36), 30, 60);
+        g.fillStyle = accent(); g.font = '700 54px "Segoe UI", system-ui, sans-serif'; g.fillText(`SHOT ${i + 1}  ${s.title || ''}`.slice(0, 36), 30, 60);
         let y = 90;
         if (img) { const h = 300; g.drawImage(img, 30, y, h * img.width / img.height, h); y += h + 20; }
         g.fillStyle = ink(); g.font = '30px "Segoe UI", system-ui, sans-serif';
@@ -708,7 +708,7 @@ export function installThesisTools(ctx) {
       for (const line of layout.lines) { g.fillText(line, 100, y); y += layout.size * 1.35; }
       if (img) { const scale = Math.min(800 / img.width, 650 / img.height); g.drawImage(img, 1020 + (800-img.width*scale)/2, 260 + (650-img.height*scale)/2, img.width*scale, img.height*scale); }
       else if (hasImage) { g.font = '32px sans-serif'; g.fillText(imageStatus.get(st.i) || 'Loading image…', 1040, 540); }
-      g.font = '32px "Segoe UI", system-ui, sans-serif'; g.globalAlpha = 0.6;
+      g.font = '48px "Segoe UI", system-ui, sans-serif'; g.globalAlpha = 0.6;
       g.fillText(`${st.i + 1} / ${slides.length}`, canvas.width - 200, canvas.height - 50); g.globalAlpha = 1;
       tex.needsUpdate = true;
       relabel(notes, s.notes ? 'NOTES: ' + String(s.notes).slice(0, 90) : 'NO SPEAKER NOTES');
@@ -726,7 +726,7 @@ export function installThesisTools(ctx) {
     addButton(group, 'NEXT ▶', 0.3, -H / 2 - 0.12, 0.14, () => go(st.i + 1), { owner: obj });
     addButton(group, 'PLAY LECTURE', -0.16, -H / 2 - 0.20, 0.24, play, { owner: obj });
     addButton(group, 'STOP', 0.18, -H / 2 - 0.20, 0.14, () => player.stop(), { owner: obj });
-    obj.userData.go = go;
+    obj.userData.go = go; obj.userData.repaint = paint;
     obj.userData.playLecture = play;
     obj.userData.onClose = () => { closed = true; player.stop(); images.clear(); };
     obj.userData.save = () => ({ type: 'slides', title, slides, at: st.i });
@@ -789,7 +789,7 @@ export function installThesisTools(ctx) {
     const { canvas, g, tex } = doc.view, W = canvas.width, H = canvas.height, stark = getMode() === 'stark';
     frameBox(g, W, H, stark);
     let titleSize = 46, titleLines;
-    do { g.font = `700 ${titleSize}px Georgia, serif`; titleLines = wrap(g, thesis.title, W - 100); if (titleLines.length <= 2 || titleSize <= 26) break; titleSize -= 2; } while (true);
+    do { g.font = `700 ${titleSize}px "Segoe UI", system-ui, sans-serif`; titleLines = wrap(g, thesis.title, W - 100); if (titleLines.length <= 2 || titleSize <= 26) break; titleSize -= 2; } while (true);
     g.fillStyle = accent();
     titleLines.forEach((line, index) => g.fillText(line, 50, 65 + index * (titleSize + 8), W - 100));
     const infoY = 65 + titleLines.length * (titleSize + 8);
@@ -798,13 +798,13 @@ export function installThesisTools(ctx) {
     g.globalAlpha = 1;
     const lines = [];
     thesis.paras.forEach((p, i) => {
-      g.font = p.heading ? '700 40px Georgia, serif' : '32px Georgia, serif';
+      g.font = p.heading ? '700 54px "Segoe UI", system-ui, sans-serif' : '48px "Segoe UI", system-ui, sans-serif';
       const ls = wrap(g, p.text || (i === doc.sel ? '' : ' '), W - 120);
       ls.forEach((l, k) => lines.push({ text: l, para: i, heading: p.heading, last: k === ls.length - 1 }));
       lines.push({ text: '', para: i, gap: true });
     });
     if (!thesis.paras.length) lines.push({ text: 'Empty. Tap + PARAGRAPH to start writing, or ask Claude to draft a section.', para: -1, hint: true });
-    const lineH = 44, top = Math.max(165, infoY + 50), per = Math.floor((H - top - 30) / lineH);
+    const lineH = 66, top = Math.max(165, infoY + 50), per = Math.floor((H - top - 30) / lineH);
     doc.scroll = Math.max(0, Math.min(doc.scroll, Math.max(0, lines.length - per)));
     doc.layout = [];
     const commented = new Set(comments().map(commentPara));
@@ -812,8 +812,8 @@ export function installThesisTools(ctx) {
     lines.slice(doc.scroll, doc.scroll + per).forEach((l, k) => {
       const y = top + k * lineH;
       if (commented.has(l.para) && marked !== l.para && !l.gap) { marked = l.para; g.fillStyle = '#d97757'; g.beginPath(); g.arc(30, y - 12, 9, 0, Math.PI * 2); g.fill(); }
-      if (l.para === doc.sel && !l.gap) { g.fillStyle = stark ? 'rgba(255,180,70,0.18)' : 'rgba(255,214,0,0.25)'; g.fillRect(40, y - 34, W - 80, lineH); }
-      g.fillStyle = l.hint ? accent() : ink(); g.font = l.heading ? '700 40px Georgia, serif' : '32px Georgia, serif';
+      if (l.para === doc.sel && !l.gap) { g.fillStyle = stark ? 'rgba(255,180,70,0.18)' : 'rgba(145,191,234,0.14)'; g.fillRect(40, y - 34, W - 80, lineH); }
+      g.fillStyle = l.hint ? accent() : ink(); g.font = l.heading ? '700 54px "Segoe UI", system-ui, sans-serif' : '48px "Segoe UI", system-ui, sans-serif';
       g.fillText(l.text, 60, y);
       if (l.para === doc.sel && l.last && keyboard) { g.fillRect(60 + g.measureText(l.text).width + 4, y - 30, 3, 36); }   // the cursor
       doc.layout.push({ y0: y - 34, y1: y + 10, para: l.para });
@@ -1834,6 +1834,6 @@ export function installThesisTools(ctx) {
     refreshBriefing,
     menu: { library: () => openLibraryPicker(), thesis: openThesis, quotes: openQuotesWindow, sources: openSourcesWindow, deadlines: openDeadlinesWindow,
       briefing: () => briefing(false), logOff, scan: openScanner, wake: toggleWakeWord, toggleStrip: () => { settings.strip = !settings.strip; saveSettings(); refreshStrip(true); } },
-    repaint() { paintThesis(); refreshStrip(true); }
+    repaint() { paintThesis(); if (board.obj) paintBoard(); if (findWindow('exam')) paintExam(); for (const p of panels) p.userData.repaint?.(); refreshStrip(true); }
   };
 }
