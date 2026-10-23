@@ -1,3 +1,17 @@
+# Build A continued: shutdown backup restored — 23 October 2026
+
+Bastian asked to continue PC work while he sleeps, with headset checks tomorrow. This follow-up resolves the earlier final-backup regression and adds an actual rendered stress measurement. Work was staged and tested separately from the active preview before integration.
+
+Log off now immediately stops voice, microphone, tab windows and reconnect attempts, then holds only the control connection for a final backup for at most eight seconds. It saves the completed session and latest desk before upload. A stalled/rejected backup still disconnects, and the HUD explicitly reports incomplete PC backup while local work stays saved. A final request waits behind an active backup, and cancellation prevents subsequent chunks. The real-app test verifies final edits in the actual isolated PC backup. Connect, mic, new windows and new tool builds are blocked during shutdown.
+
+Independent final functional review (round3):8/10, no PC blocker. The review observed38/38 tests; an additional queued-upload/abort browser check subsequently passed. Final complete suite:39/39 passed.
+
+A new desktop Chromium stress run keeps passthrough rendering active and generates PCM from a separate Worker while building three full mind maps and three thirty-card decks. Before/after maximum timer gaps218→121ms; generated-audio packet gaps263→189ms;0 playback underruns/queue drops in both runs. Builds take423→3,442ms because paints yield. This is generated desktop evidence, not Quest/human listening confirmation.
+
+The same private test link remains in use. The temporary preview has been refreshed with this tested follow-up; main and canonical checkout remain unchanged. External updated-resource checks, Chrome reconnection and one matching8130 listener passed. Original settings/latest study backup hashes remain unchanged. Thinking/building still share the working animation, and Quest/device-voice checks remain pending. Builds B–D remain unstarted.
+
+---
+
 # Temporary Quest test active — 23 October 2026
 
 Bastian explicitly approved restarting the real bridge for a temporary Quest test while keeping main unchanged, then authorized finishing the setup while he went to bed.

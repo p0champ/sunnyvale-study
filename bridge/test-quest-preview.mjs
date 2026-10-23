@@ -18,6 +18,7 @@ test('optional Quest preview serves only capability-protected frontend files', a
  try {
   const html=await fetch(base);assert.equal(html.status,200);assert.match(await html.text(),/Build A test/);assert.equal(html.headers.get('referrer-policy'),'no-referrer');assert.equal(html.headers.get('cache-control'),'no-store');
   assert.equal((await fetch(base+'browser-media.js?v=fixture')).status,200);
+  assert.equal((await fetch(base+'logoff.js')).status,200);
   assert.equal((await fetch(base+'bridge/chrome-extension/pcm-worklet.js')).status,200);
   assert.equal((await fetch(base+'assets/textures/sparse_grass/Diffuse.jpg')).status,200);
   for(const file of ['bridge/server.mjs','bridge/private/pairing.txt','bridge/package.json','.git/config','HANDOVER.md','%2e%2e%2findex.html','assets/%2e%2e%2fbridge/private/pairing.txt','index.html%00','..%5cindex.html'])assert.equal((await fetch(base+file)).status,404,file);

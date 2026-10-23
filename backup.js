@@ -1,5 +1,6 @@
 // Safety net: backs up your study work to Google Drive on your PC, through the PC bridge.
-// Every 5 minutes while connected (only when something changed), right after connecting, and when you press Back up now,
+// Every 5 minutes while connected, right after connecting, manually, and at log off
+// (with a bounded shutdown deadline),
 // the page sends everything Sunnyvale keeps in this browser (thesis, quotes, sources, deadlines, highlights, pins,
 // shot logs, checklists, layouts, settings) plus each library file and frame grab once. The PC keeps dated copies.
 // "Restore from backup" on the page brings it all back, for example on a new headset or after clearing the browser.
@@ -9,7 +10,11 @@ const STUDY_PREFIX = 'sunnyvale.';
 const EVERY = 5 * 60 * 1000;
 
 export function installBackup({ bridge, jarvisSay }) {
-  let busy = false, lastSent = '', lastResult = readLast(), deferred;
+  let busy = false, lastSent = '', lastResult = readLast(), deferred, currentBackup = null;
+  const checkCancelled = signal => { if (signal?.aborted) throw Error('Final backup deadline reached. Your work remains saved locally.'); };
+  async function request(type, payload, signal) {
+    checkCancelled(signal); const result = await bridge().call(type, payload); checkCancelled(signal); return result;
+  }
   function retryAfterSpeech() {
     if (!deferred) deferred = setTimeout(() => { deferred = null; backupNow('auto'); }, 1500);
     show('Automatic backup paused during Claude speech. It resumes when the conversation is quiet.');
@@ -38,29 +43,37 @@ export function installBackup({ bridge, jarvisSay }) {
   const dbDo = async (store, mode, fn) => { const d = await db(); return new Promise((resolve, reject) => { const t = d.transaction(store, mode), q = fn(t.objectStore(store)); t.oncomplete = () => resolve(q?.result); t.onerror = () => reject(t.error); }); };
 
   // Send text as UTF-8 bytes in pieces (so no character is ever cut in half between pieces)
-  const upload = (kind, id, text, pauseForSpeech = false) => blobPieces(new Blob([text]), { kind, id }, pauseForSpeech);
-  async function blobPieces(blob, transferInfo, pauseForSpeech = false) {
+  const upload = (kind, id, text, pauseForSpeech = false, signal) => blobPieces(new Blob([text]), { kind, id }, pauseForSpeech, signal);
+  async function blobPieces(blob, transferInfo, pauseForSpeech = false, signal) {
     const b = bridge(), bytes = 33750;           // 33750 bytes = 45000 characters of base64
-    const { transfer } = await b.call('backup-begin', transferInfo);
+    const { transfer } = await request('backup-begin', transferInfo, signal);
     for (let n = 0, at = 0; at < blob.size || n === 0; n++, at += bytes) {
       if (pauseForSpeech && b.voiceActive?.()) { const error = Error('Automatic backup paused for speech.'); error.voicePause = true; throw error; }
       const buf = new Uint8Array(await blob.slice(at, at + bytes).arrayBuffer());
+      checkCancelled(signal);
       let bin = ''; for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode(...buf.subarray(i, i + 8192));
-      await b.call('backup-part', { transfer, n, data: btoa(bin) });
+      await request('backup-part', { transfer, n, data: btoa(bin) }, signal);
     }
-    return b.call('backup-end', { transfer });
+    return request('backup-end', { transfer }, signal);
   }
 
-  async function backupNow(reason = 'auto') {
+  function backupNow(reason = 'auto', options = {}) {
+    if (options.signal?.aborted) return Promise.resolve(false);
+    if (currentBackup) return reason === 'logoff' ? currentBackup.then(() => backupNow(reason, options)) : Promise.resolve(false);
+    const job = performBackup(reason, options); currentBackup = job;
+    const clear = () => { if (currentBackup === job) currentBackup = null; }; job.then(clear, clear);
+    return job;
+  }
+  async function performBackup(reason, { signal } = {}) {
     const b = bridge();
     if (busy || !b?.isReady?.()) { if (reason === 'button') show('Connect the PC bridge first (PC browser bridge, above).'); return false; }
     if (reason === 'auto' && b.voiceActive?.()) { retryAfterSpeech(); return false; }
     busy = true;
     try {
-      const info = await b.call('backup-info');
+      const info = await request('backup-info', undefined, signal);
       const keys = study(), text = JSON.stringify({ app: 'Sunnyvale Study', version: 1, savedAt: Date.now(), keys });
       let did = false;
-      if (text !== lastSent || reason !== 'auto') { await upload('study', 'study', text, reason === 'auto'); lastSent = text; did = true; }
+      if (text !== lastSent || reason !== 'auto') { await upload('study', 'study', text, reason === 'auto', signal); lastSent = text; did = true; }
       // Library files and frame grabs: each one only once
       const have = new Set(info.library), haveFrames = new Set(info.frames);
       let lib = []; try { lib = JSON.parse(keys['sunnyvale.library'] || '[]'); } catch { /* no library yet */ }
@@ -69,21 +82,22 @@ export function installBackup({ bridge, jarvisSay }) {
         const rec = await dbDo('files', 'readonly', s => s.get(f.id)).catch(() => null);
         if (!rec?.blob) continue;
         show(`Backing up ${f.name}…`);
-        await blobPieces(rec.blob, { kind: 'library', id: f.id, size: rec.blob.size, meta: { ...f, mime: rec.blob.type || '' } }, reason === 'auto');
+        await blobPieces(rec.blob, { kind: 'library', id: f.id, size: rec.blob.size, meta: { ...f, mime: rec.blob.type || '' } }, reason === 'auto', signal);
         did = true;
       }
       const frameIds = await dbDo('frames', 'readonly', s => s.getAllKeys()).catch(() => []);
       for (const id of frameIds || []) {
         if (haveFrames.has(id)) continue;
         const rec = await dbDo('frames', 'readonly', s => s.get(id)).catch(() => null);
-        if (rec) { await upload('frame', id, JSON.stringify(rec), reason === 'auto'); did = true; }
+        if (rec) { await upload('frame', id, JSON.stringify(rec), reason === 'auto', signal); did = true; }
       }
+      checkCancelled(signal);
       if (did || !lastResult) {
         lastResult = { at: Date.now(), where: info.where };
         try { localStorage.setItem('sunnyvale.backup-last', JSON.stringify(lastResult)); } catch { /* storage full */ }
       }
       show(`Last backup: ${new Date(lastResult.at).toLocaleString()} (${lastResult.where}).`);
-      if (reason === 'button' || reason === 'logoff') jarvisSay('', ['J.A.R.V.I.S.', 'BACKED UP', info.where.startsWith('Google') ? 'SAVED TO GOOGLE DRIVE' : 'SAVED ON YOUR PC']);
+      if (reason === 'button') jarvisSay('', ['J.A.R.V.I.S.', 'BACKED UP', info.where.startsWith('Google') ? 'SAVED TO GOOGLE DRIVE' : 'SAVED ON YOUR PC']);
       return true;
     } catch (e) {
       if (e.voicePause) { retryAfterSpeech(); return false; }

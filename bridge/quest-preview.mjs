@@ -1,7 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 
-const modules = new Set(['index.html', 'backup.js', 'bridge-https.js', 'browser-bridge.js', 'browser-click-input.js', 'browser-media.js', 'browser-voice-link.js', 'lecture-player.js', 'scanner-camera.js', 'study-utils.js', 'texture-jobs.js', 'thesis-tools.js', 'bridge/chrome-extension/pcm-worklet.js']);
+const modules = new Set(['index.html', 'backup.js', 'bridge-https.js', 'browser-bridge.js', 'browser-click-input.js', 'browser-media.js', 'browser-voice-link.js', 'lecture-player.js', 'logoff.js', 'scanner-camera.js', 'study-utils.js', 'texture-jobs.js', 'thesis-tools.js', 'bridge/chrome-extension/pcm-worklet.js']);
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.glb':'model/gltf-binary','.gltf':'model/gltf+json','.bin':'application/octet-stream','.hdr':'application/octet-stream','.ktx2':'image/ktx2'};
 
 // Disabled by default. A temporary Quest preview exposes only frontend assets,

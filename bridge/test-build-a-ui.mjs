@@ -66,7 +66,7 @@ test('Build A: slide images, whole-deck speech, stash deletion, HUD and log off 
    const keep=d.qa.touchables.find(t=>t.owner===picker&&t.w===.12);keep.action();const keptAfterCancel=!!d.desk.findWindow(b.id);
    x.action();d.qa.touchables.find(t=>t.owner===picker&&t.w===.36).action();
    const deletedByButton=!d.desk.findWindow(b.id);
-   d.thesis.menu.logOff();
+   await d.thesis.menu.logOff();
    return {kept,deleted,keptAfterCancel,deletedByButton,connected:d.browserBridge.connected,wanted:d.browserBridge.wanted,mic:d.browserBridge.microphoneState};
   });assert.deepEqual(state,{kept:true,deleted:true,keptAfterCancel:true,deletedByButton:true,connected:false,wanted:false,mic:null});
   assert.deepEqual(errors,[]);

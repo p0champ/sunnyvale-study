@@ -60,11 +60,20 @@ test('full app XR select, fingertip jitter and DOM pointer produce one real brow
     await until(()=>clicks.length===2);
     await page.evaluate(()=>{studyDebug.browserBridge.touch(testPoint(.1),testSource);studyDebug.browserBridge.touch(testPoint(0),testSource);studyDebug.browserBridge.touch(testPoint(.02),testSource);studyDebug.browserBridge.touch(testPoint(0),testSource);});
     await until(()=>clicks.length===3);await pause(150);assert.equal(clicks.length,3,'A separate direct tap remains one click');
-    await page.evaluate(()=>{studyDebug.renderer.xr.isPresenting=false;studyDebug.thesis.menu.logOff();});
+    const quiet=await page.evaluate(()=>{
+      const d=studyDebug;d.renderer.xr.isPresenting=false;d.worldTool('add_note',{text:'Final backup fixture 🧡'});
+      const save=d.backup.backupNow;d.backup.backupNow=(...args)=>new Promise(r=>setTimeout(r,200)).then(()=>save(...args));
+      window.logoutJob=d.thesis.menu.logOff();
+      return {wanted:d.browserBridge.wanted,controlConnected:d.browserBridge.connected,hasBrowser:!!d.desk.findWindow('browser'),mic:d.browserBridge.microphoneState,canOpen:d.browserBridge.open('http://127.0.0.1:18196/')};
+    });
+    assert.deepEqual(quiet,{wanted:false,controlConnected:true,hasBrowser:false,mic:null,canOpen:false},'Media/windows stop before the bounded backup completes');
+    assert.equal(await page.evaluate(()=>logoutJob),true);
     assert.equal(await page.evaluate(()=>studyDebug.browserBridge.wanted),false);
     assert.equal(await page.evaluate(()=>studyDebug.browserBridge.connected),false);
     assert.equal(await page.evaluate(()=>!!studyDebug.desk.findWindow('browser')),false);
     assert.ok((await fetch('http://127.0.0.1:18195/health')).ok,'Log off leaves the isolated PC bridge running');
+    const lastBackup=JSON.parse(await readFile(join(privateRoot,'backups/study/latest.json'),'utf8'));
+    assert.equal(lastBackup.app,'Sunnyvale Study');assert.ok(JSON.stringify(lastBackup.keys).includes('Final backup fixture'),'The final PC copy includes the latest desk changes');assert.ok(Object.keys(lastBackup.keys).length>0,'Log off writes a real final PC backup');
     assert.deepEqual(errors,[]);
   }finally{
     await browser?.close();child?.kill();await new Promise(r=>setTimeout(r,250));app.close();fixture.close();

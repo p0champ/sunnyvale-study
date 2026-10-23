@@ -1,5 +1,6 @@
 import { formatReference, speechLanguage } from './study-utils.js?v=round2-voice-3';
 import { createLecturePlayer } from './lecture-player.js?v=build-a-1';
+import { disconnectAfterBackup } from './logoff.js?v=build-a-2';
 import { environmentCamera, rawCamera, rawCameraImage } from './scanner-camera.js?v=round2-camera-4';
 // Thesis and Jarvis tools for Sunnyvale Study: a file library, PDF reader with highlights, quote collector,
 // citation builder, video player with timestamp pins, frame grabs, side-by-side comparison, a live thesis
@@ -939,7 +940,9 @@ export function installThesisTools(ctx) {
 
   // ================================================================ SESSIONS: summary at log off, briefing at the start
   const session = { start: null, wordsStart: null, focusDone: 0, quotes: 0, highlights: 0, pins: 0, frames: 0, claude: null, finished: true };
+  let loggingOff = null;
   function startSession() {
+    loggingOff = null;
     Object.assign(session, { start: Date.now(), wordsStart: wordCount(), focusDone: 0, quotes: 0, highlights: 0, pins: 0, frames: 0, claude: null, finished: false });
     refreshStrip(true);
     if (settings.briefedOn !== today()) { settings.briefedOn = today(); saveSettings(); setTimeout(() => briefing(true), 2500); }
@@ -971,16 +974,26 @@ export function installThesisTools(ctx) {
   }
   // The LOG OFF button: show the summary, then leave the headset view
   function logOff() {
+    if (loggingOff) return loggingOff;
     mediaGeneration++; rawCapture = null;
     activeLecture?.stop(); window.speechSynthesis?.cancel();
     if (wake) { const old = wake; wake = null; old.onend = null; old.stop(); }
     for (const p of [...players.values()].map(p => p.obj).concat([...scanners])) closeWindow(p);
-    bridge()?.disconnect?.();
+    bridge()?.quietForLogOff?.();
     const s = sessionSummary();
     const w = openWindow('Session summary', summaryText(s)); w.userData.id = 'summary';
     jarvisSay('',
       ['J.A.R.V.I.S.', 'SESSION COMPLETE', `${s.minutes} MIN · ${Math.max(0, s.wordsEnd - s.wordsStart)} NEW WORDS · ${s.quotes} QUOTES`]);
-    setTimeout(() => { finishSession(); renderer.xr.getSession()?.end().catch(() => {}); }, 9000);
+    finishSession();
+    loggingOff = disconnectAfterBackup({
+      backup: signal => ctx.beforeDisconnect?.(signal) || false,
+      disconnect: () => bridge()?.disconnect?.()
+    }).then(complete => {
+      jarvisSay('', ['J.A.R.V.I.S.', 'DISCONNECTED', complete ? 'FINAL BACKUP SAVED ON PC' : 'SAVED LOCALLY · PC BACKUP INCOMPLETE']);
+      return complete;
+    });
+    setTimeout(() => { renderer.xr.getSession()?.end().catch(() => {}); }, 9000);
+    return loggingOff;
   }
   function refreshBriefing() { if (findWindow('briefing')) briefing(false, { reveal: false, announce: false }); }
   function briefing(auto, options = {}) {

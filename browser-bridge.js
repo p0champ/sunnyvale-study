@@ -5,7 +5,7 @@ import { openVoiceLink, createAudioReceiver } from './browser-voice-link.js?v=bu
 // Private connection details stay in this browser, never in the repository.
 export function installBrowserBridge({ THREE, scene, camera, renderer, panels, closeButtons, touchables,
   makeWindow, position, faceViewer, closeWindow, shown, styleWindow, status, worldTool, restorePanel, onConnection }) {
-  let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false;
+  let socket, ready = false, focused, keyboard, addressMode = false, address = '', uppercase = false, pendingType = null, pendingMic = false, quiescing = false, stopVoiceLink = () => {};
   const tabs = new Map();
   const closedAudioIds = new Set();
   const browserInput = new BrowserClickInput();
@@ -127,6 +127,8 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     if (savedIndex >= 0) restorePanel?.(panel, restoredPanels.splice(savedIndex, 1)[0]);
   }
   function disconnect() {
+    quiescing = false; document.getElementById('bridgeConnect').disabled = false;
+    stopVoiceLink(); stopVoiceLink = () => {};
     browserInput.reset();
     media.stopAll();
     ready = false; const old = socket; socket = null; old?.close();
@@ -163,8 +165,9 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
   document.getElementById('bridgeDisconnect').onclick = () => { wanted = false; clearTimeout(retryTimer); retryTimer = null; disconnect(); setReady(false); };
   window.addEventListener('pagehide', () => { wanted = false; clearTimeout(retryTimer); retryTimer = null; media.stopAll(); ready = false; socket?.close(); });
   window.addEventListener('pageshow', e => { if (e.persisted && document.getElementById('bridgeURL').value.trim() && document.getElementById('bridgeToken').value.trim()) document.getElementById('bridgeConnect').click(); });
-  document.getElementById('bridgeConnect').onclick = () => { wanted = true; retryDelay = 2000; clearTimeout(retryTimer); retryTimer = null; connect(false); };
+  document.getElementById('bridgeConnect').onclick = () => { if (quiescing) return; wanted = true; retryDelay = 2000; clearTimeout(retryTimer); retryTimer = null; connect(false); };
   function connect(automatic) {
+    quiescing = false;
     media.unlock().catch(() => {});
     // Remember the browser windows (address, place, size, lock) so they reopen after reconnecting
     if (automatic) for (const t of tabs.values()) if (t.url) {
@@ -193,6 +196,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       let failure = '', pairingTimer, closeVoice = () => {};
       const receiveAudio = createAudioReceiver({
         play: packet => {
+          if (quiescing) return;
           const tab = tabs.get(packet.id);
           // Audio can overtake its panel metadata on the other connection.
           // Only an explicit close/mute suppresses it, not missing metadata.
@@ -230,14 +234,17 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
         if (socket !== current || failure) return;
         lastHeard = Date.now();
         let m; try { m = JSON.parse(event.data); } catch { fail('The secure address returned an unexpected response. Check that you used the current PC bridge address.'); return; }
+        if (quiescing && m.type === 'tab') { send({ type: 'close', id: m.id }); return; }
+        if (quiescing && m.type === 'frame') { send({ type: 'ack', id: m.id }); return; }
         if (m.type === 'rtt-ping') { send({ type: 'rtt-pong', t: m.t }); return; }
         if (m.type === 'reply') { const c = calls.get(m.reqId); if (c) { calls.delete(m.reqId); clearTimeout(c.timer); m.ok ? c.resolve(m) : c.reject(Error(m.error || 'The PC could not do that.')); } return; }
         if (m.type === 'world-call') {                                    // a command from the user's Claude connector
+          if (quiescing) { send({type:'world-result',reqId:m.reqId,ok:false,error:'Session is logging off.'}); return; }
           if (m.expiresAt && Date.now() > m.expiresAt) { send({type:'world-result',reqId:m.reqId,ok:false,error:'This tool request expired before reaching the headset. Please try again.'}); return; }
           // Yield between builds. A batch of synchronous canvas/window work
           // must not monopolize the same event loop that receives audio.
           worldQueue = worldQueue.catch(() => {}).then(() => new Promise(resolve => setTimeout(resolve, 0))).then(() => {
-            if (socket !== current || !ready) throw Error('The headset connection changed. Retry this tool.');
+            if (socket !== current || !ready || quiescing) throw Error('The headset connection changed or is logging off. Retry this tool.');
             if (m.expiresAt && Date.now() > m.expiresAt) throw Error('This tool request expired. Retry it.');
             return worldTool(String(m.name), m.input || {});
           })
@@ -252,6 +259,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
             closeVoice();
             closeVoice = openVoiceLink({ url: url.href, token, key: m.audioKey, isCurrent: () => socket === current && ready,
               onAudio: receiveAudio });
+            stopVoiceLink = closeVoice;
           }
           if (m.browserReady !== false) reopenSaved();
           report(m.browserReady === false ? 'Headset connected. Connect the Sunnyvale extension in Google Chrome on your PC next.' : (https ? 'Connected through secure HTTPS. Claude and the heart use your PC browser.' : 'Connected. Claude and the heart use your PC browser.'));
@@ -351,6 +359,13 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     setTimeout(() => document.getElementById('bridgeConnect').click(), 0);
   }
   return {
+    quietForLogOff() {
+      quiescing = true; wanted = false; clearTimeout(retryTimer); retryTimer = null; pendingMic = false; pendingType = null;
+      document.getElementById('bridgeConnect').disabled = true;
+      stopVoiceLink(); stopVoiceLink = () => {}; media.stopAll();
+      for (const tab of [...tabs.values()]) closeWindow(tab.panel);
+      if (keyboard?.parent) closeWindow(keyboard); keyboard = null;
+    },
     disconnect() { wanted = false; clearTimeout(retryTimer); retryTimer = null; pendingMic = false; pendingType = null; disconnect(); setReady(false); },
     describe(id) {
       const tab = tabs.get(id); if (!tab) return Promise.resolve(null);
@@ -369,7 +384,7 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
       };
     },
     voiceActive() { return [...tabs].some(([id, tab]) => { try { return ['claude.ai', 'www.claude.ai'].includes(new URL(tab.url).hostname) && media.spokeWithin(id); } catch { return false; } }); },
-    open(url, saved) { if (!ready) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
+    open(url, saved) { if (!ready || quiescing) return false; if (saved) restoredPanels.push(saved); send({ type: 'open', url }); return true; },
     urlOf(id) { return tabs.get(id)?.url || ''; },
     isReady() { return ready; },
     // Ask the PC something and wait for its answer (used by backups); messages must stay under about 60 KB
@@ -403,13 +418,14 @@ export function installBrowserBridge({ THREE, scene, camera, renderer, panels, c
     },
     // Open a page (e.g. docs.new) and type text into it once it has loaded (used to export the thesis)
     openAndType(url, text) {
-      if (!ready) return false;
+      if (!ready || quiescing) return false;
       pendingType = { text: String(text) };
       send({ type: 'open', url });
       return true;
     },
     // Start sharing the headset microphone with the Claude tab (opens Claude first if needed)
     claudeMic() {
+      if (quiescing) return;
       const entry = [...tabs].find(([, t]) => /claude\.ai/.test(t.url || ''));
       if (!entry) { if (ready) { pendingMic = true; send({ type: 'open', url: 'https://claude.ai/new' }); } return; }
       if (media.microphone?.id !== entry[0]) media.toggleMic(entry[0]);

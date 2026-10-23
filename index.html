@@ -54,10 +54,10 @@
 import { createTextureJobs } from './texture-jobs.js?v=build-a-1';
 const textureJobs = createTextureJobs();
 import * as THREE from 'three';
-import { installBrowserBridge } from './browser-bridge.js?v=build-a-1';
+import { installBrowserBridge } from './browser-bridge.js?v=build-a-2';
 import { speechLanguage, englishVoice } from './study-utils.js?v=round2-voice-3';
-import { installThesisTools } from './thesis-tools.js?v=build-a-1';
-import { installBackup } from './backup.js?v=voice-recovery-1';
+import { installThesisTools } from './thesis-tools.js?v=build-a-2';
+import { installBackup } from './backup.js?v=build-a-2';
 let thesisTools;
 let browserBridge;
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -3797,6 +3797,7 @@ document.getElementById('bridgeSettings').appendChild(outsideClaudeButton);
 window.studyDebug.openClaudeWebsite = openClaudeWebsite;
 window.studyDebug.setMode = setMode;
 thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touchables, surfaces, makeHoloObject, placeInFront, faceViewer, holoLabel,
+  beforeDisconnect: signal => { saveDeskNow(); return window.studyDebug.backup?.backupNow('logoff', { signal }); },
   canvasTexture, blip, jarvisSay, closeWindow, restorers, markDirty, getMode: () => mode, bridge: () => browserBridge, viewerPosition,
   openWindow, setWindowContent, findWindow, readJSON, writeJSON, timerInfo: () => ({ running: timer.running, phase: timer.phase, left: timer.left }),
   draw, stashWindow, revealWindow: p => { if (stash.includes(p)) unstash([p]); p.visible = true; },
