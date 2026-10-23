@@ -1,3 +1,13 @@
+# Final A–D closeout — 23 October 2026
+
+Built: A–D, including the explicitly documented ride/tower, schematic-model and device-voice adaptations. PC-tested: final complete suite 47/47 passed. Independently reviewed: A, B, C and D each reached 8/10; D rounds 5→7→8. Committed: gpt-next includes A 804a8b2/7ece162/3cebd33, B 2584e3d/0444a0f, C 87d42cc and D 8676f33. This documentation closeout follows that code commit. Staged contents were scanned before commits.
+
+Temporary private preview activated with the reviewed code. Verified exactly one port-8130 bridge, healthy backend and connected Chrome extension; external capability checks passed for index, all four new modules and globe asset. A private-file request was refused. Canonical settings and latest-backup hashes remain unchanged. No normal Chrome automation or second frontend was started. Main remains 49e10f1; no push/public deployment. The old preview title may still say Build A; its served modules are the verified A–D version.
+
+Needs a Quest check: real Claude first/last words, sustained pitch/order/reconnect, device lecture speech, image/layout readability, hand controls, model performance, passthrough grounding and comfort. Remaining review polish: tight ride labels from side, thin replay trail, classic-style side icons. Thinking/building share a working animation. The tower brings floors to the user and the ride uses a viewing window; generated components are schematics. Do not describe this as 100% headset-verified or exact full-immersion parity with the wishlist. User-facing checklist/report is in the task outputs folder. Protected preview remains temporary; rollback helper restores the normal bridge, reboot restores normal startup. Never publish private capability addresses.
+
+---
+
 # Latest handover — A–D,23 October2026
 
 This section supersedes older status entries below. Bastian expanded the authorised scope to BuildsA–D and resumed work after an interim stop. Work remains private on the owned checkout/worktrees; public main is unchanged at49e10f1. Do not publish or push main without explicit approval, edit the canonical checkout, print private addresses/codes, automate normal Chrome/accounts, or delete private backups. Only one frontend may own the real bridge. Tests use isolated folders/profiles/ports.
