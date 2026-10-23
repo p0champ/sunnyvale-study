@@ -51,6 +51,7 @@
 </div>
 
 <script type="module">
+import {installJarvisLayer} from './jarvis-layer.js';
 import { installTaskModes, TASK_MODES } from './task-modes.js?v=build-b-1';
 let taskModes, jarvisLayer, spatialTools;
 import { createTextureJobs } from './texture-jobs.js?v=build-a-1';
@@ -2028,7 +2029,7 @@ function createMindMap(title, branches) {
     const labelFor = open => kids.length ? `${b.label}  ${open ? '−' : '+' + kids.length}` : b.label;
     const node = holoLabel(labelFor(false), { w: 0.19, h: 0.055 });
     node.position.copy(bp); group.add(node);
-    nodes[b.label] = node;
+    nodes[b.label] = node; nodes['branch:'+i]=node; node.userData.branch=b.label;
     pts.push(new THREE.Vector3(), bp.clone());
     const branch = new THREE.Group(); branch.visible = false; group.add(branch);
     const cpts = [];
@@ -2037,7 +2038,7 @@ function createMindMap(title, branches) {
       const cp = bp.clone().add(new THREE.Vector3(Math.cos(ca) * 0.2, Math.sin(ca) * 0.14, (j % 2 ? 0.08 : -0.04)));
       const leaf = holoLabel(c, { w: 0.15, h: 0.045, fill: 'rgba(40,4,4,0.55)', color: '#ffe9c4' });
       leaf.position.copy(cp); branch.add(leaf);
-      nodes[c] = leaf;
+      nodes[c] = leaf; nodes['branch:'+i+'/child:'+j]=leaf; leaf.userData.branch=b.label;
       cpts.push(bp.clone(), cp.clone());
     });
     if (cpts.length) branch.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(cpts), holoLineMat));
@@ -3077,6 +3078,7 @@ function setLook(look) {
   blip(bubbleLook() ? 880 : 620, 0.06);
   if (mode === 'stark') showHud(['J.A.R.V.I.S.', 'LOOK: ' + (bubbleLook() ? 'BUBBLES' : 'CLASSIC')], 2.5);
 }
+const jarvisButton=makeButton('JARVIS', icon.study,()=>{closeCategory();jarvisLayer?.tools.open_jarvis_controls();});
 const taskModeButton = makeButton('MODE', icon.study, () => { closeCategory(); taskModes?.openPicker(); });
 const logOffButton = makeButton('LOG OFF', icon.logoff, () => { closeCategory(); saveDeskNow(); thesisTools.menu.logOff(); });
 
@@ -3120,7 +3122,7 @@ const categories = {
   study: { button: makeButton('STUDY', icon.study, () => toggleCategory('study')), items: studyButtons },
   create: { button: makeButton('CREATE', icon.create, () => toggleCategory('create')), items: [drawButton, eraseButton, cardsButton, mapButton, timelineButton] },
   // Sunnyvale and Stark mode are one switch: only the mode you can go to is showing
-  world: { button: makeButton('WORLD', icon.world, () => toggleCategory('world')), items: [taskModeButton, reactorButton, bubblesButton, spacesButton, stashButton, lookButton, scanButton, logOffButton] },
+  world: { button: makeButton('WORLD', icon.world, () => toggleCategory('world')), items: [taskModeButton, jarvisButton, reactorButton, bubblesButton, spacesButton, stashButton, lookButton, scanButton, logOffButton] },
   break: { button: makeButton('BREAK', icon.coffee, () => { if (!isFocusActive()) toggleCategory('break'); }), items: breakButtons },
 };
 for (const [key, c] of Object.entries(categories)) {
@@ -3700,10 +3702,10 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; thesisTools?.onSessionStart(); });
+renderer.xr.addEventListener('sessionstart', () => { document.getElementById('hint').style.display = 'none'; thesisTools?.onSessionStart(); jarvisLayer?.start(); });
 renderer.xr.addEventListener('sessionend', () => {
   document.getElementById('hint').style.display = '';
-  thesisTools?.onSessionEnd();
+  jarvisLayer?.finish(); thesisTools?.onSessionEnd();
   menu.visible = false;
   trans.active = false; hud.visible = false; shockwave.visible = false; scanGrid.visible = false;
   flames.forEach(f => { f.visible = true; });
@@ -3804,7 +3806,7 @@ window.studyDebug.openClaudeWebsite = openClaudeWebsite;
 window.studyDebug.setMode = setMode;
 thesisTools = installThesisTools({ THREE, scene, camera, renderer, panels, touchables, surfaces, makeHoloObject, placeInFront, faceViewer, holoLabel,
   taskAccent: () => TASK_MODES[taskModes?.current || 'thesis'].color,
-  beforeDisconnect: signal => { saveDeskNow(); return window.studyDebug.backup?.backupNow('logoff', { signal }); },
+  beforeDisconnect: signal => { jarvisLayer?.finish(); saveDeskNow(); return window.studyDebug.backup?.backupNow('logoff', { signal }); },
   canvasTexture, blip, jarvisSay, closeWindow, restorers, markDirty, getMode: () => mode, bridge: () => browserBridge, viewerPosition,
   openWindow, setWindowContent, findWindow, readJSON, writeJSON, timerInfo: () => ({ running: timer.running, phase: timer.phase, left: timer.left }),
   draw, stashWindow, revealWindow: p => { if (stash.includes(p)) unstash([p]); p.visible = true; },
@@ -3850,6 +3852,7 @@ const extensionContext = {THREE,scene,camera,renderer,panels,touchables,surfaces
   worldTool:runWorldTool,thesis:thesisTools, getTaskMode:()=>taskModes?.current
 };
 taskModes=installTaskModes(extensionContext);
+jarvisLayer=installJarvisLayer(extensionContext);window.studyDebug.jarvis=jarvisLayer;
 window.studyDebug.taskModes=taskModes;
 window.studyDebug.workspace=extensionContext;extensionContext.saveDesk=saveDeskNow;
 

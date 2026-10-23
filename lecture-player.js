@@ -10,7 +10,7 @@ export function createLecturePlayer({ speech, Utterance, go, slides, notice, lan
     function next() {
       if (own !== generation || !running) return;
       if (index >= slides.length) { running = false; notice('Lecture complete.'); return; }
-      go(index, true);
+      try { go(index, true); } catch { stop(); notice('Narration stopped: its target was closed or changed.'); return; }
       const slide = slides[index], words = slide.spoken_text || slide.notes || [slide.title, ...(slide.bullets || [])].join('. ');
       const utterance = new Utterance(words); utterance.lang = language;
       utterance.voice = englishVoice(speech.getVoices?.() || [], language);

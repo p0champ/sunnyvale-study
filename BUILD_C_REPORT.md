@@ -1,0 +1,7 @@
+# Build C — Jarvis layer
+
+Built: exact timeline indices/unique labels, stable mind-map part IDs, paragraph pointing with scroll, device-voice narration across a whole path, room filling from supplied research, restrained opt-out quote suggestions, and an interactive session trail. Replay records windows opened/closed/moved/stashed and note word changes; Back/Next supports seated use, or walk near a recorded position. No ambient status motes are added. WORLD > JARVIS opens replay, nudge and stop controls.
+
+PC-tested: isolated browser verifies ambiguous-event rejection, second-event targeting, hidden leaf expansion, paragraph anchor, five research panels, note edits, replay and ordered narration. Front/side room and replay screenshots captured. Full suite:41/41 pass before final replay refinements; final targeted replay test1/1 passes including reload and updates after finish. Independent review6→7→8/10. Open issues: thin trail; walking picks first event at shared locations, BACK/NEXT selects the others; return to same spot requires another point between. Quest verification pending.
+
+Limits: narration uses the headset/browser device voice and may need a first tap; it cannot change how Claude's service emits speech between tool calls. Suggestions are possible thematic links with source-check language, never verified contradictions. Research must be supplied by Claude/user. Walking accuracy, speech permission and pointing comfort require Quest.

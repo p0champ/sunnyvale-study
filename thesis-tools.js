@@ -1076,8 +1076,15 @@ export function installThesisTools(ctx) {
       else if (p.userData.nodes) {
         const k = String(part).toLowerCase();
         const hit = Object.entries(p.userData.nodes).find(([label]) => label.toLowerCase() === k) || Object.entries(p.userData.nodes).find(([label]) => label.toLowerCase().includes(k));
-        if (hit) { mesh = hit[1]; p.userData.expand?.(hit[0]); }
-      } else if (p.userData.id === 'thesis' && doc && Number.isFinite(+part)) { doc.sel = +part; paintThesis(); }
+        if (!hit) throw Error('No exact node. Use a stable branch:i/child:j id.'); mesh = hit[1]; p.userData.expand?.(mesh.userData.branch || hit[0]);
+      } else if (p.userData.id === 'thesis' && doc && Number.isInteger(+part)) {
+        if(!thesis.paras[+part])throw Error('Paragraph index is out of range.');
+        doc.sel=+part; doc.scroll=0; paintThesis();
+        for(let i=0;i<2000&&!doc.layout.some(l=>l.para===+part);i++){const previous=doc.scroll;doc.scroll+=6;paintThesis();if(previous===doc.scroll)break;}
+        const line=doc.layout.find(l=>l.para===+part);if(!line)throw Error('Paragraph cannot be located.');
+        mesh=doc.anchor||(doc.anchor=new THREE.Object3D());if(!mesh.parent)p.add(mesh);
+        mesh.position.set(-.35,(.5-(line.y0+line.y1)/2/doc.view.canvas.height)*.72,.012);
+      }
       p.updateWorldMatrix(true, true);
       if (mesh) point = mesh.getWorldPosition(v3());
     }
